@@ -1,0 +1,360 @@
+{
+  "code": "DIEU_DUONG_MONTHLY",
+  "name": "Bảng đánh giá điều dưỡng — theo BV Minh An (import từ Excel tiêu chí)",
+  "version": 1,
+  "criteriaGroups": [
+    {
+      "id": "c1",
+      "title": "Giờ giấc làm việc (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Đi làm đúng giờ, không bỏ ca, đủ công",
+          "points": 5.0
+        },
+        {
+          "label": "Đi muộn ≤ 2 lần/tháng (≤ 5 phút)",
+          "points": 4.0
+        },
+        {
+          "label": "Đi muộn 3-4 lần/tháng",
+          "points": 2.0
+        },
+        {
+          "label": "> 4 lần hoặc bỏ ca hoặc thiếu công",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "title": "Thực hiện đúng quy định trang phục, bảng tên (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Đồng phục sạch, đúng quy định, bảng tên đầy đủ",
+          "points": 5.0
+        },
+        {
+          "label": "Vi phạm ≤ 2 lần/tháng",
+          "points": 4.0
+        },
+        {
+          "label": "Vi phạm ≥ 3-4 lần/tháng",
+          "points": 2.0
+        },
+        {
+          "label": "> 4 lần",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "title": "Thực hiện kỹ thuật điều dưỡng (15 điểm)",
+      "maxPoints": 15,
+      "options": [
+        {
+          "label": "Làm được trên 95%  tất cả các kỹ  thuật  điều dưỡng khi chăm sóc bệnh tại khoa và tiểu phẫu",
+          "points": 15.0
+        },
+        {
+          "label": "85–94%",
+          "points": 10.0
+        },
+        {
+          "label": "60–84%",
+          "points": 5.0
+        },
+        {
+          "label": "< 60%",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "title": "Sai sót chuyên môn (15 điểm)",
+      "maxPoints": 15,
+      "options": [
+        {
+          "label": "Không sai sót, không có sự cố",
+          "points": 15.0
+        },
+        {
+          "label": "Có sai sót, sự cố, có báo cáo",
+          "points": 8.0
+        },
+        {
+          "label": "Có xẩy ra sai sót, sự cố không báo cáo",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c5",
+      "title": "Vận hành - 5S - KSNK (10 điểm)",
+      "maxPoints": 10,
+      "options": [
+        {
+          "label": "Kiểm tra, sử dụng, bảo vệ tài sản trang thiết bị  VTYT, máy móc, cơ sở vật chất tại khoa tốt, không gây thất thoát, hư hỏng.",
+          "points": 2.0
+        },
+        {
+          "label": "không kiểm tra, không bảo quản",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c6",
+      "title": "Thực hiện 5S (2 điểm)",
+      "maxPoints": 2,
+      "options": [
+        {
+          "label": "Thực hiện vệ sinh khoa phòng (5S nơi làm việc, phòng trực),",
+          "points": 2.0
+        },
+        {
+          "label": "không thực hiện",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c7",
+      "title": "Thu gom rác (2 điểm)",
+      "maxPoints": 2,
+      "options": [
+        {
+          "label": "Phân loại thu gom rác đúng quy định.",
+          "points": 2.0
+        },
+        {
+          "label": "Không thu gom",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c8",
+      "title": "Tuân thủ vô khuẩn (4 điểm)",
+      "maxPoints": 4,
+      "options": [
+        {
+          "label": "Tuân thủ nguyên tắc vô khuẩn khi làm thủ thuật",
+          "points": 4.0
+        },
+        {
+          "label": "Không đảm bảo vô trùng khi làm thủ thuật",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c9",
+      "title": "Ghi chép & cập nhật bệnh án điện tử (EMR) – 5 điểm",
+      "maxPoints": null,
+      "options": [
+        {
+          "label": "Nhập liệu đầy đủ, đúng thời gian, đúng biểu mẫu",
+          "points": 5.0
+        },
+        {
+          "label": "Thiếu sót nhẹ, được nhắc và khắc phục trong ngày",
+          "points": 3.0
+        },
+        {
+          "label": "Nhập thiếu nhiều lần, sai biểu mẫu",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c10",
+      "title": "Giao tiếp với NB (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Không có phàn nàn của NB hoặc NV, có thư khen, NB  đánh giá tốt",
+          "points": 5.0
+        },
+        {
+          "label": "Có phàn nàn, khiếu nại từ NB, NV",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c11",
+      "title": "Giao tiếp với đồng nghiệp (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Vui vẻ, hòa nhã , thân thiện, team work",
+          "points": 5.0
+        },
+        {
+          "label": "Không thân thiện, kỳ thị đồng nghiệp",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c12",
+      "title": "Phân công công việc trong khoa/phòng (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Chấp hành theo sự phân công của trưởng khoa và điều dưỡng trưởng",
+          "points": 5.0
+        },
+        {
+          "label": "Không chấp hành",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c13",
+      "title": "Làm việc nhóm (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Có tinh thần làm việc nhóm, hỗ trợ đồng nghiệp trong công việc",
+          "points": 5.0
+        },
+        {
+          "label": "Không có tinh thần làm việc nhóm",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c14",
+      "title": "Tham gia đầy đủ đào tạo nội bộ BV, đào tạo CME tại khoa phòng (2 điểm)",
+      "maxPoints": 2,
+      "options": [
+        {
+          "label": "Tham gia 100% hoặc nghỉ có lí do theo sự điều động của khoa phòng",
+          "points": 5.0
+        },
+        {
+          "label": "Tham gia không đủ buổi hoặc không tham gia",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c15",
+      "title": "Văn hóa sử dụng điện thoại trong giờ làm việc (3điểm)",
+      "maxPoints": 3,
+      "options": [
+        {
+          "label": "Không sử dụng điện thoại di động trong giờ làm việc khi có NB/KH",
+          "points": 3.0
+        },
+        {
+          "label": "Có sử dụng điện thoại trong giờ làm việc khi có NB/KH",
+          "points": 0.0
+        },
+        {
+          "label": "Hoặc nhân viên hoàn thành xuất sắc nhiệm vụ được giao, đạt kết quả nổi trội",
+          "points": 6.0
+        },
+        {
+          "label": "Nâng hạng xếp loại hoặc xếp loại xuất sắc liền kề 2 tháng liên tiếp",
+          "points": 3.0
+        },
+        {
+          "label": "Có sáng kiến đóng góp cho sự phát triển khoa phòng",
+          "points": 3.0
+        },
+        {
+          "label": "Tham gia hoặt động phòng trào , hoạt động xã hội",
+          "points": 3.0
+        }
+      ]
+    },
+    {
+      "id": "c16",
+      "title": "Kiến thức điều dưỡng cơ bản, an toàn người bệnh & KSNK (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "≥ 90% câu đúng",
+          "points": 5.0
+        },
+        {
+          "label": "80–89%",
+          "points": 4.0
+        },
+        {
+          "label": "65–79%",
+          "points": 2.0
+        },
+        {
+          "label": "< 65%",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c17",
+      "title": "Kiến thức giao tiếp – AIDET (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "≥ 80% câu đúng",
+          "points": 5.0
+        },
+        {
+          "label": "65–79%",
+          "points": 3.0
+        },
+        {
+          "label": "< 65%",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c18",
+      "title": "Thực hành kỹ thuật điều dưỡng cơ bản (15 điểm):  Thực hành",
+      "maxPoints": 15,
+      "options": [
+        {
+          "label": "Đúng ≥ 90% bước",
+          "points": 5.0
+        },
+        {
+          "label": "75–89%",
+          "points": 3.0
+        },
+        {
+          "label": "< 75%",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "c19",
+      "title": "Xử lý tình huống thực tế, tuân thủ AIDET (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Xử lý đúng, giao tiếp phù hợp, tuân thủ AIDET",
+          "points": 5.0
+        },
+        {
+          "label": "Cần gợi ý",
+          "points": 3.0
+        },
+        {
+          "label": "Xử lý sai",
+          "points": 0.0
+        }
+      ]
+    }
+  ]
+}

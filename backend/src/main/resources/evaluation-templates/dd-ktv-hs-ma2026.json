@@ -1,0 +1,297 @@
+{
+  "code": "DD_KTV_HS_MA_2026",
+  "name": "Bộ tiêu chí đánh giá ĐD-KTV-HS — MA 2026 (70 điểm khoa phòng, 30 điểm Hội đồng)",
+  "version": 1,
+  "criteriaGroups": [
+    {
+      "id": "I_1",
+      "section": "I. Tuân thủ nội quy (15 điểm)",
+      "sectionPoints": 15,
+      "no": "1",
+      "title": "Giờ giấc làm việc (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        { "label": "Đi làm đúng giờ, không bỏ ca, đủ công", "points": 5.0 },
+        { "label": "Đi muộn ≤ 2 lần/tháng (≤ 5 phút)", "points": 4.0 },
+        { "label": "Đi muộn 3-4 lần/tháng", "points": 2.0 },
+        { "label": "> 4 lần hoặc bỏ ca không báo trước hoặc thiếu công", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "I_2",
+      "section": "I. Tuân thủ nội quy (15 điểm)",
+      "sectionPoints": 15,
+      "no": "2",
+      "title": "Thực hiện đúng quy định trang phục, bảng tên (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        { "label": "Đồng phục sạch, đúng quy định, bảng tên đầy đủ", "points": 5.0 },
+        { "label": "Vi phạm ≤ 2 lần/tháng", "points": 4.0 },
+        { "label": "Vi phạm 3-4 lần/tháng", "points": 2.0 },
+        { "label": "> 4 lần", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "I_3",
+      "section": "I. Tuân thủ nội quy (15 điểm)",
+      "sectionPoints": 15,
+      "no": "3",
+      "title": "Kỷ luật trong giờ làm việc (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Không sử dụng điện thoại di động mục đích cá nhân, ăn uống trong giờ làm việc khi có NB/KH, tuân thủ vị trí làm việc. Nếu cần dùng điện thoại phải xin phép NB/KH.",
+          "points": 5.0
+        },
+        {
+          "label": "Có sử dụng điện thoại cho mục đích cá nhân, ăn uống trong giờ làm việc khi có NB/KH, rời vị trí làm việc đã nhắc nhở lần 1, đã khắc phục.",
+          "points": 3.0
+        },
+        {
+          "label": "Có sử dụng điện thoại cho mục đích cá nhân, ăn uống trong giờ làm việc khi có NB/KH, rời vị trí làm việc đã nhắc nhở ≥ 2 lần.",
+          "points": 0.0
+        }
+      ]
+    },
+    {
+      "id": "II_1",
+      "section": "II. Chuyên môn – an toàn người bệnh (20 điểm)",
+      "sectionPoints": 20,
+      "no": "1",
+      "title": "Thực hiện kỹ thuật chuyên môn (10 điểm)",
+      "maxPoints": 10,
+      "options": [
+        { "label": "Làm được ≥95% các kỹ thuật chuyên môn khi chăm sóc bệnh tại khoa.", "points": 10.0 },
+        { "label": "Làm được 80–94% các kỹ thuật chuyên môn khi chăm sóc bệnh tại khoa.", "points": 7.0 },
+        { "label": "Làm được 60–79% các kỹ thuật chuyên môn khi chăm sóc bệnh tại khoa.", "points": 4.0 },
+        { "label": "Làm được < 60% các kỹ thuật chuyên môn khi chăm sóc bệnh tại khoa.", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "II_2",
+      "section": "II. Chuyên môn – an toàn người bệnh (20 điểm)",
+      "sectionPoints": 20,
+      "no": "2",
+      "title": "Ghi chép & cập nhật bệnh án điện tử (EMR) – 5 điểm",
+      "maxPoints": 5,
+      "options": [
+        { "label": "Nhập liệu đầy đủ, đúng thời gian, đúng biểu mẫu", "points": 5.0 },
+        { "label": "Thiếu sót nhẹ, được nhắc và khắc phục trong ngày", "points": 3.0 },
+        { "label": "Nhập thiếu nhiều lần, sai biểu mẫu", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "II_3",
+      "section": "II. Chuyên môn – an toàn người bệnh (20 điểm)",
+      "sectionPoints": 20,
+      "no": "3",
+      "title": "Sai sót chuyên môn và báo cáo sự cố (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Không có sai sót nghiêm trọng, có phát hiện/báo cáo kịp thời nguy cơ hoặc sự cố nhẹ, phối hợp khắc phục tốt",
+          "points": 5.0
+        },
+        { "label": "Có sai sót nhẹ, đã báo cáo, khắc phục kịp thời, không tái diễn", "points": 2.0 },
+        { "label": "Có sai sót lặp lại hoặc ảnh hưởng NB mức độ trung bình trở lên", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "III_1",
+      "section": "III. Vận hành - 5S - KSNK (10 điểm)",
+      "sectionPoints": 10,
+      "no": "1",
+      "title": "Kiểm tra, sử dụng, bảo vệ tài sản trang thiết bị (3 Điểm)",
+      "maxPoints": 3,
+      "options": [
+        {
+          "label": "Vệ sinh, kiểm tra, sử dụng, bảo vệ tài sản trang thiết bị VTYT, máy móc, cơ sở vật chất tại khoa tốt, không gây thất thoát, hư hỏng do chủ quan",
+          "points": 3.0
+        },
+        { "label": "Có kiểm tra, không đồng đều, nhắc nhở lần 1, đã khắc phục.", "points": 1.0 },
+        { "label": "Không thực hiện, gây hỏng hóc, thất thoát do chủ quan", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "III_2",
+      "section": "III. Vận hành - 5S - KSNK (10 điểm)",
+      "sectionPoints": 10,
+      "no": "2",
+      "title": "Thực hiện 5S (3 điểm)",
+      "maxPoints": 3,
+      "options": [
+        { "label": "Thực hiện tốt, ngăn nắp, gọn gàng", "points": 3.0 },
+        { "label": "Có thực hiện nhưng chưa tốt", "points": 1.0 },
+        { "label": "Không thực hiện", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "III_3",
+      "section": "III. Vận hành - 5S - KSNK (10 điểm)",
+      "sectionPoints": 10,
+      "no": "3",
+      "title": "Tuân thủ KSNK theo vị trí việc làm (4 điểm)",
+      "maxPoints": 4,
+      "options": [
+        { "label": "Đảm bảo KSNK, tuân thủ tốt (vệ sinh tay, phân loại rác, vô khuẩn, phương tiện phòng hộ..)", "points": 4.0 },
+        { "label": "Thực hiện KSNK còn sai sót, được nhắc nhở lần 1, đã khắc phục", "points": 2.0 },
+        { "label": "Không tuân thủ hoặc sai sót tái diễn ≥ 2 lần", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "IV_1",
+      "section": "IV. Giao tiếp NB, thái độ làm việc (20 điểm)",
+      "sectionPoints": 20,
+      "no": "1",
+      "title": "Giao tiếp với NB (10 điểm)",
+      "maxPoints": 10,
+      "options": [
+        { "label": "Không có phàn nàn của NB, có thư khen (đã xác minh), NB đánh giá tốt.", "points": 10.0 },
+        { "label": "NB có góp ý nhẹ lần 1, đã tiếp thu và khắc phục", "points": 5.0 },
+        { "label": "Có phàn nàn, khiếu nại từ NB >1 lần, không khắc phục", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "IV_2",
+      "section": "IV. Giao tiếp NB, thái độ làm việc (20 điểm)",
+      "sectionPoints": 20,
+      "no": "2",
+      "title": "Giao tiếp với đồng nghiệp (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        { "label": "Lịch sự, tôn trọng, đúng cấp bậc", "points": 5.0 },
+        { "label": "Giao tiếp chưa phù hợp, đã góp ý và cải thiện", "points": 2.0 },
+        { "label": "Gây xung đột, thiếu tôn trọng", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "IV_3",
+      "section": "IV. Giao tiếp NB, thái độ làm việc (20 điểm)",
+      "sectionPoints": 20,
+      "no": "3",
+      "title": "Thái độ làm việc (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        { "label": "Chấp hành theo sự phân công của trưởng khoa và điều dưỡng trưởng, hỗ trợ đồng nghiệp", "points": 5.0 },
+        { "label": "Không chấp hành", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "V_1",
+      "section": "V. Tham gia đào tạo nội bộ BV, đào tạo CME tại khoa phòng (5 điểm)",
+      "sectionPoints": 5,
+      "no": "1",
+      "title": "Tham gia đầy đủ đào tạo nội bộ BV, đào tạo CME tại khoa phòng (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        {
+          "label": "Tham gia 100% đầy đủ, đúng giờ hoặc không tham gia đủ buổi theo sự sắp xếp của khoa phòng (có xác nhận của trưởng khoa)",
+          "points": 5.0
+        },
+        { "label": "Không tham gia", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "VI_1",
+      "section": "VI. Điểm thưởng (12 điểm)",
+      "sectionPoints": 12,
+      "no": "1",
+      "title": "Nâng hạng xếp loại hoặc xếp loại xuất sắc liền kề 2 tháng liên tiếp",
+      "maxPoints": 3,
+      "options": [
+        { "label": "Có", "points": 3.0 },
+        { "label": "Không", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "VI_2",
+      "section": "VI. Điểm thưởng (12 điểm)",
+      "sectionPoints": 12,
+      "no": "2",
+      "title": "Có sáng kiến đóng góp cho sự phát triển khoa phòng (có xác nhận của khoa phòng và bệnh viện)",
+      "maxPoints": 3,
+      "options": [
+        { "label": "Có", "points": 3.0 },
+        { "label": "Không", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "VI_3",
+      "section": "VI. Điểm thưởng (12 điểm)",
+      "sectionPoints": 12,
+      "no": "3",
+      "title": "Có thư khen (khoa phòng xác nhận)",
+      "maxPoints": 3,
+      "options": [
+        { "label": "Có", "points": 3.0 },
+        { "label": "Không", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "VI_4",
+      "section": "VI. Điểm thưởng (12 điểm)",
+      "sectionPoints": 12,
+      "no": "4",
+      "title": "Tham gia hoạt động phong trào, hoạt động xã hội",
+      "maxPoints": 3,
+      "options": [
+        { "label": "Có", "points": 3.0 },
+        { "label": "Không", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "HD_1",
+      "section": "HỘI ĐỒNG: I. Kiểm tra kiến thức – kỹ năng chuyên môn (10 điểm, vấn đáp)",
+      "sectionPoints": 10,
+      "no": "1",
+      "title": "Kiến thức chuyên môn cơ bản, an toàn người bệnh & KSNK (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        { "label": "≥ 90% câu trả lời đúng", "points": 5.0 },
+        { "label": "80–89% câu trả lời đúng", "points": 4.0 },
+        { "label": "65–79% câu trả lời đúng", "points": 2.0 },
+        { "label": "< 65% câu trả lời đúng", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "HD_2",
+      "section": "HỘI ĐỒNG: I. Kiểm tra kiến thức – kỹ năng chuyên môn (10 điểm, vấn đáp)",
+      "sectionPoints": 10,
+      "no": "2",
+      "title": "Kiến thức giao tiếp – AIDET (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        { "label": "≥ 80% câu trả lời đúng", "points": 5.0 },
+        { "label": "65–79% câu trả lời đúng", "points": 3.0 },
+        { "label": "< 65% câu trả lời đúng", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "HD_3",
+      "section": "HỘI ĐỒNG: II. Đánh giá kỹ năng thực hành (20 điểm)",
+      "sectionPoints": 20,
+      "no": "1",
+      "title": "Thực hành quy trình kỹ thuật chuyên môn (15 điểm)",
+      "maxPoints": 15,
+      "options": [
+        { "label": "Đúng ≥ 90% các bước quy trình kỹ thuật", "points": 15.0 },
+        { "label": "Đúng 75%–89% các bước quy trình kỹ thuật", "points": 10.0 },
+        { "label": "Đúng 65%- 74% các bước quy trình kỹ thuật", "points": 5.0 },
+        { "label": "< 65% các bước quy trình kỹ thuật", "points": 0.0 }
+      ]
+    },
+    {
+      "id": "HD_4",
+      "section": "HỘI ĐỒNG: II. Đánh giá kỹ năng thực hành (20 điểm)",
+      "sectionPoints": 20,
+      "no": "2",
+      "title": "Xử lý tình huống thực tế, tuân thủ AIDET (5 điểm)",
+      "maxPoints": 5,
+      "options": [
+        { "label": "Xử lý đúng, giao tiếp phù hợp, tuân thủ AIDET", "points": 5.0 },
+        { "label": "Cần gợi ý", "points": 3.0 },
+        { "label": "Xử lý sai", "points": 0.0 }
+      ]
+    }
+  ]
+}

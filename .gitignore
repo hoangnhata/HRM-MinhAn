@@ -1,0 +1,28 @@
+# Backend
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+*.log
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Env & secrets (dùng biến môi trường khi deploy)
+.env
+.env.*
+!.env.example
+
+# Uploads / runtime
+uploads/
+**/uploads/
