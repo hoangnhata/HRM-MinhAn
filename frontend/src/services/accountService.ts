@@ -8,6 +8,7 @@ export type AccountMe = {
   fullName: string;
   employeeId: number | null;
   enabled: boolean;
+  mustChangePassword?: boolean;
   createdAt: string;
   phone: string | null;
   address: string | null;

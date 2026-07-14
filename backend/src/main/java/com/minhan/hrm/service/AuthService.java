@@ -52,6 +52,7 @@ public class AuthService {
                 .employeeId(employeeId)
                 .fullName(fullName)
                 .email(user.getEmail())
+                .mustChangePassword(user.isMustChangePassword())
                 .build();
     }
 }

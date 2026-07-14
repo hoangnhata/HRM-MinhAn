@@ -18,10 +18,13 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../components/layout/PageHeader';
+import { EmployeeStatusChip } from '../components/EmployeeStatusChip';
+import { MaternityLeaveChip } from '../components/MaternityLeaveChip';
 import * as employeeService from '../services/employeeService';
 import * as documentService from '../services/documentService';
 import api from '../services/api';
 import { WORKFORCE_SECTIONS, workforceFieldLabel } from '../constants/workforceFieldLabels';
+import { isMaternityLeaveInsurance } from '../utils/workforceInsurance';
 
 function DetailRow({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -113,10 +116,20 @@ export default function EmployeeDetailPage() {
   }
 
   const profile = (emp.workforceProfile ?? {}) as Record<string, unknown>;
+  const trialOnlyView = emp.employeeCode?.toUpperCase().startsWith('TV-') ?? false;
+  const salaryFromNotes =
+    typeof profile.workforceNotes === 'string' && profile.workforceNotes.includes('Mức lương:')
+      ? profile.workforceNotes.split('Mức lương:').pop()?.split('|')[0]?.trim()
+      : null;
+  const noteOnly =
+    typeof profile.workforceNotes === 'string'
+      ? profile.workforceNotes.replace(/\s*\|\s*Mức lương:.*$/, '').trim() || null
+      : null;
   const allSectionKeys = new Set(WORKFORCE_SECTIONS.flatMap((s) => s.keys));
   const orphanKeys = Object.keys(profile).filter(
     (k) => hasProfileValue(profile[k]) && !allSectionKeys.has(k),
   );
+  const maternityLeave = isMaternityLeaveInsurance(profile.insuranceParticipation);
 
   return (
     <Box sx={{ width: '100%' }}>
@@ -129,7 +142,8 @@ export default function EmployeeDetailPage() {
             {emp.employeeCode ? (
               <Chip label={`Mã NV: ${emp.employeeCode}`} size="small" variant="outlined" sx={{ fontWeight: 600 }} />
             ) : null}
-            <Chip label={emp.status} size="small" color="primary" variant="outlined" sx={{ fontWeight: 600 }} />
+            <EmployeeStatusChip status={emp.status} sx={{ height: 26, fontSize: '0.75rem' }} />
+            {maternityLeave && <MaternityLeaveChip sx={{ height: 26, fontSize: '0.75rem' }} />}
             <Button startIcon={<ArrowBackIcon />} variant="outlined" onClick={() => nav(-1)}>
               Quay lại
             </Button>
@@ -138,6 +152,29 @@ export default function EmployeeDetailPage() {
       />
 
       <Grid container spacing={2.5}>
+        {trialOnlyView ? (
+          <Grid item xs={12} lg={8}>
+            <Card variant="outlined" sx={{ borderColor: alpha(theme.palette.primary.main, 0.15) }}>
+              <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+                <Typography variant="subtitle1" fontWeight={700} gutterBottom sx={{ color: 'primary.main' }}>
+                  Thông tin thử việc / thực tập
+                </Typography>
+                <DetailRow label="Họ tên" value={emp.fullName} />
+                <DetailRow label="Ngày sinh" value={emp.dateOfBirth} />
+                <DetailRow label="Vị trí" value={emp.positionTitle} />
+                <DetailRow label="Bằng cấp" value={profile.degree as string | undefined} />
+                <DetailRow label="Khoa/Phòng" value={emp.departmentName} />
+                <DetailRow label="Mức lương" value={salaryFromNotes} />
+                <DetailRow
+                  label="Từ ngày"
+                  value={emp.hireDate ?? (profile.probationStartDate as string | undefined)}
+                />
+                <DetailRow label="Ghi chú" value={noteOnly} />
+              </CardContent>
+            </Card>
+          </Grid>
+        ) : (
+          <>
         <Grid item xs={12} lg={6}>
           <Card
             variant="outlined"
@@ -183,28 +220,7 @@ export default function EmployeeDetailPage() {
           <Card variant="outlined" sx={{ height: '100%' }}>
             <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
               <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                Lương
-              </Typography>
-              {emp.salary ? (
-                <>
-                  <DetailRow label="Lương cơ bản" value={`${Number(emp.salary.baseSalary).toLocaleString('vi-VN')} đ`} />
-                  <DetailRow label="Phụ cấp" value={`${Number(emp.salary.allowance).toLocaleString('vi-VN')} đ`} />
-                  <DetailRow label="Xét lương tiếp" value={emp.salary.nextReviewDate} />
-                </>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  Chưa có dữ liệu lương
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} md={6}>
-          <Card variant="outlined" sx={{ height: '100%' }}>
-            <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
-              <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                Hợp đồng (hệ thống)
+                Số Hợp đồng
               </Typography>
               {emp.contracts.length === 0 && (
                 <Typography variant="body2" color="text.secondary">
@@ -217,8 +233,7 @@ export default function EmployeeDetailPage() {
                     {c.contractType}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {c.startDate} → {c.endDate || 'hiện tại'}
-                    {c.salaryBase != null ? ` · ${Number(c.salaryBase).toLocaleString('vi-VN')} đ` : ''}
+                    Ngày ký: {c.startDate}
                   </Typography>
                 </Box>
               ))}
@@ -272,7 +287,20 @@ export default function EmployeeDetailPage() {
                                   py: 1.25,
                                 }}
                               >
-                                {String(v)}
+                                {k === 'insuranceParticipation' && isMaternityLeaveInsurance(v) ? (
+                                  <Typography
+                                    component="span"
+                                    variant="body2"
+                                    sx={{
+                                      fontWeight: 600,
+                                      color: '#9d174d',
+                                    }}
+                                  >
+                                    {String(v)}
+                                  </Typography>
+                                ) : (
+                                  String(v)
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -338,6 +366,8 @@ export default function EmployeeDetailPage() {
             </CardContent>
           </Card>
         </Grid>
+          </>
+        )}
       </Grid>
     </Box>
   );

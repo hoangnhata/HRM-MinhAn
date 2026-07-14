@@ -30,6 +30,7 @@ public class EmployeeDetailDto {
     String positionTitle;
     LocalDate hireDate;
     EmployeeStatus status;
+    boolean continuousShift;
     SalaryInfoDto salary;
     List<ContractDto> contracts;
     /** Các trường bổ sung từ Excel TỔNG HỢP NHÂN LỰC BVMA (nếu có) */

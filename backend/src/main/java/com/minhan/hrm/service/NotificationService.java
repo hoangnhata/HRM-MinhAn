@@ -1,11 +1,15 @@
 package com.minhan.hrm.service;
 
 import com.minhan.hrm.dto.notification.NotificationDto;
+import com.minhan.hrm.entity.AttendanceRequestStatus;
+import com.minhan.hrm.entity.AttendanceRequestType;
+import com.minhan.hrm.entity.AttendanceWorkRequest;
 import com.minhan.hrm.entity.Employee;
 import com.minhan.hrm.entity.InternalAnnouncement;
 import com.minhan.hrm.entity.Notification;
 import com.minhan.hrm.entity.NotificationCategory;
 import com.minhan.hrm.entity.UserAccount;
+import com.minhan.hrm.entity.UserRole;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.InternalAnnouncementRepository;
@@ -54,6 +58,25 @@ public class NotificationService {
     }
 
     @Transactional
+    public void notifySalaryGradeIncrease(
+            UserAccount targetUser, Employee related, int oldGrade, int newGrade, String yearsRange) {
+        String msg = String.format(
+                "Bạn đã được nâng từ Bậc %d lên Bậc %d (%s) kể từ kỳ lương này. Xem chi tiết tại mục Lương.",
+                oldGrade > 0 ? oldGrade : newGrade - 1,
+                newGrade,
+                yearsRange);
+        Notification n = Notification.builder()
+                .user(targetUser)
+                .category(NotificationCategory.SALARY_ADJUSTMENT)
+                .title("Thông báo nâng bậc lương")
+                .message(msg)
+                .opened(false)
+                .relatedEmployee(related)
+                .build();
+        notificationRepository.save(n);
+    }
+
+    @Transactional
     public void notifySalaryReview(UserAccount targetUser, Employee related, String extraMessage) {
         String msg = "Đến kỳ xem xét nâng lương." + (extraMessage != null ? " " + extraMessage : "");
         Notification n = Notification.builder()
@@ -84,7 +107,7 @@ public class NotificationService {
     @Transactional
     public void notifyPayrollFinalized(UserAccount targetUser, Employee related, int periodYear, int periodMonth) {
         String msg = String.format(
-                "Bảng lương kỳ %02d/%d đã được chốt. Vui lòng xem tại mục Công & Lương (chỉ hiển thị trên tài khoản của bạn).",
+                "Bảng lương kỳ %02d/%d đã được chốt. Vui lòng xem tại mục Lương (chỉ hiển thị trên tài khoản của bạn).",
                 periodMonth, periodYear);
         Notification n = Notification.builder()
                 .user(targetUser)
@@ -129,7 +152,8 @@ public class NotificationService {
     @Transactional
     public void notifyAttendancePeriod(UserAccount targetUser, Employee related, int year, int month) {
         String msg = String.format(
-                "Bảng công tháng %02d/%d đã cập nhật. Vui lòng xem tại mục Công & Lương.", month, year);
+                "Bảng công tháng %02d/%d đã cập nhật. Vui lòng xem tại mục Công.",
+                month, year);
         Notification n = Notification.builder()
                 .user(targetUser)
                 .category(NotificationCategory.ATTENDANCE)
@@ -137,6 +161,132 @@ public class NotificationService {
                 .message(msg)
                 .opened(false)
                 .relatedEmployee(related)
+                .build();
+        notificationRepository.save(n);
+    }
+
+    @Transactional
+    public void notifyAttendanceRequestPending(UserAccount targetUser, AttendanceWorkRequest req, String stage) {
+        String typeLabel = switch (req.getRequestType()) {
+            case EXPLANATION -> "giải trình công";
+            case UPDATE -> "cập nhật công";
+            case LEAVE -> "nghỉ phép";
+            case BUSINESS_TRIP -> "công tác";
+            case DEPLOYMENT -> "điều động";
+        };
+        String datePart = (req.getRequestType() == AttendanceRequestType.LEAVE
+                || req.getRequestType() == AttendanceRequestType.BUSINESS_TRIP)
+                && req.getEndDate() != null
+                ? req.getWorkDate() + " → " + req.getEndDate()
+                : String.valueOf(req.getWorkDate());
+        String msg = String.format(
+                "%s — %s %s chờ duyệt (%s).",
+                req.getEmployee().getFullName(),
+                typeLabel,
+                datePart,
+                "HEAD".equals(stage) ? "Lãnh đạo" : "HCNS");
+        Notification n = Notification.builder()
+                .user(targetUser)
+                .category(NotificationCategory.ATTENDANCE)
+                .title("Đơn công chờ duyệt")
+                .message(msg)
+                .opened(false)
+                .relatedEmployee(req.getEmployee())
+                .build();
+        notificationRepository.save(n);
+    }
+
+    @Transactional
+    public void notifyAttendanceRequestResult(UserAccount targetUser, AttendanceWorkRequest req, boolean approved) {
+        String typeLabel = switch (req.getRequestType()) {
+            case EXPLANATION -> "Giải trình công";
+            case UPDATE -> "Cập nhật công";
+            case LEAVE -> "Nghỉ phép";
+            case BUSINESS_TRIP -> "Công tác";
+            case DEPLOYMENT -> "Điều động";
+        };
+        String datePart = (req.getRequestType() == AttendanceRequestType.LEAVE
+                || req.getRequestType() == AttendanceRequestType.BUSINESS_TRIP)
+                && req.getEndDate() != null
+                ? req.getWorkDate() + " → " + req.getEndDate()
+                : String.valueOf(req.getWorkDate());
+        String msg = approved
+                ? String.format("%s %s đã được duyệt.", typeLabel, datePart)
+                : String.format("%s %s không được duyệt.", typeLabel, datePart);
+        Notification n = Notification.builder()
+                .user(targetUser)
+                .category(NotificationCategory.ATTENDANCE)
+                .title(approved ? "Đơn công đã duyệt" : "Đơn công bị từ chối")
+                .message(msg)
+                .opened(false)
+                .relatedEmployee(req.getEmployee())
+                .build();
+        notificationRepository.save(n);
+    }
+
+    @Transactional
+    public void notifyAttendanceRequestWithdrawn(AttendanceWorkRequest req, AttendanceRequestStatus previousStatus) {
+        String typeLabel = switch (req.getRequestType()) {
+            case EXPLANATION -> "giải trình công";
+            case UPDATE -> "cập nhật công";
+            case LEAVE -> "nghỉ phép";
+            case BUSINESS_TRIP -> "công tác";
+            case DEPLOYMENT -> "điều động";
+        };
+        String datePart = (req.getRequestType() == AttendanceRequestType.LEAVE
+                || req.getRequestType() == AttendanceRequestType.BUSINESS_TRIP)
+                && req.getEndDate() != null
+                ? req.getWorkDate() + " → " + req.getEndDate()
+                : String.valueOf(req.getWorkDate());
+        String msg = String.format(
+                "%s đã thu hồi đơn %s %s.",
+                req.getEmployee().getFullName(),
+                typeLabel,
+                datePart);
+        List<UserRole> roles = previousStatus == AttendanceRequestStatus.PENDING_HR
+                ? List.of(UserRole.ADMIN, UserRole.HR)
+                : List.of(UserRole.ADMIN, UserRole.HEAD_DEPARTMENT, UserRole.HEAD_NURSING);
+        userAccountRepository.findByRoleIn(roles).forEach(u -> {
+            Notification n = Notification.builder()
+                    .user(u)
+                    .category(NotificationCategory.ATTENDANCE)
+                    .title("Đơn công đã thu hồi")
+                    .message(msg)
+                    .opened(false)
+                    .relatedEmployee(req.getEmployee())
+                    .build();
+            notificationRepository.save(n);
+        });
+    }
+
+    @Transactional
+    public void notifyStaffDeployment(UserAccount targetUser, AttendanceWorkRequest req, String creatorName) {
+        if (targetUser == null) {
+            return;
+        }
+        String timePart;
+        if (req.getRequestedAfternoonStart() != null && req.getRequestedAfternoonEnd() != null
+                && req.getRequestedStart() != null && req.getRequestedEnd() != null) {
+            timePart = req.getRequestedStart() + "–" + req.getRequestedEnd()
+                    + " · " + req.getRequestedAfternoonStart() + "–" + req.getRequestedAfternoonEnd();
+        } else if (req.getRequestedStart() != null && req.getRequestedEnd() != null) {
+            timePart = req.getRequestedStart() + "–" + req.getRequestedEnd();
+        } else {
+            timePart = "";
+        }
+        String msg = String.format(
+                "Bạn được điều động ngày %s%s. Nội dung: %s. Hệ số công ×1,5. Người tạo: %s.",
+                req.getWorkDate(),
+                timePart.isBlank() ? "" : " (" + timePart + ")",
+                req.getReason() != null ? req.getReason() : "—",
+                creatorName != null && !creatorName.isBlank() ? creatorName : "Lãnh đạo");
+        Notification n = Notification.builder()
+                .user(targetUser)
+                .category(NotificationCategory.ATTENDANCE)
+                .title("Thông báo điều động")
+                .message(msg)
+                .opened(false)
+                .relatedEmployee(req.getEmployee())
                 .build();
         notificationRepository.save(n);
     }
@@ -153,7 +303,36 @@ public class NotificationService {
                 .relatedAnnouncementId(
                         n.getRelatedAnnouncement() != null ? n.getRelatedAnnouncement().getId() : null)
                 .sensitive(isSensitiveCategory(n.getCategory()))
+                .actionPath(resolveActionPath(n))
                 .build();
+    }
+
+    private static String resolveActionPath(Notification n) {
+        if (n.getCategory() == null) {
+            return "/";
+        }
+        return switch (n.getCategory()) {
+            case ANNOUNCEMENT -> n.getRelatedAnnouncement() != null
+                    ? "/announcements?announcement=" + n.getRelatedAnnouncement().getId()
+                    : "/announcements";
+            case ATTENDANCE -> resolveAttendanceActionPath(n);
+            case PAYROLL, SALARY_ADJUSTMENT, SALARY_REVIEW -> "/salary";
+            case INTERNAL -> "/profile";
+            case SYSTEM -> "/";
+        };
+    }
+
+    private static String resolveAttendanceActionPath(Notification n) {
+        String title = n.getTitle() != null ? n.getTitle() : "";
+        if (title.contains("chờ duyệt")) {
+            return "/requests?tab=approve";
+        }
+        if (title.contains("Đơn công") || title.contains("nghỉ phép") || title.contains("Nghỉ phép")
+                || title.contains("công tác") || title.contains("Công tác")
+                || title.contains("điều động") || title.contains("Điều động")) {
+            return title.contains("điều động") || title.contains("Điều động") ? "/work" : "/requests?tab=mine";
+        }
+        return "/work";
     }
 
     private static boolean isSensitiveCategory(NotificationCategory c) {

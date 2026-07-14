@@ -1,8 +1,11 @@
 import axios from 'axios';
-import { clearAuth, getToken } from '../utils/storage';
+import { getToken } from '../utils/storage';
+import { handleSessionFailure, isSessionFailure } from '../utils/sessionFailure';
+
+const apiBaseUrl = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '');
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: apiBaseUrl,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -17,11 +20,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (err) => {
-    if (err.response?.status === 401) {
-      clearAuth();
-      if (!window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login';
-      }
+    if (isSessionFailure(err)) {
+      handleSessionFailure();
     }
     return Promise.reject(err);
   }

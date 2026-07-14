@@ -180,14 +180,8 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 8,
-          marginInline: 10,
-          marginBlock: 1,
-          paddingTop: 9,
-          paddingBottom: 9,
           '&.Mui-selected': {
             backgroundColor: alpha(primary.main, 0.08),
-            borderLeft: `3px solid ${accentGold}`,
-            paddingLeft: 13,
             '&:hover': {
               backgroundColor: alpha(primary.main, 0.11),
             },

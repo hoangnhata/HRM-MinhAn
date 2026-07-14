@@ -1,15 +1,21 @@
 import AddIcon from '@mui/icons-material/Add';
+import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
+import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import FilterAltOffOutlinedIcon from '@mui/icons-material/FilterAltOffOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import {
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
+  Grid,
   IconButton,
   InputAdornment,
   Link,
@@ -17,27 +23,48 @@ import {
   Skeleton,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { PageHeader } from './layout/PageHeader';
+import { DatePickerField, dateTimeFieldSx } from './ui/DateTimeFields';
 import * as announcementService from '../services/announcementService';
 import api from '../services/api';
 
 const DEFAULT_CATEGORY = 'THONG_BAO_CHUNG';
+const ACCENT = '#0f766e';
 
-function formatViDateLine(isoDate: string | null, publishedAt: string): string {
+function formatViDate(isoDate: string | null, publishedAt: string): string {
   if (isoDate && /^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
     const [y, m, d] = isoDate.split('-');
-    return `${d}/${m}/${y}:`;
+    return `${d}/${m}/${y}`;
   }
   const dt = new Date(publishedAt);
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()}:`;
+  return `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()}`;
 }
 
-/** Chuỗi yyyy-mm-dd để so sánh lọc — ưu tiên ngày hiển thị, không thì ngày đăng (local). */
+function formatViDateLong(isoDate: string | null, publishedAt: string): string {
+  const key =
+    isoDate && /^\d{4}-\d{2}-\d{2}$/.test(isoDate)
+      ? isoDate
+      : (() => {
+          const d = new Date(publishedAt);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })();
+  const [y, m, d] = key.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString('vi-VN', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 function effectiveDateKey(a: announcementService.Announcement): string {
   if (a.displayDate && /^\d{4}-\d{2}-\d{2}$/.test(a.displayDate)) {
     return a.displayDate;
@@ -62,16 +89,10 @@ function filterAnnouncements(
     [lo, hi] = [hi, lo];
   }
   return list.filter((a) => {
-    if (q && !a.title.toLowerCase().includes(q)) {
-      return false;
-    }
+    if (q && !a.title.toLowerCase().includes(q)) return false;
     const key = effectiveDateKey(a);
-    if (lo && key < lo) {
-      return false;
-    }
-    if (hi && key > hi) {
-      return false;
-    }
+    if (lo && key < lo) return false;
+    if (hi && key > hi) return false;
     return true;
   });
 }
@@ -117,7 +138,7 @@ function InlineAnnouncementImage({ attachmentId, alt }: { attachmentId: number; 
     );
   }
   if (!src) {
-    return <Skeleton variant="rounded" height={180} sx={{ mt: 1, borderRadius: 1 }} />;
+    return <Skeleton variant="rounded" height={180} sx={{ mt: 1.5, borderRadius: 2 }} />;
   }
   return (
     <Box
@@ -125,13 +146,14 @@ function InlineAnnouncementImage({ attachmentId, alt }: { attachmentId: number; 
       src={src}
       alt={alt}
       sx={{
-        mt: 1,
+        mt: 1.5,
         maxWidth: '100%',
         maxHeight: 420,
         objectFit: 'contain',
-        borderRadius: 1,
-        border: (t) => `1px solid ${alpha(t.palette.divider, 0.9)}`,
+        borderRadius: 2,
+        border: (t) => `1px solid ${alpha(t.palette.divider, 0.85)}`,
         display: 'block',
+        bgcolor: alpha('#0f172a', 0.02),
       }}
     />
   );
@@ -139,7 +161,6 @@ function InlineAnnouncementImage({ attachmentId, alt }: { attachmentId: number; 
 
 type Props = {
   isAdmin: boolean;
-  /** Từ URL /announcements?announcement=id — cuộn tới và làm nổi mục thông báo */
   focusAnnouncementId?: number | null;
 };
 
@@ -276,230 +297,465 @@ export function AnnouncementBoard({ isAdmin, focusAnnouncementId = null }: Props
 
   return (
     <Box id="hospital-announcements" sx={{ mb: 3 }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }} flexWrap="wrap" gap={1}>
-        <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '-0.02em', color: 'text.primary' }}>
-          Thông báo toàn viện
-        </Typography>
-        {isAdmin && (
-          <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={openCreate} sx={{ textTransform: 'none' }}>
-            Tạo thông báo
-          </Button>
-        )}
-      </Stack>
+      <PageHeader
+        overline="Nội bộ"
+        title="Thông báo toàn viện"
+        description="Tin tức, lịch họp và thông báo chung tới toàn thể CBCNV."
+        actions={
+          isAdmin ? (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={openCreate}
+              sx={{
+                textTransform: 'none',
+                fontWeight: 700,
+                borderRadius: 2,
+                px: 2,
+                bgcolor: ACCENT,
+                '&:hover': { bgcolor: '#0d9488' },
+              }}
+            >
+              Tạo thông báo
+            </Button>
+          ) : undefined
+        }
+      />
 
+      {/* Bộ lọc */}
+      <Paper
+        elevation={0}
+        sx={{
+          mb: 2.5,
+          p: 2,
+          borderRadius: 3,
+          border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+          bgcolor: 'background.paper',
+        }}
+      >
+        <Grid container spacing={1.5} alignItems="center">
+          <Grid item xs={12} md={5}>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Tìm theo tiêu đề…"
+              value={filterTitle}
+              onChange={(e) => setFilterTitle(e.target.value)}
+              sx={dateTimeFieldSx}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <DatePickerField
+              size="small"
+              label="Từ ngày"
+              value={filterFrom}
+              onChange={setFilterFrom}
+              sx={{ ...dateTimeFieldSx, width: '100%' }}
+            />
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <DatePickerField
+              size="small"
+              label="Đến ngày"
+              value={filterTo}
+              onChange={setFilterTo}
+              sx={{ ...dateTimeFieldSx, width: '100%' }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={4} md={3}>
+            <Stack direction="row" spacing={1} alignItems="center" justifyContent={{ xs: 'flex-start', md: 'flex-end' }}>
+              {hasActiveFilters && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<FilterAltOffOutlinedIcon />}
+                  onClick={clearFilters}
+                  sx={{ textTransform: 'none', borderRadius: 2, whiteSpace: 'nowrap' }}
+                >
+                  Xóa lọc
+                </Button>
+              )}
+              {!loading && !error && (
+                <Chip
+                  size="small"
+                  label={`${filteredItems.length}/${items.length}`}
+                  variant="outlined"
+                  sx={{ fontWeight: 600, borderRadius: 1.5 }}
+                />
+              )}
+            </Stack>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {/* Danh sách */}
       <Paper
         elevation={0}
         sx={{
           borderRadius: 3,
-          border: `1px solid ${alpha(theme.palette.primary.main, 0.12)}`,
+          border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
           overflow: 'hidden',
           bgcolor: 'background.paper',
-          transition: 'box-shadow 0.2s ease',
-          '&:hover': { boxShadow: `0 8px 24px ${alpha('#0f172a', 0.06)}` },
         }}
       >
-        <Box sx={{ p: 2.5, minHeight: 120 }}>
-          {!loading && !error && (
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={1.5}
-              useFlexGap
-              flexWrap="wrap"
-              alignItems={{ xs: 'stretch', sm: 'flex-end' }}
-              sx={{
-                mb: 2,
-                pb: 2,
-                borderBottom: `1px solid ${alpha(theme.palette.divider, 0.85)}`,
-              }}
-            >
-              <TextField
-                size="small"
-                label="Tìm theo tiêu đề"
-                value={filterTitle}
-                onChange={(e) => setFilterTitle(e.target.value)}
-                placeholder="Nhập một phần tiêu đề…"
-                sx={{ flex: 1, minWidth: { xs: '100%', sm: 220 } }}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon fontSize="small" color="action" />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-              <TextField
-                size="small"
-                label="Từ ngày"
-                type="date"
-                value={filterFrom}
-                onChange={(e) => setFilterFrom(e.target.value)}
-                sx={{ minWidth: { xs: '100%', sm: 160 } }}
-                InputLabelProps={{ shrink: true }}
-              />
-              <TextField
-                size="small"
-                label="Đến ngày"
-                type="date"
-                value={filterTo}
-                onChange={(e) => setFilterTo(e.target.value)}
-                sx={{ minWidth: { xs: '100%', sm: 160 } }}
-                InputLabelProps={{ shrink: true }}
-              />
-              <Button
-                variant="text"
-                size="small"
-                onClick={clearFilters}
-                disabled={!hasActiveFilters}
-                sx={{ textTransform: 'none', alignSelf: { xs: 'flex-start', sm: 'center' } }}
-              >
-                Xóa lọc
-              </Button>
+        <Box
+          sx={{
+            px: 2.5,
+            py: 1.75,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.25,
+            background: `linear-gradient(135deg, ${alpha(ACCENT, 0.1)} 0%, ${alpha(ACCENT, 0.03)} 100%)`,
+            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.85)}`,
+          }}
+        >
+          <Box
+            sx={{
+              width: 36,
+              height: 36,
+              borderRadius: 2,
+              display: 'grid',
+              placeItems: 'center',
+              bgcolor: alpha(ACCENT, 0.14),
+              color: ACCENT,
+            }}
+          >
+            <CampaignOutlinedIcon fontSize="small" />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2" fontWeight={800} sx={{ letterSpacing: '-0.01em' }}>
+              Bảng tin nội bộ
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Sắp xếp theo ngày mới nhất
+            </Typography>
+          </Box>
+        </Box>
+
+        <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
+          {loading && (
+            <Stack spacing={1.5} sx={{ py: 1 }}>
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} variant="rounded" height={110} sx={{ borderRadius: 2.5 }} />
+              ))}
             </Stack>
           )}
 
-          {loading && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-              <CircularProgress size={28} color="primary" />
+          {!loading && error && (
+            <Box sx={{ py: 5, textAlign: 'center' }}>
+              <Typography color="error" variant="body2" sx={{ mb: 1.5 }}>
+                {error}
+              </Typography>
+              <Button size="small" variant="outlined" onClick={() => void load()} sx={{ textTransform: 'none' }}>
+                Thử lại
+              </Button>
             </Box>
           )}
-          {!loading && error && (
-            <Typography color="error" variant="body2">
-              {error}
-            </Typography>
-          )}
+
           {!loading && !error && items.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
-              Chưa có thông báo.
-            </Typography>
+            <Box sx={{ py: 6, textAlign: 'center' }}>
+              <CampaignOutlinedIcon sx={{ fontSize: 40, color: alpha(ACCENT, 0.35), mb: 1 }} />
+              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
+                Chưa có thông báo
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {isAdmin ? 'Nhấn “Tạo thông báo” để đăng tin đầu tiên.' : 'Khi có tin mới sẽ hiện tại đây.'}
+              </Typography>
+            </Box>
           )}
+
           {!loading && !error && items.length > 0 && filteredItems.length === 0 && (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Không có thông báo phù hợp bộ lọc. Thử đổi ngày hoặc từ khóa.
-            </Typography>
-          )}
-          {!loading &&
-            !error &&
-            filteredItems.map((a) => (
-              <Box
-                key={a.id}
-                id={`announcement-card-${a.id}`}
-                sx={{
-                  mb: 2.5,
-                  pb: 2.5,
-                  borderBottom: `1px solid ${alpha(theme.palette.divider, 0.85)}`,
-                  borderRadius: flashId === a.id ? 1 : 0,
-                  px: flashId === a.id ? 1 : 0,
-                  mx: flashId === a.id ? -1 : 0,
-                  outline: flashId === a.id ? `2px solid ${alpha(theme.palette.primary.main, 0.55)}` : 'none',
-                  outlineOffset: flashId === a.id ? 2 : 0,
-                  transition: 'outline 0.2s ease',
-                  '&:last-child': { borderBottom: 'none', mb: 0, pb: 0 },
-                }}
+            <Box sx={{ py: 5, textAlign: 'center' }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+                Không có kết quả
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Thử đổi từ khóa hoặc khoảng ngày.
+              </Typography>
+              <Button
+                size="small"
+                startIcon={<FilterAltOffOutlinedIcon />}
+                onClick={clearFilters}
+                sx={{ textTransform: 'none' }}
               >
-                <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography component="div" sx={{ fontSize: '0.95rem', lineHeight: 1.5 }}>
-                      <Box component="span" sx={{ color: 'text.secondary', fontWeight: 700 }}>
-                        {formatViDateLine(a.displayDate, a.publishedAt)}
-                      </Box>{' '}
-                      <Box component="span" sx={{ color: 'primary.main', fontWeight: 700 }}>
-                        {a.title}
-                      </Box>
-                    </Typography>
-                    <Typography
-                      component="div"
+                Xóa lọc
+              </Button>
+            </Box>
+          )}
+
+          {!loading && !error && filteredItems.length > 0 && (
+            <Stack spacing={1.5}>
+              {filteredItems.map((a) => {
+                const focused = flashId === a.id;
+                const fileCount = a.attachments?.filter((x) => !isImageAttachment(x)).length ?? 0;
+                const imageCount = a.attachments?.filter((x) => isImageAttachment(x)).length ?? 0;
+                return (
+                  <Box
+                    key={a.id}
+                    id={`announcement-card-${a.id}`}
+                    sx={{
+                      position: 'relative',
+                      borderRadius: 2.5,
+                      border: `1px solid ${
+                        focused ? alpha(ACCENT, 0.55) : alpha(theme.palette.divider, 0.9)
+                      }`,
+                      bgcolor: focused ? alpha(ACCENT, 0.04) : alpha(theme.palette.grey[500], 0.02),
+                      boxShadow: focused ? `0 0 0 3px ${alpha(ACCENT, 0.12)}` : 'none',
+                      transition: 'border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
+                      overflow: 'hidden',
+                      '&:hover': {
+                        borderColor: alpha(ACCENT, 0.35),
+                        bgcolor: alpha(ACCENT, 0.03),
+                      },
+                    }}
+                  >
+                    <Box
                       sx={{
-                        mt: 1,
-                        color: 'text.secondary',
-                        whiteSpace: 'pre-wrap',
-                        fontSize: '0.9rem',
-                        lineHeight: 1.7,
+                        position: 'absolute',
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: 4,
+                        bgcolor: ACCENT,
+                        opacity: focused ? 1 : 0.55,
                       }}
+                    />
+                    <Stack
+                      direction="row"
+                      alignItems="flex-start"
+                      justifyContent="space-between"
+                      gap={1.5}
+                      sx={{ p: { xs: 1.75, sm: 2.25 }, pl: { xs: 2.25, sm: 2.75 } }}
                     >
-                      {a.body}
-                    </Typography>
-                    {a.attachments?.length > 0 && (
-                      <Stack spacing={1} sx={{ mt: 1 }}>
-                        {a.attachments.map((att) =>
-                          isImageAttachment(att) ? (
-                            <InlineAnnouncementImage
-                              key={att.id}
-                              attachmentId={att.id}
-                              alt={att.originalName || 'Ảnh đính kèm'}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          flexWrap="wrap"
+                          useFlexGap
+                          sx={{ mb: 1 }}
+                        >
+                          <Chip
+                            size="small"
+                            label={formatViDate(a.displayDate, a.publishedAt)}
+                            sx={{
+                              height: 24,
+                              fontWeight: 700,
+                              fontSize: 11,
+                              borderRadius: 1.25,
+                              bgcolor: alpha(ACCENT, 0.1),
+                              color: ACCENT,
+                              border: `1px solid ${alpha(ACCENT, 0.2)}`,
+                            }}
+                          />
+                          <Typography variant="caption" color="text.secondary">
+                            {formatViDateLong(a.displayDate, a.publishedAt)}
+                          </Typography>
+                          {(fileCount > 0 || imageCount > 0) && (
+                            <Chip
+                              size="small"
+                              icon={<AttachFileOutlinedIcon sx={{ fontSize: '14px !important' }} />}
+                              label={
+                                fileCount + imageCount > 1
+                                  ? `${fileCount + imageCount} đính kèm`
+                                  : 'Đính kèm'
+                              }
+                              variant="outlined"
+                              sx={{ height: 22, fontSize: 11, borderRadius: 1.25 }}
                             />
-                          ) : (
-                            <Typography key={att.id} component="div" variant="body2" color="text.secondary">
-                              <Link
-                                component="button"
-                                type="button"
-                                onClick={() => void announcementService.openAnnouncementAttachmentInline(att.id)}
-                                sx={{
-                                  cursor: 'pointer',
-                                  verticalAlign: 'baseline',
-                                  textDecoration: 'underline',
-                                  fontWeight: 500,
-                                }}
-                              >
-                                {att.linkLabel}
-                              </Link>
-                            </Typography>
-                          ),
+                          )}
+                        </Stack>
+
+                        <Typography
+                          variant="subtitle1"
+                          fontWeight={800}
+                          sx={{
+                            color: ACCENT,
+                            letterSpacing: '-0.015em',
+                            lineHeight: 1.35,
+                            mb: 0.75,
+                          }}
+                        >
+                          {a.title}
+                        </Typography>
+
+                        <Typography
+                          component="div"
+                          sx={{
+                            color: 'text.secondary',
+                            whiteSpace: 'pre-wrap',
+                            fontSize: '0.9rem',
+                            lineHeight: 1.7,
+                          }}
+                        >
+                          {a.body}
+                        </Typography>
+
+                        {a.attachments?.length > 0 && (
+                          <Stack spacing={1} sx={{ mt: 1.25 }}>
+                            {a.attachments.map((att) =>
+                              isImageAttachment(att) ? (
+                                <InlineAnnouncementImage
+                                  key={att.id}
+                                  attachmentId={att.id}
+                                  alt={att.originalName || 'Ảnh đính kèm'}
+                                />
+                              ) : (
+                                <Link
+                                  key={att.id}
+                                  component="button"
+                                  type="button"
+                                  onClick={() =>
+                                    void announcementService.openAnnouncementAttachmentInline(att.id)
+                                  }
+                                  sx={{
+                                    alignSelf: 'flex-start',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 0.75,
+                                    cursor: 'pointer',
+                                    textDecoration: 'none',
+                                    fontWeight: 600,
+                                    fontSize: '0.875rem',
+                                    color: ACCENT,
+                                    px: 1.25,
+                                    py: 0.75,
+                                    borderRadius: 1.5,
+                                    bgcolor: alpha(ACCENT, 0.06),
+                                    border: `1px solid ${alpha(ACCENT, 0.18)}`,
+                                    '&:hover': {
+                                      bgcolor: alpha(ACCENT, 0.1),
+                                      textDecoration: 'underline',
+                                    },
+                                  }}
+                                >
+                                  <AttachFileOutlinedIcon sx={{ fontSize: 16 }} />
+                                  {att.linkLabel || att.originalName}
+                                </Link>
+                              ),
+                            )}
+                          </Stack>
                         )}
-                      </Stack>
-                    )}
+
+                        {a.authorUsername && (
+                          <Typography
+                            variant="caption"
+                            color="text.disabled"
+                            display="block"
+                            sx={{ mt: 1.5 }}
+                          >
+                            Đăng bởi {a.authorUsername}
+                          </Typography>
+                        )}
+                      </Box>
+
+                      {isAdmin && (
+                        <Tooltip title="Xóa thông báo">
+                          <IconButton
+                            size="small"
+                            onClick={() => void onDelete(a.id)}
+                            sx={{
+                              color: 'text.secondary',
+                              border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+                              borderRadius: 1.5,
+                              '&:hover': {
+                                color: 'error.main',
+                                borderColor: alpha(theme.palette.error.main, 0.4),
+                                bgcolor: alpha(theme.palette.error.main, 0.06),
+                              },
+                            }}
+                            aria-label="Xóa"
+                          >
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Stack>
                   </Box>
-                  {isAdmin && (
-                    <IconButton
-                      size="small"
-                      onClick={() => void onDelete(a.id)}
-                      sx={{ color: 'text.secondary' }}
-                      aria-label="Xóa"
-                    >
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                </Stack>
-              </Box>
-            ))}
+                );
+              })}
+            </Stack>
+          )}
         </Box>
       </Paper>
 
       <Dialog
         open={dialogOpen}
         onClose={() => !saving && setDialogOpen(false)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
-        PaperProps={{ sx: { overflow: 'visible' } }}
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden',
+            boxShadow: `0 24px 48px ${alpha('#0f172a', 0.14)}`,
+          },
+        }}
       >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          Đăng thông báo
-          <IconButton size="small" onClick={() => setDialogOpen(false)} disabled={saving}>
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent
+        <Box
           sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-            pt: 3,
+            px: 2.5,
+            pt: 2.5,
             pb: 2,
-            px: 3,
-            overflow: 'visible',
+            background: `linear-gradient(135deg, ${alpha(ACCENT, 0.14)} 0%, ${alpha(ACCENT, 0.04)} 100%)`,
+            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.85)}`,
           }}
         >
-          <TextField
+          <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Box
+                sx={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 2,
+                  display: 'grid',
+                  placeItems: 'center',
+                  bgcolor: alpha(ACCENT, 0.16),
+                  color: ACCENT,
+                }}
+              >
+                <CampaignOutlinedIcon />
+              </Box>
+              <Box>
+                <Typography variant="overline" sx={{ fontWeight: 700, color: ACCENT, letterSpacing: '0.1em' }}>
+                  Nội bộ
+                </Typography>
+                <Typography variant="h6" fontWeight={800} sx={{ letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+                  Đăng thông báo
+                </Typography>
+              </Box>
+            </Stack>
+            <IconButton size="small" onClick={() => setDialogOpen(false)} disabled={saving}>
+              <CloseIcon />
+            </IconButton>
+          </Stack>
+        </Box>
+
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2.5, pb: 1, px: 2.5 }}>
+          <DatePickerField
             label="Ngày hiển thị"
-            type="date"
             value={formDate}
-            onChange={(e) => setFormDate(e.target.value)}
-            fullWidth
-            size="small"
-            InputLabelProps={{ shrink: true }}
+            onChange={setFormDate}
             helperText="Để trống sẽ dùng ngày đăng."
-            inputProps={{ 'aria-label': 'Ngày hiển thị' }}
+            sx={dateTimeFieldSx}
           />
-          <TextField label="Tiêu đề" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} fullWidth required size="small" />
+          <TextField
+            label="Tiêu đề"
+            value={formTitle}
+            onChange={(e) => setFormTitle(e.target.value)}
+            fullWidth
+            required
+            size="small"
+            sx={dateTimeFieldSx}
+          />
           <TextField
             label="Nội dung"
             value={formBody}
@@ -509,32 +765,60 @@ export function AnnouncementBoard({ isAdmin, focusAnnouncementId = null }: Props
             multiline
             minRows={5}
             size="small"
+            sx={dateTimeFieldSx}
           />
-          <Button variant="outlined" component="label" sx={{ alignSelf: 'flex-start', textTransform: 'none' }}>
-            Đính kèm (ảnh hoặc tài liệu, tùy chọn)
-            <input type="file" hidden multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip" onChange={onPickFiles} />
-          </Button>
-          {formFiles.length > 0 && (
-            <Typography variant="caption" color="text.secondary">
-              Đã chọn {formFiles.length} file — nhãn liên kết tài liệu:
-            </Typography>
-          )}
+          <Divider />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
+            <Button
+              variant="outlined"
+              component="label"
+              startIcon={<AttachFileOutlinedIcon />}
+              sx={{ textTransform: 'none', borderRadius: 2, alignSelf: 'flex-start' }}
+            >
+              Đính kèm file
+              <input
+                type="file"
+                hidden
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
+                onChange={onPickFiles}
+              />
+            </Button>
+            {formFiles.length > 0 && (
+              <Typography variant="body2" color="text.secondary">
+                Đã chọn <strong>{formFiles.length}</strong> file
+              </Typography>
+            )}
+          </Stack>
           <TextField
-            label="Chữ hiển thị cho mỗi liên kết (tài liệu)"
+            label="Chữ hiển thị cho liên kết tài liệu"
             value={formLinkLabel}
             onChange={(e) => setFormLinkLabel(e.target.value)}
             fullWidth
             size="small"
             placeholder="tại đây"
-            helperText="Áp dụng cho file không phải ảnh. Ảnh hiển thị trực tiếp, không cần nhãn."
+            helperText="Áp dụng cho file không phải ảnh. Ảnh hiển thị trực tiếp."
+            sx={dateTimeFieldSx}
           />
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setDialogOpen(false)} disabled={saving}>
+        <DialogActions sx={{ px: 2.5, pb: 2.5, pt: 1, gap: 1 }}>
+          <Button onClick={() => setDialogOpen(false)} disabled={saving} sx={{ textTransform: 'none' }}>
             Hủy
           </Button>
-          <Button variant="contained" onClick={() => void submitCreate()} disabled={saving || !formTitle.trim() || !formBody.trim()}>
-            {saving ? <CircularProgress size={22} /> : 'Đăng'}
+          <Button
+            variant="contained"
+            onClick={() => void submitCreate()}
+            disabled={saving || !formTitle.trim() || !formBody.trim()}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 700,
+              borderRadius: 2,
+              px: 2.5,
+              bgcolor: ACCENT,
+              '&:hover': { bgcolor: '#0d9488' },
+            }}
+          >
+            {saving ? <CircularProgress size={22} color="inherit" /> : 'Đăng thông báo'}
           </Button>
         </DialogActions>
       </Dialog>

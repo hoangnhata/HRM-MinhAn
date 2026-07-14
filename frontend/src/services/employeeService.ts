@@ -15,10 +15,28 @@ export type EmployeeSummary = {
   username: string;
   fullName: string;
   departmentName: string;
+  workUnitDetail?: string | null;
   positionTitle: string;
   role: string;
   status: string;
   hireDate: string;
+  probationStartDate?: string | null;
+  probationMonths?: number | null;
+  probationOverdue?: boolean | null;
+  insuranceParticipation?: string | null;
+  maternityLeave?: boolean | null;
+};
+
+export type EmployeeStatusGroup = 'TRIAL' | 'OFFICIAL' | 'TERMINATED';
+
+export type OfficialWorkFilter = 'WORKING' | 'MATERNITY_LEAVE';
+
+export const EMPLOYMENT_STATUS_LABEL: Record<string, string> = {
+  ACTIVE: 'Chính thức',
+  PROBATION: 'Thử việc',
+  INTERN: 'Thực tập',
+  ON_LEAVE: 'Nghỉ phép',
+  TERMINATED: 'Nghỉ việc',
 };
 
 export type EmployeeDetail = {
@@ -70,8 +88,8 @@ export type EmployeeAccountRole =
   | 'HEAD_NURSING';
 
 export type EmployeeCreatePayload = {
-  username: string;
-  password: string;
+  username?: string;
+  password?: string;
   email: string;
   role: CreatableUserRole;
   fullName: string;
@@ -103,7 +121,7 @@ export type EmployeeUpdatePayload = {
   allowance?: number;
   lastRaiseDate?: string;
   nextReviewDate?: string;
-  status: 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED';
+  status: 'ACTIVE' | 'PROBATION' | 'INTERN' | 'ON_LEAVE' | 'TERMINATED';
 };
 
 export type EmployeeListParams = {
@@ -112,6 +130,8 @@ export type EmployeeListParams = {
   q?: string;
   departmentId?: number;
   status?: string;
+  statusGroup?: EmployeeStatusGroup;
+  officialWorkFilter?: OfficialWorkFilter;
 };
 
 /** NV để chọn trên phiếu đánh giá theo tháng — toàn bộ NV ACTIVE (mọi vai trò được gọi API). */
@@ -121,7 +141,7 @@ export async function fetchEvaluationRoster() {
 }
 
 export async function fetchEmployees(params: EmployeeListParams = {}) {
-  const { page = 0, size = 10, q, departmentId, status } = params;
+  const { page = 0, size = 10, q, departmentId, status, statusGroup, officialWorkFilter } = params;
   const { data } = await api.get<Page<EmployeeSummary>>('/v1/employees', {
     params: {
       page,
@@ -130,6 +150,8 @@ export async function fetchEmployees(params: EmployeeListParams = {}) {
       ...(q?.trim() ? { q: q.trim() } : {}),
       ...(departmentId != null ? { departmentId } : {}),
       ...(status ? { status } : {}),
+      ...(statusGroup ? { statusGroup } : {}),
+      ...(officialWorkFilter ? { officialWorkFilter } : {}),
     },
   });
   return data;
@@ -148,19 +170,42 @@ export async function fetchMe() {
 export type DashboardStats = {
   totalEmployees: number;
   activeEmployees: number;
-  onLeave: number;
+  maternityLeave: number;
   departments: number;
   employeeRoleAccounts: number;
   accountsMatchEmployees: boolean;
   totalPdfDocuments: number;
   salaryReviewsDueSoon: number;
   /** Biểu đồ: trạng thái */
-  statusBreakdown?: { active: number; onLeave: number; terminated: number };
+  statusBreakdown?: { working: number; maternityLeave: number; trial: number; terminated: number };
   /** Biểu đồ: theo phòng ban */
-  employeesByDepartment?: Array<{ departmentName: string; count: number }>;
+  employeesByDepartment?: Array<{
+    departmentId: number;
+    departmentName: string;
+    count: number;
+    officialCount: number;
+    trialCount: number;
+  }>;
   /** Biểu đồ: nhận việc 12 tháng */
-  hiresByMonth?: Array<{ label: string; count: number; year: number; month: number }>;
+  hiresByMonth?: Array<{
+    label: string;
+    count: number;
+    year: number;
+    month: number;
+    officialCount: number;
+    trialCount: number;
+  }>;
 };
+
+export async function fetchDashboardHiresInMonth(year: number, month: number) {
+  const { data } = await api.get<EmployeeSummary[]>(`/v1/dashboard/hires/${year}/${month}/employees`);
+  return data;
+}
+
+export async function fetchDashboardDepartmentEmployees(departmentId: number) {
+  const { data } = await api.get<EmployeeSummary[]>(`/v1/dashboard/departments/${departmentId}/employees`);
+  return data;
+}
 
 export async function fetchDashboardStats() {
   const { data } = await api.get<DashboardStats>('/v1/dashboard/stats');
@@ -189,4 +234,15 @@ export async function updateEmployee(id: number, payload: EmployeeUpdatePayload)
 
 export async function deleteEmployee(id: number) {
   await api.delete(`/v1/employees/${id}`);
+}
+
+export async function permanentlyDeleteEmployee(id: number) {
+  await api.delete(`/v1/employees/${id}/permanent`);
+}
+
+export async function confirmOfficial(id: number, officialDate?: string) {
+  const { data } = await api.post<EmployeeDetail>(`/v1/employees/${id}/confirm-official`, {
+    officialDate: officialDate ?? null,
+  });
+  return data;
 }

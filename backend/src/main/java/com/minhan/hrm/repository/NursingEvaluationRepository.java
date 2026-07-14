@@ -2,7 +2,9 @@ package com.minhan.hrm.repository;
 
 import com.minhan.hrm.entity.Employee;
 import com.minhan.hrm.entity.NursingEvaluation;
+import com.minhan.hrm.entity.UserAccount;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -35,4 +37,10 @@ public interface NursingEvaluationRepository extends JpaRepository<NursingEvalua
             WHERE n.id = :id
             """)
             Optional<NursingEvaluation> findDetailById(@Param("id") Long id);
+
+    void deleteByEmployee_Id(Long employeeId);
+
+    @Modifying
+    @Query("UPDATE NursingEvaluation n SET n.evaluator = :to WHERE n.evaluator = :from")
+    void reassignEvaluator(@Param("from") UserAccount from, @Param("to") UserAccount to);
 }

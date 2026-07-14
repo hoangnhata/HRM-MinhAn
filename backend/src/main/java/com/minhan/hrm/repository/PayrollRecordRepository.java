@@ -13,4 +13,6 @@ public interface PayrollRecordRepository extends JpaRepository<PayrollRecord, Lo
 
     Optional<PayrollRecord> findByEmployeeAndPeriodYearAndPeriodMonth(
             Employee employee, int year, int month);
+
+    void deleteByEmployee_Id(Long employeeId);
 }

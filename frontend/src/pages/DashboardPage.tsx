@@ -19,7 +19,7 @@ import {
 } from '@mui/material';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import GroupsIcon from '@mui/icons-material/Groups';
-import ApartmentIcon from '@mui/icons-material/Apartment';
+import PregnantWomanIcon from '@mui/icons-material/PregnantWoman';
 import DomainIcon from '@mui/icons-material/Domain';
 import BadgeIcon from '@mui/icons-material/Badge';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -27,7 +27,9 @@ import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { isSessionFailure } from '../utils/sessionFailure';
 import { DashboardCharts } from '../components/dashboard/DashboardCharts';
+import { DashboardEmployeeListDialog } from '../components/dashboard/DashboardEmployeeListDialog';
 import type { DeptRow, HireRow, StatusBreakdown } from '../components/dashboard/DashboardCharts';
 import * as employeeService from '../services/employeeService';
 
@@ -150,20 +152,21 @@ function StatWidget(props: {
 
 function normalizeStatusBreakdown(s: employeeService.DashboardStats | null): StatusBreakdown {
   if (!s) {
-    return { active: 0, onLeave: 0, terminated: 0 };
+    return { working: 0, maternityLeave: 0, trial: 0, terminated: 0 };
   }
   if (s.statusBreakdown) {
     return {
-      active: safeDisplayNumber(s.statusBreakdown.active),
-      onLeave: safeDisplayNumber(s.statusBreakdown.onLeave),
+      working: safeDisplayNumber(s.statusBreakdown.working),
+      maternityLeave: safeDisplayNumber(s.statusBreakdown.maternityLeave),
+      trial: safeDisplayNumber(s.statusBreakdown.trial),
       terminated: safeDisplayNumber(s.statusBreakdown.terminated),
     };
   }
-  const active = safeDisplayNumber(s.activeEmployees);
-  const onLeave = safeDisplayNumber(s.onLeave);
+  const working = Math.max(0, safeDisplayNumber(s.activeEmployees) - safeDisplayNumber(s.maternityLeave));
+  const maternityLeave = safeDisplayNumber(s.maternityLeave);
   const total = safeDisplayNumber(s.totalEmployees);
-  const terminated = Math.max(0, total - active - onLeave);
-  return { active, onLeave, terminated };
+  const terminated = Math.max(0, total - working - maternityLeave);
+  return { working, maternityLeave, trial: 0, terminated };
 }
 
 function normalizeDept(s: employeeService.DashboardStats | null): DeptRow[] {
@@ -171,8 +174,11 @@ function normalizeDept(s: employeeService.DashboardStats | null): DeptRow[] {
     return [];
   }
   return s.employeesByDepartment.map((d) => ({
+    departmentId: safeDisplayNumber(d.departmentId),
     departmentName: String(d.departmentName ?? '—'),
     count: safeDisplayNumber(d.count),
+    officialCount: safeDisplayNumber(d.officialCount),
+    trialCount: safeDisplayNumber(d.trialCount),
   }));
 }
 
@@ -185,8 +191,14 @@ function normalizeHires(s: employeeService.DashboardStats | null): HireRow[] {
     count: safeDisplayNumber(h.count),
     year: safeDisplayNumber(h.year),
     month: safeDisplayNumber(h.month),
+    officialCount: safeDisplayNumber(h.officialCount),
+    trialCount: safeDisplayNumber(h.trialCount),
   }));
 }
+
+type DrillDownState =
+  | { type: 'hire'; year: number; month: number; title: string; subtitle: string }
+  | { type: 'department'; departmentId: number; title: string; subtitle: string };
 
 export default function DashboardPage() {
   const theme = useTheme();
@@ -194,6 +206,9 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<employeeService.DashboardStats | null>(null);
   const [me, setMe] = useState<employeeService.EmployeeDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [drillDown, setDrillDown] = useState<DrillDownState | null>(null);
+  const [drillEmployees, setDrillEmployees] = useState<employeeService.EmployeeSummary[]>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -209,8 +224,10 @@ export default function DashboardPage() {
           const m = await employeeService.fetchMe();
           if (!cancelled) setMe(m);
         }
-      } catch {
-        if (!cancelled) setErr('Không tải được dữ liệu dashboard.');
+      } catch (e) {
+        if (!cancelled && !isSessionFailure(e)) {
+          setErr('Không tải được dữ liệu dashboard.');
+        }
       }
     })();
     return () => {
@@ -221,6 +238,50 @@ export default function DashboardPage() {
   const chartStatus = useMemo(() => normalizeStatusBreakdown(stats), [stats]);
   const chartDept = useMemo(() => normalizeDept(stats), [stats]);
   const chartHires = useMemo(() => normalizeHires(stats), [stats]);
+
+  useEffect(() => {
+    if (!drillDown) {
+      setDrillEmployees([]);
+      return;
+    }
+    let cancelled = false;
+    setDrillLoading(true);
+    (async () => {
+      try {
+        const rows =
+          drillDown.type === 'hire'
+            ? await employeeService.fetchDashboardHiresInMonth(drillDown.year, drillDown.month)
+            : await employeeService.fetchDashboardDepartmentEmployees(drillDown.departmentId);
+        if (!cancelled) setDrillEmployees(rows);
+      } catch {
+        if (!cancelled) setDrillEmployees([]);
+      } finally {
+        if (!cancelled) setDrillLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [drillDown]);
+
+  function openHireDrillDown(row: HireRow) {
+    setDrillDown({
+      type: 'hire',
+      year: row.year,
+      month: row.month,
+      title: `Nhân viên nhận việc tháng ${row.month}/${row.year}`,
+      subtitle: `${row.count} người (${row.officialCount} chính thức, ${row.trialCount} thử việc)`,
+    });
+  }
+
+  function openDepartmentDrillDown(row: DeptRow) {
+    setDrillDown({
+      type: 'department',
+      departmentId: row.departmentId,
+      title: row.departmentName,
+      subtitle: `${row.count} nhân viên (${row.officialCount} chính thức, ${row.trialCount} thử việc)`,
+    });
+  }
 
   const statCards =
     stats &&
@@ -256,9 +317,9 @@ export default function DashboardPage() {
         tone: 'success' as const,
       },
       {
-        label: 'Nghỉ phép',
-        value: stats.onLeave,
-        icon: <ApartmentIcon />,
+        label: 'Nghỉ thai sản',
+        value: stats.maternityLeave,
+        icon: <PregnantWomanIcon />,
         tone: 'warning' as const,
       },
       {
@@ -405,6 +466,17 @@ export default function DashboardPage() {
             statusBreakdown={chartStatus}
             employeesByDepartment={chartDept}
             hiresByMonth={chartHires}
+            onHireMonthClick={openHireDrillDown}
+            onDepartmentClick={openDepartmentDrillDown}
+          />
+          <DashboardEmployeeListDialog
+            open={drillDown != null}
+            title={drillDown?.title ?? ''}
+            subtitle={drillDown?.subtitle}
+            employees={drillEmployees}
+            loading={drillLoading}
+            showHireDate={drillDown?.type === 'hire'}
+            onClose={() => setDrillDown(null)}
           />
         </Box>
       )}

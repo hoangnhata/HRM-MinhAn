@@ -13,6 +13,7 @@ public class AccountMeResponse {
     String fullName;
     Long employeeId;
     boolean enabled;
+    boolean mustChangePassword;
     String createdAt;
     /** Khi có hồ sơ NV */
     String phone;

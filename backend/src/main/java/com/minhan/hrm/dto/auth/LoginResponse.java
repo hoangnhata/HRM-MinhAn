@@ -14,4 +14,5 @@ public class LoginResponse {
     Long employeeId;
     String fullName;
     String email;
+    boolean mustChangePassword;
 }

@@ -12,23 +12,23 @@ import java.time.LocalDate;
 @Data
 public class EmployeeCreateRequest {
 
-    @NotBlank
-    private String username;
-
-    @NotBlank
-    private String password;
+    @NotNull
+    private UserRole role;
 
     @Email
     @NotBlank
     private String email;
 
-    @NotNull
-    private UserRole role;
+    /** Bắt buộc với EMPLOYEE — dùng làm username đăng nhập. */
+    private String phone;
+
+    /** Chỉ dùng khi tạo tài khoản quản lý (HR / trưởng khoa / ĐD trưởng). */
+    private String username;
+    private String password;
 
     @NotBlank
     private String fullName;
 
-    private String phone;
     private String idCardNumber;
     private LocalDate dateOfBirth;
     private String address;

@@ -1,5 +1,6 @@
 package com.minhan.hrm.service;
 
+import com.minhan.hrm.account.EmployeeAccountProvisioner;
 import com.minhan.hrm.dto.employee.*;
 import com.minhan.hrm.entity.*;
 import com.minhan.hrm.exception.ApiException;
@@ -21,10 +22,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -40,13 +46,33 @@ public class EmployeeService {
     private final ContractRepository contractRepository;
     private final SalaryInfoRepository salaryInfoRepository;
     private final EmployeeWorkforceDetailsRepository employeeWorkforceDetailsRepository;
+    private final AttendanceWorkRequestRepository attendanceWorkRequestRepository;
+    private final AttendanceRecordRepository attendanceRecordRepository;
+    private final DutyShiftEntryRepository dutyShiftEntryRepository;
+    private final PayrollRecordRepository payrollRecordRepository;
+    private final NursingEvaluationRepository nursingEvaluationRepository;
+    private final EvaluationRepository evaluationRepository;
+    private final EmployeeSalaryProfileRepository employeeSalaryProfileRepository;
+    private final EmployeeDocumentRepository employeeDocumentRepository;
+    private final NotificationRepository notificationRepository;
+    private final FileStorageService fileStorageService;
+    private final EmployeeAccountProvisioner employeeAccountProvisioner;
     private final PasswordEncoder passwordEncoder;
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional(readOnly = true)
-    public Page<EmployeeSummaryDto> list(Pageable pageable, String q, Long departmentId, EmployeeStatus status) {
-        Specification<Employee> spec = EmployeeSpecifications.withFilters(q, departmentId, status);
-        return employeeRepository.findAll(spec, pageable).map(EmployeeMapper::toSummary);
+    public Page<EmployeeSummaryDto> list(
+            Pageable pageable, String q, Long departmentId, EmployeeStatus status, EmployeeStatusGroup statusGroup,
+            OfficialWorkFilter officialWorkFilter) {
+        Specification<Employee> spec = EmployeeSpecifications.withFilters(
+                q, departmentId, status, statusGroup, officialWorkFilter);
+        Page<Employee> page = employeeRepository.findAll(spec, pageable);
+        List<Employee> content = page.getContent();
+        Map<Long, EmployeeWorkforceDetails> workforceByEmployeeId = content.isEmpty()
+                ? Map.of()
+                : employeeWorkforceDetailsRepository.findByEmployeeIn(content).stream()
+                        .collect(Collectors.toMap(w -> w.getEmployee().getId(), Function.identity()));
+        return page.map(emp -> EmployeeMapper.toSummary(emp, workforceByEmployeeId.get(emp.getId())));
     }
 
     @Transactional(readOnly = true)
@@ -65,29 +91,47 @@ public class EmployeeService {
         return loadDetail(e);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
     public EmployeeDetailDto create(EmployeeCreateRequest req) {
         if (req.getRole() == null || !CREATABLE_ROLES.contains(req.getRole())) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "Vai trò tạo được: EMPLOYEE, HR, HEAD_DEPARTMENT, HEAD_NURSING");
         }
-        if (userAccountRepository.existsByUsername(req.getUsername())) {
-            throw new ApiException(HttpStatus.CONFLICT, "Username đã tồn tại");
-        }
         Department dept = departmentRepository.findById(req.getDepartmentId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phòng ban"));
         Position pos = positionRepository.findById(req.getPositionId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chức vụ"));
 
-        UserAccount user = UserAccount.builder()
-                .username(req.getUsername())
-                .passwordHash(passwordEncoder.encode(req.getPassword()))
-                .email(req.getEmail())
-                .role(req.getRole())
-                .enabled(true)
-                .build();
-        user = userAccountRepository.save(user);
+        UserAccount user;
+        if (req.getRole() == UserRole.EMPLOYEE) {
+            if (req.getPhone() == null || req.getPhone().isBlank()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "Cần nhập số điện thoại — dùng làm tên đăng nhập (mật khẩu mặc định 123)");
+            }
+            user = employeeAccountProvisioner.buildNewEmployeeUser(
+                    req.getPhone(), null, req.getEmail().trim());
+            user = userAccountRepository.save(user);
+        } else {
+            if (req.getUsername() == null || req.getUsername().isBlank()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Cần username");
+            }
+            if (req.getPassword() == null || req.getPassword().isBlank()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Cần mật khẩu");
+            }
+            if (userAccountRepository.existsByUsername(req.getUsername())) {
+                throw new ApiException(HttpStatus.CONFLICT, "Username đã tồn tại");
+            }
+            user = UserAccount.builder()
+                    .username(req.getUsername().trim())
+                    .passwordHash(passwordEncoder.encode(req.getPassword()))
+                    .email(req.getEmail().trim())
+                    .role(req.getRole())
+                    .enabled(true)
+                    .mustChangePassword(false)
+                    .build();
+            user = userAccountRepository.save(user);
+        }
 
         Employee emp = Employee.builder()
                 .user(user)
@@ -130,7 +174,7 @@ public class EmployeeService {
                 .toList();
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
     public EmployeeDetailDto update(Long id, EmployeeUpdateRequest req) {
         Employee e = employeeRepository.findById(id)
@@ -180,6 +224,10 @@ public class EmployeeService {
         e.setStatus(req.getStatus());
         employeeRepository.save(e);
 
+        if (req.getHireDate() != null && isTrialStatus(e.getStatus())) {
+            syncProbationStartDate(e, req.getHireDate());
+        }
+
         boolean touchSalary = req.getBaseSalary() != null || req.getAllowance() != null
                 || req.getLastRaiseDate() != null || req.getNextReviewDate() != null;
         if (touchSalary) {
@@ -207,7 +255,18 @@ public class EmployeeService {
         return loadDetail(e);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    private static boolean isTrialStatus(EmployeeStatus status) {
+        return status == EmployeeStatus.PROBATION || status == EmployeeStatus.INTERN;
+    }
+
+    private void syncProbationStartDate(Employee e, LocalDate startDate) {
+        EmployeeWorkforceDetails w = employeeWorkforceDetailsRepository.findByEmployee(e)
+                .orElse(EmployeeWorkforceDetails.builder().employee(e).build());
+        w.setProbationStartDate(startDate);
+        employeeWorkforceDetailsRepository.save(w);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
     public void delete(Long id) {
         Employee e = employeeRepository.findById(id)
@@ -215,6 +274,87 @@ public class EmployeeService {
         e.setStatus(EmployeeStatus.TERMINATED);
         e.getUser().setEnabled(false);
         employeeRepository.save(e);
+    }
+
+    /** Xóa vĩnh viễn hồ sơ nhân viên đã nghỉ việc (và tài khoản liên quan). */
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Transactional
+    public void permanentlyDelete(Long id) {
+        Employee e = employeeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhân viên"));
+        if (e.getStatus() != EmployeeStatus.TERMINATED) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Chỉ xóa hẳn được nhân viên đã nghỉ việc");
+        }
+        UserAccount user = e.getUser();
+        Long employeeId = e.getId();
+
+        deleteStoredDocuments(e);
+        attendanceWorkRequestRepository.deleteByEmployee_Id(employeeId);
+        attendanceRecordRepository.deleteByEmployee_Id(employeeId);
+        dutyShiftEntryRepository.deleteByEmployee_Id(employeeId);
+        payrollRecordRepository.deleteByEmployee_Id(employeeId);
+        nursingEvaluationRepository.deleteByEmployee_Id(employeeId);
+        evaluationRepository.deleteByEmployee_Id(employeeId);
+        contractRepository.deleteByEmployee_Id(employeeId);
+        employeeSalaryProfileRepository.deleteByEmployee_Id(employeeId);
+        salaryInfoRepository.deleteByEmployee_Id(employeeId);
+        employeeWorkforceDetailsRepository.deleteById(employeeId);
+        notificationRepository.clearRelatedEmployee(employeeId);
+
+        detachUserReferences(user);
+        employeeRepository.delete(e);
+        userAccountRepository.delete(user);
+    }
+
+    private void detachUserReferences(UserAccount user) {
+        UserAccount fallback = userAccountRepository.findByRoleIn(List.of(UserRole.ADMIN, UserRole.HR)).stream()
+                .filter(u -> !u.getId().equals(user.getId()))
+                .findFirst()
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT,
+                        "Không xóa được tài khoản: cần tài khoản ADMIN/HR khác để chuyển dữ liệu tham chiếu"));
+        nursingEvaluationRepository.reassignEvaluator(user, fallback);
+        evaluationRepository.reassignEvaluator(user, fallback);
+        employeeDocumentRepository.clearUploader(user);
+        dutyShiftEntryRepository.clearEnteredBy(user);
+        notificationRepository.deleteByUser_Id(user.getId());
+    }
+
+    private void deleteStoredDocuments(Employee employee) {
+        employeeDocumentRepository.findByEmployeeOrderByCreatedAtDesc(employee).forEach(doc -> {
+            try {
+                Path path = fileStorageService.resolveStoredPath(doc.getStoredPath());
+                Files.deleteIfExists(path);
+            } catch (Exception ignored) {
+                // vẫn xóa bản ghi DB
+            }
+        });
+        employeeDocumentRepository.deleteByEmployee_Id(employee.getId());
+    }
+
+    /** Chuyển nhân viên thử việc / thực tập lên chính thức. */
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Transactional
+    public EmployeeDetailDto confirmOfficial(Long id, LocalDate officialDate) {
+        Employee e = employeeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhân viên"));
+        if (e.getStatus() != EmployeeStatus.PROBATION && e.getStatus() != EmployeeStatus.INTERN) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Chỉ chuyển chính thức được nhân viên thử việc hoặc thực tập");
+        }
+        LocalDate effective = officialDate != null ? officialDate : LocalDate.now();
+        LocalDate previousHire = e.getHireDate();
+        e.setStatus(EmployeeStatus.ACTIVE);
+        e.setHireDate(effective);
+        employeeRepository.save(e);
+
+        EmployeeWorkforceDetails w = employeeWorkforceDetailsRepository.findByEmployee(e)
+                .orElse(EmployeeWorkforceDetails.builder().employee(e).build());
+        if (w.getProbationStartDate() == null) {
+            w.setProbationStartDate(previousHire);
+        }
+        w.setOfficialStartDate(effective);
+        employeeWorkforceDetailsRepository.save(w);
+
+        return loadDetail(e);
     }
 
     private EmployeeDetailDto loadDetail(Employee e) {

@@ -12,10 +12,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalTime;
-
 /**
  * Seed dữ liệu mẫu khi DB trống (bật mặc định; tắt bằng --spring.profiles.active=prod).
  */
@@ -30,12 +26,7 @@ public class DataSeedRunner implements ApplicationRunner {
     private final PositionRepository positionRepository;
     private final UserAccountRepository userAccountRepository;
     private final EmployeeRepository employeeRepository;
-    private final SalaryInfoRepository salaryInfoRepository;
-    private final ContractRepository contractRepository;
     private final InternalAnnouncementRepository announcementRepository;
-    private final NotificationRepository notificationRepository;
-    private final AttendanceRecordRepository attendanceRecordRepository;
-    private final PayrollRecordRepository payrollRecordRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Override
@@ -54,8 +45,6 @@ public class DataSeedRunner implements ApplicationRunner {
         Department deptHcns = departmentRepository.save(Department.builder()
                 .code("HCNS").name("Phòng Hành chính — Nhân sự").build());
 
-        Position posBs = positionRepository.save(Position.builder()
-                .code("BS").title("Bác sĩ").levelRank(3).build());
         Position posHcnsNv = positionRepository.save(Position.builder()
                 .code("HCNS_NV").title("Chuyên viên HCNS").levelRank(2).build());
         Position posTk = positionRepository.save(Position.builder()
@@ -69,29 +58,7 @@ public class DataSeedRunner implements ApplicationRunner {
                 .email("admin@minhan.vn")
                 .role(UserRole.ADMIN)
                 .enabled(true)
-                .build());
-
-        UserAccount empUser = userAccountRepository.save(UserAccount.builder()
-                .username("nhanvien")
-                .passwordHash(passwordEncoder.encode("Emp@123"))
-                .email("nv@minhan.vn")
-                .role(UserRole.EMPLOYEE)
-                .enabled(true)
-                .build());
-
-        Employee emp = employeeRepository.save(Employee.builder()
-                .user(empUser)
-                .employeeCode("NV-DEMO-001")
-                .fullName("Lê Văn Nhân viên")
-                .phone("0901000002")
-                .idCardNumber("079012345678")
-                .dateOfBirth(LocalDate.of(1992, 5, 20))
-                .address("TP.HCM")
-                .gender("MALE")
-                .department(deptNoi)
-                .position(posBs)
-                .hireDate(LocalDate.of(2021, 6, 1))
-                .status(EmployeeStatus.ACTIVE)
+                .mustChangePassword(false)
                 .build());
 
         UserAccount hrUser = userAccountRepository.save(UserAccount.builder()
@@ -100,6 +67,7 @@ public class DataSeedRunner implements ApplicationRunner {
                 .email("hcns@minhan.vn")
                 .role(UserRole.HR)
                 .enabled(true)
+                .mustChangePassword(false)
                 .build());
 
         UserAccount tkUser = userAccountRepository.save(UserAccount.builder()
@@ -108,6 +76,7 @@ public class DataSeedRunner implements ApplicationRunner {
                 .email("truongkhoa@minhan.vn")
                 .role(UserRole.HEAD_DEPARTMENT)
                 .enabled(true)
+                .mustChangePassword(false)
                 .build());
 
         UserAccount ddtUser = userAccountRepository.save(UserAccount.builder()
@@ -116,16 +85,17 @@ public class DataSeedRunner implements ApplicationRunner {
                 .email("ddt@minhan.vn")
                 .role(UserRole.HEAD_NURSING)
                 .enabled(true)
+                .mustChangePassword(false)
                 .build());
 
-        Employee hrEmp = employeeRepository.save(Employee.builder()
+        employeeRepository.save(Employee.builder()
                 .user(hrUser)
                 .employeeCode("HCNS-001")
                 .fullName("Trần Thị HCNS")
                 .phone("0901000003")
                 .department(deptHcns)
                 .position(posHcnsNv)
-                .hireDate(LocalDate.of(2020, 1, 1))
+                .hireDate(java.time.LocalDate.of(2020, 1, 1))
                 .status(EmployeeStatus.ACTIVE)
                 .build());
 
@@ -136,7 +106,7 @@ public class DataSeedRunner implements ApplicationRunner {
                 .phone("0901000004")
                 .department(deptNoi)
                 .position(posTk)
-                .hireDate(LocalDate.of(2018, 3, 1))
+                .hireDate(java.time.LocalDate.of(2018, 3, 1))
                 .status(EmployeeStatus.ACTIVE)
                 .build());
 
@@ -147,24 +117,8 @@ public class DataSeedRunner implements ApplicationRunner {
                 .phone("0901000005")
                 .department(deptNoi)
                 .position(posDdt)
-                .hireDate(LocalDate.of(2019, 2, 1))
+                .hireDate(java.time.LocalDate.of(2019, 2, 1))
                 .status(EmployeeStatus.ACTIVE)
-                .build());
-
-        salaryInfoRepository.save(SalaryInfo.builder()
-                .employee(emp)
-                .baseSalary(new BigDecimal("22000000"))
-                .allowance(new BigDecimal("1500000"))
-                .lastRaiseDate(LocalDate.of(2024, 6, 1))
-                .nextReviewDate(LocalDate.now().plusDays(12))
-                .build());
-
-        contractRepository.save(Contract.builder()
-                .employee(emp)
-                .contractType("Xác định thời hạn 36 tháng")
-                .startDate(LocalDate.of(2021, 6, 1))
-                .endDate(LocalDate.of(2024, 6, 1))
-                .salaryBase(new BigDecimal("20000000"))
                 .build());
 
         announcementRepository.save(InternalAnnouncement.builder()
@@ -175,36 +129,6 @@ public class DataSeedRunner implements ApplicationRunner {
                 .author(admin)
                 .build());
 
-        notificationRepository.save(Notification.builder()
-                .user(empUser)
-                .category(NotificationCategory.INTERNAL)
-                .title("Chào mừng đến HRM Bệnh viện Minh An")
-                .message("Vui lòng cập nhật hồ sơ cá nhân. ADMIN có thể import Excel nhân lực và nhập đánh giá điều dưỡng.")
-                .opened(false)
-                .relatedEmployee(emp)
-                .build());
-
-        LocalDate d = LocalDate.now().withDayOfMonth(1);
-        attendanceRecordRepository.save(AttendanceRecord.builder()
-                .employee(emp)
-                .workDate(d)
-                .checkIn(LocalTime.of(7, 45))
-                .checkOut(LocalTime.of(17, 10))
-                .status("PRESENT")
-                .build());
-
-        payrollRecordRepository.save(PayrollRecord.builder()
-                .employee(emp)
-                .periodYear(d.getYear())
-                .periodMonth(d.getMonthValue())
-                .workingDays(22)
-                .grossAmount(new BigDecimal("23500000"))
-                .deductionAmount(new BigDecimal("1500000"))
-                .netAmount(new BigDecimal("22000000"))
-                .finalized(true)
-                .build());
-
-        log.info(
-                "Data seed: admin/Admin@123, nhanvien/Emp@123, hcns/Hcns@123 (HCNS), truongkhoa/Tk@12345, dieuduongtruong/Ddt@12345");
+        log.info("Data seed: admin, hcns, truongkhoa, dieuduongtruong (không có tài khoản demo nhanvien)");
     }
 }

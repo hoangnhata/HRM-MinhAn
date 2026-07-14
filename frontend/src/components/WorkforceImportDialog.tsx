@@ -49,7 +49,7 @@ export function WorkforceImportDialog({ open, onClose, onImported }: Props) {
       setResult(r);
       onImported?.();
     } catch {
-      setErr('Import thất bại. Kiểm tra định dạng file và quyền ADMIN.');
+      setErr('Import thất bại. Kiểm tra định dạng file và quyền HCNS/ADMIN.');
     } finally {
       setLoading(false);
     }
@@ -60,8 +60,8 @@ export function WorkforceImportDialog({ open, onClose, onImported }: Props) {
       <DialogTitle>Import nhân lực từ Excel</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          File mẫu: <strong>TỔNG HỢP THÔNG TIN NHÂN LỰC.BVMA.xlsx</strong> — sheet đầu tiên, dòng 1 là tiêu đề cột. Hệ thống map
-          các cột vào hồ sơ mở rộng. Mã nhân viên dùng để cập nhật nếu đã tồn tại.
+          File mẫu: <strong>TỔNG HỢP THÔNG TIN NHÂN LỰC.BVMA.xlsx</strong> — hỗ trợ sheet{' '}
+          <em>Danh sách NV chính thức</em> và <em>Thử việcThực tập</em>. Hệ thống tự nhận diện sheet và map cột vào hồ sơ.
         </Typography>
 
         <Box component="form" id="workforce-import-form" onSubmit={onSubmit}>
@@ -94,6 +94,11 @@ export function WorkforceImportDialog({ open, onClose, onImported }: Props) {
             </Typography>
             <Typography variant="body2">Tạo mới: {result.created}</Typography>
             <Typography variant="body2">Cập nhật: {result.updated}</Typography>
+            {result.sheetsProcessed && result.sheetsProcessed.length > 0 && (
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                Sheet đã xử lý: {result.sheetsProcessed.join(', ')}
+              </Typography>
+            )}
             {result.errors.length > 0 && (
               <Box sx={{ mt: 2 }}>
                 <Typography color="error" fontWeight={600}>
@@ -103,7 +108,7 @@ export function WorkforceImportDialog({ open, onClose, onImported }: Props) {
                   {result.errors.map((x, i) => (
                     <li key={i}>
                       <Typography variant="body2" component="span">
-                        Dòng {x.row}: {x.message}
+                        {x.sheet ? `${x.sheet} — ` : ''}Dòng {x.row}: {x.message}
                       </Typography>
                     </li>
                   ))}

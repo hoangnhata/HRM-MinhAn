@@ -1,10 +1,13 @@
 package com.minhan.hrm.controller;
 
+import com.minhan.hrm.dto.employee.ConfirmOfficialRequest;
 import com.minhan.hrm.dto.employee.EmployeeCreateRequest;
 import com.minhan.hrm.dto.employee.EmployeeDetailDto;
 import com.minhan.hrm.dto.employee.EmployeeSummaryDto;
 import com.minhan.hrm.dto.employee.EmployeeUpdateRequest;
 import com.minhan.hrm.entity.EmployeeStatus;
+import com.minhan.hrm.entity.EmployeeStatusGroup;
+import com.minhan.hrm.entity.OfficialWorkFilter;
 import com.minhan.hrm.service.EmployeeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -30,14 +33,16 @@ public class EmployeeController {
     private final EmployeeService employeeService;
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Danh sách nhân viên (phân trang, lọc theo tên/mã/username, phòng ban, trạng thái)")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Danh sách nhân viên (phân trang, lọc theo tên/mã/username, phòng ban, trạng thái hoặc nhóm tab)")
     public Page<EmployeeSummaryDto> list(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Long departmentId,
-            @RequestParam(required = false) EmployeeStatus status) {
-        return employeeService.list(pageable, q, departmentId, status);
+            @RequestParam(required = false) EmployeeStatus status,
+            @RequestParam(required = false) EmployeeStatusGroup statusGroup,
+            @RequestParam(required = false) OfficialWorkFilter officialWorkFilter) {
+        return employeeService.list(pageable, q, departmentId, status, statusGroup, officialWorkFilter);
     }
 
     @GetMapping("/me")
@@ -61,24 +66,41 @@ public class EmployeeController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Operation(summary = "Tạo tài khoản + hồ sơ nhân viên")
     public EmployeeDetailDto create(@Valid @RequestBody EmployeeCreateRequest request) {
         return employeeService.create(request);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Operation(summary = "Cập nhật hồ sơ, tài khoản và lương")
     public EmployeeDetailDto update(@PathVariable Long id, @Valid @RequestBody EmployeeUpdateRequest request) {
         return employeeService.update(id, request);
     }
 
+    @PostMapping("/{id}/confirm-official")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Chuyển nhân viên thử việc / thực tập lên chính thức")
+    public EmployeeDetailDto confirmOfficial(
+            @PathVariable Long id,
+            @RequestBody(required = false) ConfirmOfficialRequest request) {
+        return employeeService.confirmOfficial(id, request != null ? request.getOfficialDate() : null);
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Vô hiệu hóa nhân viên (ADMIN)")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Nghỉ việc — vô hiệu hóa tài khoản")
     public void delete(@PathVariable Long id) {
         employeeService.delete(id);
+    }
+
+    @DeleteMapping("/{id}/permanent")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Xóa vĩnh viễn hồ sơ nhân viên đã nghỉ việc")
+    public void permanentlyDelete(@PathVariable Long id) {
+        employeeService.permanentlyDelete(id);
     }
 }

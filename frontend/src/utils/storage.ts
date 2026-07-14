@@ -7,6 +7,7 @@ export type StoredUser = {
   employeeId: number | null;
   fullName: string;
   email?: string;
+  mustChangePassword?: boolean;
 };
 
 export function getToken(): string | null {

@@ -1,0 +1,2 @@
+-- Mở rộng trạng thái nhân viên: PROBATION (thử việc), INTERN (thực tập)
+-- Cột status đã là VARCHAR — không cần đổi schema.

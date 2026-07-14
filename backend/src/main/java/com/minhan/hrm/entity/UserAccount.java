@@ -36,6 +36,10 @@ public class UserAccount {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    /** Bắt đổi mật khẩu sau lần đăng nhập đầu (tài khoản NV mới / import). */
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
     @OneToOne(mappedBy = "user", fetch = FetchType.LAZY)
     private Employee employee;
 

@@ -16,8 +16,20 @@ public class EmployeeSummaryDto {
     String username;
     String fullName;
     String departmentName;
+    /** Bộ phận / đơn vị chi tiết (từ hồ sơ nhân lực). */
+    String workUnitDetail;
     String positionTitle;
     UserRole role;
     EmployeeStatus status;
     LocalDate hireDate;
+    /** Ngày bắt đầu thử việc / thực tập (nếu có). */
+    LocalDate probationStartDate;
+    /** Số tháng đã thử việc (tính đến hôm nay). */
+    Integer probationMonths;
+    /** Quá 3 tháng thử việc — cần chuyển chính thức hoặc gia hạn. */
+    Boolean probationOverdue;
+    /** Giá trị cột tham gia BHXH từ hồ sơ nhân lực. */
+    String insuranceParticipation;
+    /** Đang nghỉ thai sản (theo cột tham gia BHXH). */
+    Boolean maternityLeave;
 }

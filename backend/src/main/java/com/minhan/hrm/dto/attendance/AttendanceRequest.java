@@ -18,8 +18,12 @@ public class AttendanceRequest {
     private LocalTime checkIn;
     private LocalTime checkOut;
 
-    @NotNull
     private String status;
 
     private String note;
+
+    private LocalTime morningCheckIn;
+    private LocalTime morningCheckOut;
+    private LocalTime afternoonCheckIn;
+    private LocalTime afternoonCheckOut;
 }

@@ -13,6 +13,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useEffect, useState } from 'react';
+import { DatePickerField } from './ui/DateTimeFields';
 import * as employeeService from '../services/employeeService';
 
 function toInputDate(s: string | undefined | null): string {
@@ -51,7 +52,7 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
   const [allowance, setAllowance] = useState('0');
   const [lastRaiseDate, setLastRaiseDate] = useState('');
   const [nextReviewDate, setNextReviewDate] = useState('');
-  const [status, setStatus] = useState<'ACTIVE' | 'ON_LEAVE' | 'TERMINATED'>('ACTIVE');
+  const [status, setStatus] = useState<'ACTIVE' | 'PROBATION' | 'INTERN' | 'ON_LEAVE' | 'TERMINATED'>('ACTIVE');
   const [accountRole, setAccountRole] = useState<employeeService.EmployeeAccountRole>('EMPLOYEE');
 
   useEffect(() => {
@@ -107,7 +108,7 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
           setAllowance(sal != null ? String(sal.allowance ?? 0) : '0');
           setLastRaiseDate(toInputDate(sal?.lastRaiseDate));
           setNextReviewDate(toInputDate(sal?.nextReviewDate));
-          setStatus(e.status as 'ACTIVE' | 'ON_LEAVE' | 'TERMINATED');
+          setStatus(e.status as 'ACTIVE' | 'PROBATION' | 'INTERN' | 'ON_LEAVE' | 'TERMINATED');
           setAccountRole((e.role as employeeService.EmployeeAccountRole) || 'EMPLOYEE');
         })
         .catch(() => setErr('Không tải được hồ sơ.'))
@@ -129,8 +130,17 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
     e.preventDefault();
     setErr(null);
     if (mode === 'create') {
-      if (!username.trim() || !password || !email.trim() || !fullName.trim()) {
-        setErr('Điền đủ username, mật khẩu, email và họ tên.');
+      if (!email.trim() || !fullName.trim()) {
+        setErr('Điền đủ email và họ tên.');
+        return;
+      }
+      if (accountRole === 'EMPLOYEE') {
+        if (!phone.trim()) {
+          setErr('Nhập số điện thoại — dùng làm tên đăng nhập (mật khẩu mặc định 123).');
+          return;
+        }
+      } else if (!username.trim() || !password) {
+        setErr('Điền username và mật khẩu cho tài khoản quản lý.');
         return;
       }
       if (departmentId === '' || positionId === '') {
@@ -140,12 +150,13 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
       setSaving(true);
       try {
         await employeeService.createEmployee({
-          username: username.trim(),
-          password,
           email: email.trim(),
           role: accountRole as employeeService.CreatableUserRole,
           fullName: fullName.trim(),
           phone: phone.trim() || undefined,
+          ...(accountRole !== 'EMPLOYEE'
+            ? { username: username.trim(), password }
+            : {}),
           idCardNumber: idCardNumber.trim() || undefined,
           dateOfBirth: dateOfBirth || undefined,
           address: address.trim() || undefined,
@@ -226,37 +237,6 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
                     Tài khoản đăng nhập
                   </Typography>
                   <Grid container spacing={2}>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        label="Tên đăng nhập"
-                        fullWidth
-                        required
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        autoComplete="off"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        label="Mật khẩu"
-                        type="password"
-                        fullWidth
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        autoComplete="new-password"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        label="Email"
-                        type="email"
-                        fullWidth
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                      />
-                    </Grid>
                     <Grid item xs={12}>
                       <TextField
                         select
@@ -273,6 +253,64 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
                         <MenuItem value="HEAD_NURSING">Điều dưỡng trưởng</MenuItem>
                       </TextField>
                     </Grid>
+                    {accountRole === 'EMPLOYEE' ? (
+                      <>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            label="Số điện thoại (tên đăng nhập)"
+                            fullWidth
+                            required
+                            value={phone}
+                            onChange={(e) => setPhone(e.target.value)}
+                            helperText="Mật khẩu mặc định: 123 — đổi ngay lần đăng nhập đầu."
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            label="Email"
+                            type="email"
+                            fullWidth
+                            required
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                          />
+                        </Grid>
+                      </>
+                    ) : (
+                      <>
+                        <Grid item xs={12} sm={4}>
+                          <TextField
+                            label="Tên đăng nhập"
+                            fullWidth
+                            required
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            autoComplete="off"
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={4}>
+                          <TextField
+                            label="Mật khẩu"
+                            type="password"
+                            fullWidth
+                            required
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            autoComplete="new-password"
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={4}>
+                          <TextField
+                            label="Email"
+                            type="email"
+                            fullWidth
+                            required
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                          />
+                        </Grid>
+                      </>
+                    )}
                   </Grid>
                 </>
               )}
@@ -325,13 +363,10 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
                   <TextField label="CCCD/CMND" fullWidth value={idCardNumber} onChange={(e) => setIdCardNumber(e.target.value)} />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField
+                  <DatePickerField
                     label="Ngày sinh"
-                    type="date"
-                    fullWidth
-                    InputLabelProps={{ shrink: true }}
                     value={dateOfBirth}
-                    onChange={(e) => setDateOfBirth(e.target.value)}
+                    onChange={setDateOfBirth}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -383,13 +418,12 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
                   </TextField>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField
-                    label="Ngày vào làm"
-                    type="date"
-                    fullWidth
-                    InputLabelProps={{ shrink: true }}
+                  <DatePickerField
+                    label={
+                      status === 'PROBATION' || status === 'INTERN' ? 'Từ ngày (thử việc)' : 'Ngày vào làm'
+                    }
                     value={hireDate}
-                    onChange={(e) => setHireDate(e.target.value)}
+                    onChange={setHireDate}
                   />
                 </Grid>
                 {mode === 'create' && (
@@ -432,23 +466,17 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
                       />
                     </Grid>
                     <Grid item xs={12} sm={6}>
-                      <TextField
+                      <DatePickerField
                         label="Ngày tăng lương gần nhất"
-                        type="date"
-                        fullWidth
-                        InputLabelProps={{ shrink: true }}
                         value={lastRaiseDate}
-                        onChange={(e) => setLastRaiseDate(e.target.value)}
+                        onChange={setLastRaiseDate}
                       />
                     </Grid>
                     <Grid item xs={12} sm={6}>
-                      <TextField
+                      <DatePickerField
                         label="Ngày xét lương tiếp theo"
-                        type="date"
-                        fullWidth
-                        InputLabelProps={{ shrink: true }}
                         value={nextReviewDate}
-                        onChange={(e) => setNextReviewDate(e.target.value)}
+                        onChange={setNextReviewDate}
                       />
                     </Grid>
                     <Grid item xs={12} sm={6}>
@@ -460,9 +488,11 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
                         value={status}
                         onChange={(e) => setStatus(e.target.value as typeof status)}
                       >
-                        <MenuItem value="ACTIVE">Đang làm việc</MenuItem>
+                        <MenuItem value="ACTIVE">Chính thức</MenuItem>
+                        <MenuItem value="PROBATION">Thử việc</MenuItem>
+                        <MenuItem value="INTERN">Thực tập</MenuItem>
                         <MenuItem value="ON_LEAVE">Nghỉ phép</MenuItem>
-                        <MenuItem value="TERMINATED">Đã nghỉ việc</MenuItem>
+                        <MenuItem value="TERMINATED">Nghỉ việc</MenuItem>
                       </TextField>
                     </Grid>
                   </>

@@ -78,6 +78,7 @@ public class AccountService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Mật khẩu hiện tại không đúng");
         }
         u.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
+        u.setMustChangePassword(false);
         userAccountRepository.save(u);
     }
 
@@ -94,6 +95,7 @@ public class AccountService {
                 .email(u.getEmail())
                 .role(u.getRole().name())
                 .enabled(u.isEnabled())
+                .mustChangePassword(u.isMustChangePassword())
                 .createdAt(u.getCreatedAt().toString());
         return employeeRepository
                 .findByUser(u)

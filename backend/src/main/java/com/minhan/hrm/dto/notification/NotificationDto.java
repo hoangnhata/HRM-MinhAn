@@ -20,4 +20,6 @@ public class NotificationDto {
     Long relatedAnnouncementId;
     /** Bảng lương/công/lương đột xuất — hiển thị cảnh báo bảo mật phía client */
     boolean sensitive;
+    /** Đường dẫn SPA khi bấm thông báo (ví dụ /work?tab=requests). */
+    String actionPath;
 }

@@ -5,11 +5,12 @@ export type LoginBody = { username: string; password: string };
 export type LoginResponse = {
   accessToken: string;
   tokenType: string;
-  role: 'ADMIN' | 'EMPLOYEE';
+  role: string;
   userId: number;
   employeeId: number | null;
   fullName: string;
   email?: string;
+  mustChangePassword?: boolean;
 };
 
 export async function login(body: LoginBody): Promise<LoginResponse> {

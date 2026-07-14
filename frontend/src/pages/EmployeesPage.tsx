@@ -1,13 +1,18 @@
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import {
+  Alert,
   Backdrop,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -30,23 +35,53 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { EmployeeFormDialog } from '../components/EmployeeFormDialog';
+import { EmployeeStatusChip } from '../components/EmployeeStatusChip';
+import { MaternityLeaveChip } from '../components/MaternityLeaveChip';
 import { PageHeader } from '../components/layout/PageHeader';
 import { WorkforceImportDialog } from '../components/WorkforceImportDialog';
 import * as documentService from '../services/documentService';
 import * as employeeService from '../services/employeeService';
 
-const STATUS_OPTIONS = [
-  { value: '', label: 'Tất cả trạng thái' },
-  { value: 'ACTIVE', label: 'Đang làm việc' },
-  { value: 'ON_LEAVE', label: 'Nghỉ phép' },
-  { value: 'TERMINATED', label: 'Đã nghỉ việc' },
-];
+type StatusTab = employeeService.EmployeeStatusGroup;
+
+const CATEGORY_META: Record<
+  StatusTab,
+  { title: string; description: string }
+> = {
+  OFFICIAL: {
+    title: 'Nhân viên chính thức',
+    description: 'Danh sách nhân viên đang làm việc chính thức và nghỉ phép tạm.',
+  },
+  TRIAL: {
+    title: 'Thử việc / Thực tập',
+    description: 'Theo dõi thời gian thử việc, cảnh báo quá 3 tháng và chuyển chính thức.',
+  },
+  TERMINATED: {
+    title: 'Nhân viên nghỉ việc',
+    description: 'Hồ sơ nhân viên đã nghỉ việc — tra cứu và quản lý lưu trữ.',
+  },
+};
+
+function categoryFromPath(pathname: string): StatusTab {
+  if (pathname.includes('/employees/trial')) return 'TRIAL';
+  if (pathname.includes('/employees/terminated')) return 'TERMINATED';
+  return 'OFFICIAL';
+}
+
+function formatDate(iso?: string | null) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  return d && m && y ? `${d}/${m}/${y}` : iso;
+}
 
 export default function EmployeesPage() {
   const theme = useTheme();
+  const location = useLocation();
+  const statusTab = useMemo(() => categoryFromPath(location.pathname), [location.pathname]);
+  const categoryMeta = CATEGORY_META[statusTab];
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<employeeService.EmployeeSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -57,15 +92,21 @@ export default function EmployeesPage() {
   const [qInput, setQInput] = useState('');
   const [q, setQ] = useState('');
   const [filterDept, setFilterDept] = useState<number | ''>('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterWork, setFilterWork] = useState<employeeService.OfficialWorkFilter | ''>('');
   const [departments, setDepartments] = useState<employeeService.DepartmentOption[]>([]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   const [editEmployeeId, setEditEmployeeId] = useState<number | undefined>();
 
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [terminateTarget, setTerminateTarget] = useState<{ id: number; name: string } | null>(null);
+  const [terminating, setTerminating] = useState(false);
+
+  const [purgeTarget, setPurgeTarget] = useState<{ id: number; name: string } | null>(null);
+  const [purging, setPurging] = useState(false);
+
+  const [confirmTarget, setConfirmTarget] = useState<{ id: number; name: string } | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const [replaceDialogEmployeeId, setReplaceDialogEmployeeId] = useState<number | null>(null);
   const [pdfLoadingId, setPdfLoadingId] = useState<number | null>(null);
@@ -74,6 +115,11 @@ export default function EmployeesPage() {
 
   const pdfTargetRef = useRef<{ employeeId: number; replace: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isTrialTab = statusTab === 'TRIAL';
+  const isTerminatedTab = statusTab === 'TERMINATED';
+  const isOfficialTab = statusTab === 'OFFICIAL';
+  const overdueCount = rows.filter((r) => r.probationOverdue).length;
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -84,8 +130,9 @@ export default function EmployeesPage() {
   }, [qInput]);
 
   useEffect(() => {
-    employeeService.fetchDepartments().then(setDepartments).catch(() => {});
-  }, []);
+    setPage(0);
+    setFilterWork('');
+  }, [statusTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +142,8 @@ export default function EmployeesPage() {
         size,
         q: q.trim() || undefined,
         departmentId: filterDept === '' ? undefined : filterDept,
-        status: filterStatus || undefined,
+        statusGroup: statusTab,
+        officialWorkFilter: isOfficialTab && filterWork ? filterWork : undefined,
       });
       if (!cancelled) {
         setRows(data.content);
@@ -105,7 +153,11 @@ export default function EmployeesPage() {
     return () => {
       cancelled = true;
     };
-  }, [page, size, listVersion, q, filterDept, filterStatus]);
+  }, [page, size, listVersion, q, filterDept, statusTab, filterWork, isOfficialTab]);
+
+  useEffect(() => {
+    employeeService.fetchDepartments().then(setDepartments).catch(() => {});
+  }, []);
 
   function openCreate() {
     setFormMode('create');
@@ -119,18 +171,48 @@ export default function EmployeesPage() {
     setFormOpen(true);
   }
 
-  async function confirmDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
+  async function confirmPurge() {
+    if (!purgeTarget) return;
+    setPurging(true);
     try {
-      await employeeService.deleteEmployee(deleteTarget.id);
-      setSnackbar({ open: true, message: 'Đã cập nhật trạng thái nhân viên.' });
-      setDeleteTarget(null);
+      await employeeService.permanentlyDeleteEmployee(purgeTarget.id);
+      setSnackbar({ open: true, message: 'Đã xóa hồ sơ nhân viên.' });
+      setPurgeTarget(null);
       setListVersion((v) => v + 1);
     } catch {
-      setSnackbar({ open: true, message: 'Không xóa được nhân viên.' });
+      setSnackbar({ open: true, message: 'Không xóa được hồ sơ nhân viên.' });
     } finally {
-      setDeleting(false);
+      setPurging(false);
+    }
+  }
+
+  async function confirmTerminate() {
+    if (!terminateTarget) return;
+    setTerminating(true);
+    try {
+      await employeeService.deleteEmployee(terminateTarget.id);
+      setSnackbar({ open: true, message: 'Đã cập nhật trạng thái nghỉ việc.' });
+      setTerminateTarget(null);
+      setListVersion((v) => v + 1);
+    } catch {
+      setSnackbar({ open: true, message: 'Không cập nhật được trạng thái.' });
+    } finally {
+      setTerminating(false);
+    }
+  }
+
+  async function confirmOfficial() {
+    if (!confirmTarget) return;
+    setConfirming(true);
+    try {
+      await employeeService.confirmOfficial(confirmTarget.id);
+      setSnackbar({ open: true, message: 'Đã chuyển nhân viên lên chính thức.' });
+      setConfirmTarget(null);
+      setListVersion((v) => v + 1);
+    } catch {
+      setSnackbar({ open: true, message: 'Không chuyển chính thức được.' });
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -218,19 +300,54 @@ export default function EmployeesPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteTarget != null} onClose={() => !deleting && setDeleteTarget(null)}>
-        <DialogTitle>Xác nhận</DialogTitle>
+      <Dialog open={purgeTarget != null} onClose={() => !purging && setPurgeTarget(null)}>
+        <DialogTitle>Xóa hồ sơ vĩnh viễn</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            Vô hiệu hóa nhân viên <strong>{deleteTarget?.name}</strong>? Tài khoản sẽ bị khóa.
+            Xóa hoàn toàn hồ sơ <strong>{purgeTarget?.name}</strong>? Thao tác này không thể hoàn tác — tài khoản,
+            tài liệu và dữ liệu liên quan sẽ bị xóa.
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>
+          <Button onClick={() => setPurgeTarget(null)} disabled={purging}>
             Hủy
           </Button>
-          <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
-            {deleting ? 'Đang xử lý…' : 'Xác nhận'}
+          <Button color="error" variant="contained" onClick={confirmPurge} disabled={purging}>
+            {purging ? 'Đang xử lý…' : 'Xóa vĩnh viễn'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={terminateTarget != null} onClose={() => !terminating && setTerminateTarget(null)}>
+        <DialogTitle>Xác nhận nghỉ việc</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Ghi nhận nghỉ việc cho <strong>{terminateTarget?.name}</strong>? Tài khoản sẽ bị khóa.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTerminateTarget(null)} disabled={terminating}>
+            Hủy
+          </Button>
+          <Button color="error" variant="contained" onClick={confirmTerminate} disabled={terminating}>
+            {terminating ? 'Đang xử lý…' : 'Nghỉ việc'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={confirmTarget != null} onClose={() => !confirming && setConfirmTarget(null)}>
+        <DialogTitle>Chuyển lên chính thức</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Chuyển <strong>{confirmTarget?.name}</strong> từ thử việc/thực tập lên nhân viên chính thức?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmTarget(null)} disabled={confirming}>
+            Hủy
+          </Button>
+          <Button color="success" variant="contained" onClick={confirmOfficial} disabled={confirming}>
+            {confirming ? 'Đang xử lý…' : 'Chuyển chính thức'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -248,8 +365,8 @@ export default function EmployeesPage() {
 
       <PageHeader
         overline="Nhân sự"
-        title="Quản lý nhân viên"
-        description="Danh sách hồ sơ, lọc theo phòng ban và trạng thái, import Excel BVMA và đính kèm PDF."
+        title={categoryMeta.title}
+        description={categoryMeta.description}
         actions={
           <>
             <Button variant="outlined" startIcon={<PersonAddIcon />} onClick={openCreate}>
@@ -267,6 +384,18 @@ export default function EmployeesPage() {
         onClose={() => setImportOpen(false)}
         onImported={() => setListVersion((v) => v + 1)}
       />
+
+      {isOfficialTab && filterWork === 'MATERNITY_LEAVE' && total > 0 && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Đang hiển thị <strong>{total}</strong> nhân viên nghỉ thai sản.
+        </Alert>
+      )}
+
+      {isTrialTab && overdueCount > 0 && (
+        <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mb: 2 }}>
+          Có <strong>{overdueCount}</strong> nhân viên thử việc/thực tập quá 3 tháng — cần chuyển chính thức hoặc gia hạn.
+        </Alert>
+      )}
 
       <Paper
         elevation={0}
@@ -306,29 +435,29 @@ export default function EmployeesPage() {
               </MenuItem>
             ))}
           </TextField>
-          <TextField
-            size="small"
-            select
-            label="Trạng thái"
-            value={filterStatus}
-            onChange={(e) => {
-              setFilterStatus(e.target.value);
-              setPage(0);
-            }}
-            sx={{ minWidth: 180 }}
-          >
-            {STATUS_OPTIONS.map((o) => (
-              <MenuItem key={o.value || 'all'} value={o.value}>
-                {o.label}
-              </MenuItem>
-            ))}
-          </TextField>
+          {isOfficialTab && (
+            <TextField
+              size="small"
+              select
+              label="Tình trạng làm việc"
+              value={filterWork}
+              onChange={(e) => {
+                setFilterWork(e.target.value as employeeService.OfficialWorkFilter | '');
+                setPage(0);
+              }}
+              sx={{ minWidth: 200 }}
+            >
+              <MenuItem value="">Tất cả</MenuItem>
+              <MenuItem value="WORKING">Đang làm việc</MenuItem>
+              <MenuItem value="MATERNITY_LEAVE">Nghỉ thai sản</MenuItem>
+            </TextField>
+          )}
           <Button
             size="small"
             onClick={() => {
               setQInput('');
               setFilterDept('');
-              setFilterStatus('');
+              setFilterWork('');
               setPage(0);
             }}
           >
@@ -353,25 +482,95 @@ export default function EmployeesPage() {
               <TableCell>Mã NV</TableCell>
               <TableCell>Họ tên</TableCell>
               <TableCell>Phòng ban</TableCell>
+              <TableCell>Bộ phận</TableCell>
               <TableCell>Chức vụ</TableCell>
-              <TableCell>Vai trò</TableCell>
+              {isTrialTab && <TableCell>Ngày bắt đầu</TableCell>}
+              {isTrialTab && <TableCell>Tháng TV</TableCell>}
               <TableCell>Trạng thái</TableCell>
-              <TableCell align="right" sx={{ width: 168, whiteSpace: 'nowrap' }}>
+              <TableCell align="right" sx={{ width: isTrialTab ? 220 : 168, whiteSpace: 'nowrap' }}>
                 Thao tác
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {rows.map((r) => (
-              <TableRow key={r.id} hover>
+              <TableRow
+                key={r.id}
+                hover
+                sx={
+                  r.probationOverdue
+                    ? { bgcolor: alpha(theme.palette.warning.main, 0.08) }
+                    : r.maternityLeave
+                      ? { bgcolor: alpha('#db2777', 0.07) }
+                      : undefined
+                }
+              >
                 <TableCell>{r.employeeCode || '—'}</TableCell>
                 <TableCell>{r.fullName}</TableCell>
                 <TableCell>{r.departmentName}</TableCell>
+                <TableCell>{r.workUnitDetail?.trim() || '—'}</TableCell>
                 <TableCell>{r.positionTitle}</TableCell>
-                <TableCell>{r.role}</TableCell>
-                <TableCell>{r.status}</TableCell>
+                {isTrialTab && <TableCell>{formatDate(r.probationStartDate ?? r.hireDate)}</TableCell>}
+                {isTrialTab && (
+                  <TableCell>
+                    {r.probationMonths != null ? (
+                      <Stack direction="row" spacing={0.75} alignItems="center">
+                        <span>{r.probationMonths}</span>
+                        {r.probationOverdue && (
+                          <Chip
+                            label="Quá 3 tháng"
+                            size="small"
+                            variant="outlined"
+                            sx={{
+                              height: 22,
+                              fontSize: '0.68rem',
+                              fontWeight: 600,
+                              color: '#b45309',
+                              bgcolor: (t) => alpha(t.palette.warning.main, 0.08),
+                              borderColor: (t) => alpha(t.palette.warning.main, 0.35),
+                              borderRadius: '5px',
+                              '& .MuiChip-label': { px: 0.75 },
+                            }}
+                          />
+                        )}
+                      </Stack>
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+                )}
+                <TableCell>
+                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <EmployeeStatusChip status={r.status} />
+                    {r.maternityLeave && <MaternityLeaveChip />}
+                  </Stack>
+                </TableCell>
                 <TableCell align="right">
                   <Stack direction="row" spacing={0.25} justifyContent="flex-end" alignItems="center" flexWrap="wrap">
+                    {isTrialTab && (
+                      <>
+                        <Tooltip title="Chuyển chính thức">
+                          <IconButton
+                            size="small"
+                            color="success"
+                            aria-label="Chuyển chính thức"
+                            onClick={() => setConfirmTarget({ id: r.id, name: r.fullName })}
+                          >
+                            <CheckCircleOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Nghỉ việc">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            aria-label="Nghỉ việc"
+                            onClick={() => setTerminateTarget({ id: r.id, name: r.fullName })}
+                          >
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </>
+                    )}
                     <Tooltip title="Xem chi tiết">
                       <IconButton component={Link} to={`/employees/${r.id}`} size="small" color="primary" aria-label="Chi tiết">
                         <VisibilityIcon fontSize="small" />
@@ -382,16 +581,30 @@ export default function EmployeesPage() {
                         <EditIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Xóa / vô hiệu hóa">
-                      <IconButton
-                        size="small"
-                        color="error"
-                        aria-label="Xóa"
-                        onClick={() => setDeleteTarget({ id: r.id, name: r.fullName })}
-                      >
-                        <DeleteOutlineIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    {!isTrialTab && !isTerminatedTab && (
+                      <Tooltip title="Nghỉ việc">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          aria-label="Nghỉ việc"
+                          onClick={() => setTerminateTarget({ id: r.id, name: r.fullName })}
+                        >
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {isTerminatedTab && (
+                      <Tooltip title="Xóa hồ sơ vĩnh viễn">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          aria-label="Xóa hồ sơ"
+                          onClick={() => setPurgeTarget({ id: r.id, name: r.fullName })}
+                        >
+                          <DeleteForeverIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Đính kèm PDF">
                       <span>
                         <IconButton
@@ -409,6 +622,13 @@ export default function EmployeesPage() {
                 </TableCell>
               </TableRow>
             ))}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={isTrialTab ? 8 : 6} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                  Không có nhân viên trong nhóm này.
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
         <TablePagination

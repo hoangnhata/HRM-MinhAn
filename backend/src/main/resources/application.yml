@@ -3,8 +3,8 @@ spring:
     name: minhan-hrm-api
   datasource:
     url: jdbc:mysql://localhost:3307/minhan_hrm?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&serverTimezone=Asia/Ho_Chi_Minh
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:root}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -17,8 +17,8 @@ spring:
           time_zone: Asia/Ho_Chi_Minh
   servlet:
     multipart:
-      max-file-size: 15MB
-      max-request-size: 20MB
+      max-file-size: 100MB
+      max-request-size: 105MB
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -39,7 +39,18 @@ minhan:
     upload:
       dir: ${UPLOAD_DIR:./data/uploads}
     import:
-      default-employee-password: ${IMPORT_DEFAULT_PASSWORD:Minhan@123}
+      default-employee-password: ${IMPORT_DEFAULT_PASSWORD:123}
+    chamcong:
+      enabled: ${CHAMCONG_ENABLED:true}
+      url: jdbc:sqlserver://${DB_SERVER:192.168.31.101}:${DB_PORT:1433};databaseName=${CHAMCONG_DATABASE:chamcong};encrypt=optional;trustServerCertificate=true
+      username: ${DB_USER:sa}
+      password: ${DB_PASSWORD:323321@Vn}
+      table: dbo.CheckInOut
+      lookback-days: ${CHAMCONG_LOOKBACK_DAYS:7}
+      sync-cron: ${CHAMCONG_SYNC_CRON:0 30 1 * * *}
+    frontend:
+      enabled: ${FRONTEND_ENABLED:false}
+      dir: ${FRONTEND_DIR:C:/hrm/www}
 
 logging:
   level:

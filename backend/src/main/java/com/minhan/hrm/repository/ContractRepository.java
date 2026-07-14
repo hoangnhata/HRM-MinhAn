@@ -9,4 +9,6 @@ import java.util.List;
 public interface ContractRepository extends JpaRepository<Contract, Long> {
 
     List<Contract> findByEmployeeOrderByStartDateDesc(Employee employee);
+
+    void deleteByEmployee_Id(Long employeeId);
 }

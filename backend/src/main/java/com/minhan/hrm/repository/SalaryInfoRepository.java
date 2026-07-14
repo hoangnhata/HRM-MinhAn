@@ -15,4 +15,6 @@ public interface SalaryInfoRepository extends JpaRepository<SalaryInfo, Long> {
     List<SalaryInfo> findByNextReviewDateBetween(LocalDate from, LocalDate to);
 
     long countByNextReviewDateBetween(LocalDate from, LocalDate to);
+
+    void deleteByEmployee_Id(Long employeeId);
 }
