@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/employees")
+@RequestMapping("/j1-api/v1/employees")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "Employees", description = "Quản lý nhân viên")
@@ -33,7 +33,7 @@ public class EmployeeController {
     private final EmployeeService employeeService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Operation(summary = "Danh sách nhân viên (phân trang, lọc theo tên/mã/username, phòng ban, trạng thái hoặc nhóm tab)")
     public Page<EmployeeSummaryDto> list(
             @PageableDefault(size = 20) Pageable pageable,
@@ -42,7 +42,7 @@ public class EmployeeController {
             @RequestParam(required = false) EmployeeStatus status,
             @RequestParam(required = false) EmployeeStatusGroup statusGroup,
             @RequestParam(required = false) OfficialWorkFilter officialWorkFilter) {
-        return employeeService.list(pageable, q, departmentId, status, statusGroup, officialWorkFilter);
+        return employeeService.listForCaller(pageable, q, departmentId, status, statusGroup, officialWorkFilter);
     }
 
     @GetMapping("/me")
@@ -66,14 +66,14 @@ public class EmployeeController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Operation(summary = "Tạo tài khoản + hồ sơ nhân viên")
     public EmployeeDetailDto create(@Valid @RequestBody EmployeeCreateRequest request) {
         return employeeService.create(request);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Operation(summary = "Cập nhật hồ sơ, tài khoản và lương")
     public EmployeeDetailDto update(@PathVariable Long id, @Valid @RequestBody EmployeeUpdateRequest request) {
         return employeeService.update(id, request);
@@ -90,7 +90,7 @@ public class EmployeeController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Operation(summary = "Nghỉ việc — vô hiệu hóa tài khoản")
     public void delete(@PathVariable Long id) {
         employeeService.delete(id);

@@ -64,7 +64,7 @@ export type WorkRequest = {
   employeeId: number;
   employeeName: string;
   department: string;
-  requestType: 'EXPLANATION' | 'UPDATE' | 'LEAVE' | 'BUSINESS_TRIP' | 'DEPLOYMENT';
+  requestType: 'EXPLANATION' | 'UPDATE' | 'LEAVE' | 'UNPAID_LEAVE' | 'BUSINESS_TRIP' | 'DEPLOYMENT';
   workDate: string;
   endDate?: string;
   leaveDays?: number;
@@ -115,11 +115,20 @@ export async function fetchShiftConfigAdmin() {
   return data;
 }
 
+export async function fetchEmployeeShiftConfigAdmin(employeeId: number) {
+  const { data } = await api.get<ShiftConfigAdminView>(
+    `/v1/attendance/employees/${employeeId}/schedule/config`,
+  );
+  return data;
+}
+
 export type ShiftConfigUpdatePayload = {
   morningStart: string;
   morningEnd: string;
   afternoonStart: string;
   afternoonEnd: string;
+  continuousStart: string;
+  continuousEnd: string;
   morningUnits: number;
   afternoonUnits: number;
   morningInBeforeMin: number;
@@ -137,6 +146,71 @@ export async function updateShiftConfig(season: 'SUMMER' | 'WINTER', body: Shift
   return data;
 }
 
+export async function updateEmployeeShiftConfig(
+  employeeId: number,
+  season: 'SUMMER' | 'WINTER',
+  body: ShiftConfigUpdatePayload,
+) {
+  const { data } = await api.put<ShiftConfigAdminView>(
+    `/v1/attendance/employees/${employeeId}/schedule/config/${season}`,
+    body,
+  );
+  return data;
+}
+
+export async function applyShiftConfigToAll(
+  season: 'SUMMER' | 'WINTER',
+  body: ShiftConfigUpdatePayload,
+) {
+  const { data } = await api.put<{ updatedEmployees: number; season: string }>(
+    `/v1/attendance/schedule/config/${season}/apply-all`,
+    body,
+  );
+  return data;
+}
+
+export async function fetchEmployeeContinuousShiftDays(
+  employeeId: number,
+  year: number,
+  month: number,
+) {
+  const { data } = await api.get<{
+    employeeId: number;
+    periodYear: number;
+    periodMonth: number;
+    dates: string[];
+    continuousShift: boolean;
+    dayCount: number;
+  }>(`/v1/attendance/employees/${employeeId}/continuous-shift`, {
+    params: { year, month },
+  });
+  return data;
+}
+
+export async function setEmployeeContinuousShiftDays(
+  employeeId: number,
+  year: number,
+  month: number,
+  dates: string[],
+) {
+  const { data } = await api.put<{
+    employeeId: number;
+    periodYear: number;
+    periodMonth: number;
+    dates: string[];
+    continuousShift: boolean;
+    dayCount: number;
+    recalculated: number;
+    recalculateWarning?: string;
+  }>(`/v1/attendance/employees/${employeeId}/continuous-shift`, {
+    year,
+    month,
+    dates,
+  });
+  return data;
+}
+
+/** @deprecated dùng setEmployeeContinuousShiftDays — giữ tương thích bật/tắt cả tháng */
 export async function setEmployeeContinuousShift(
   employeeId: number,
   year: number,
@@ -147,7 +221,9 @@ export async function setEmployeeContinuousShift(
     employeeId: number;
     periodYear: number;
     periodMonth: number;
+    dates: string[];
     continuousShift: boolean;
+    dayCount: number;
     recalculated: number;
     recalculateWarning?: string;
   }>(`/v1/attendance/employees/${employeeId}/continuous-shift`, {
@@ -296,7 +372,7 @@ export async function recalculateEmployeeMonth(employeeId: number, year: number,
 }
 
 export type SubmitWorkRequest = {
-  requestType: 'EXPLANATION' | 'UPDATE' | 'LEAVE' | 'BUSINESS_TRIP' | 'DEPLOYMENT';
+  requestType: 'EXPLANATION' | 'UPDATE' | 'LEAVE' | 'UNPAID_LEAVE' | 'BUSINESS_TRIP' | 'DEPLOYMENT';
   /** Nhân viên được điều động (DEPLOYMENT). */
   employeeId?: number;
   workDate: string;
@@ -463,7 +539,21 @@ export function detectUpdateFromRow(row: Record<string, unknown> | null | undefi
     const mMissing = (!mIn ? 1 : 0) + (!mOut ? 1 : 0);
     const aMissing = (!aIn ? 1 : 0) + (!aOut ? 1 : 0);
     if (mMissing > 0 && aMissing > 0) {
-      return { updateKind: 'FULL_DAY_SUPPLEMENT', forgotUnits: 4, locked: true };
+      // Đếm đúng số mốc còn thiếu (vd. đã có giờ ra chiều 17h20 → trừ 3, không hardcode 4).
+      return {
+        updateKind: 'FULL_DAY_SUPPLEMENT',
+        forgotUnits: mMissing + aMissing,
+        partial: mMissing + aMissing < 4,
+        locked: true,
+        missingMorningIn: !mIn,
+        missingMorningOut: !mOut,
+        missingAfternoonIn: !aIn,
+        missingAfternoonOut: !aOut,
+        existingMorningIn: mIn || undefined,
+        existingMorningOut: mOut || undefined,
+        existingAfternoonIn: aIn || undefined,
+        existingAfternoonOut: aOut || undefined,
+      };
     }
     if (mMissing > 0) {
       return {
@@ -512,7 +602,7 @@ export function requestStatusLabel(
   status: string,
   requestType?: WorkRequest['requestType'],
 ): string {
-  if (requestType === 'LEAVE' || requestType === 'EXPLANATION' || requestType === 'BUSINESS_TRIP' || requestType === 'DEPLOYMENT') {
+  if (requestType === 'LEAVE' || requestType === 'UNPAID_LEAVE' || requestType === 'EXPLANATION' || requestType === 'BUSINESS_TRIP' || requestType === 'DEPLOYMENT') {
     if (status === 'APPROVED' || status === 'APPROVED_NO_FINE') return 'Đã duyệt';
   }
   return REQUEST_STATUS_LABEL[status] ?? status;
@@ -521,6 +611,7 @@ export function requestStatusLabel(
 export function requestTypeLabel(type: WorkRequest['requestType']): string {
   if (type === 'EXPLANATION') return 'Giải trình công';
   if (type === 'LEAVE') return 'Nghỉ phép';
+  if (type === 'UNPAID_LEAVE') return 'Nghỉ không lương';
   if (type === 'BUSINESS_TRIP') return 'Công tác';
   if (type === 'DEPLOYMENT') return 'Điều động';
   return 'Cập nhật công';
@@ -716,8 +807,10 @@ export function detectExplanationPenaltySlots(
   if (continuousShift) {
     const dayIn = punchHm(row.morningCheckIn ?? row.checkIn);
     const dayOut = punchHm(row.afternoonCheckOut ?? row.checkOut);
-    const late = dayIn ? minutesLate(dayIn, sch.morningStart) : 0;
-    const early = dayOut ? minutesEarly(dayOut, sch.afternoonEnd) : 0;
+    const expectedIn = sch.continuousStart ?? sch.morningStart;
+    const expectedOut = sch.continuousEnd ?? sch.afternoonEnd;
+    const late = dayIn ? minutesLate(dayIn, expectedIn) : 0;
+    const early = dayOut ? minutesEarly(dayOut, expectedOut) : 0;
     if (late > 0) {
       slots.push({
         key: 'morningIn',
@@ -725,7 +818,7 @@ export function detectExplanationPenaltySlots(
         kind: 'LATE',
         kindLabel: 'Đi muộn',
         current: dayIn,
-        expected: sch.morningStart,
+        expected: expectedIn,
         minutes: late,
       });
     }
@@ -736,7 +829,7 @@ export function detectExplanationPenaltySlots(
         kind: 'EARLY',
         kindLabel: 'Về sớm',
         current: dayOut,
-        expected: sch.afternoonEnd,
+        expected: expectedOut,
         minutes: early,
       });
     }
@@ -883,6 +976,7 @@ const ATTENDANCE_STATUS_LABEL: Record<string, string> = {
   PARTIAL: 'Thiếu ca',
   ABSENT: 'Vắng / chưa chấm',
   LEAVE: 'Phép',
+  UNPAID_LEAVE: 'Không lương',
   BUSINESS_TRIP: 'Công tác',
   DEPLOYMENT: 'Điều động',
 };
@@ -945,7 +1039,7 @@ export async function fetchEmployeeLeaveBalance(employeeId: number, year?: numbe
 }
 
 export function formatLeaveRange(r: WorkRequest): string {
-  if (r.requestType !== 'LEAVE' && r.requestType !== 'BUSINESS_TRIP') return '';
+  if (r.requestType !== 'LEAVE' && r.requestType !== 'UNPAID_LEAVE' && r.requestType !== 'BUSINESS_TRIP') return '';
   const end = r.endDate && r.endDate !== r.workDate ? r.endDate : '';
   const from = formatWorkDate(r.workDate);
   if (!end) return from;
@@ -1024,6 +1118,19 @@ export async function deleteDutyShift(employeeId: number, workDate: string) {
   await api.delete(`/v1/attendance/employees/${employeeId}/duty-shifts/${workDate}`);
 }
 
+export type BulkSupplementResultItem = {
+  employeeId: number;
+  employeeName?: string;
+  ok: boolean;
+  message: string;
+};
+
+export type BulkSupplementResult = {
+  successCount: number;
+  failureCount: number;
+  results: BulkSupplementResultItem[];
+};
+
 export type QuangTrungSupplementBody = {
   workDate: string;
   updateKind: SubmitWorkRequest['updateKind'];
@@ -1033,6 +1140,22 @@ export type QuangTrungSupplementBody = {
   requestedAfternoonStart?: string;
   requestedAfternoonEnd?: string;
 };
+
+export async function bulkUpsertDutyShifts(body: {
+  workDate: string;
+  note?: string;
+  items: { employeeId: number; shiftTypeCode: string; roleTierCode?: string }[];
+}) {
+  const { data } = await api.post<BulkSupplementResult>('/v1/attendance/duty-shifts/bulk', body);
+  return data;
+}
+
+export async function bulkApplyQuangTrungSupplement(body: {
+  employeeIds: number[];
+} & QuangTrungSupplementBody) {
+  const { data } = await api.post<BulkSupplementResult>('/v1/attendance/quang-trung-supplement/bulk', body);
+  return data;
+}
 
 export type QuangTrungSupplementInfo = {
   exists: boolean;

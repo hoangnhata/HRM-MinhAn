@@ -1,5 +1,5 @@
 # Chay PowerShell **Run as Administrator** tren VM 101 (Windows Server 2019)
-# Cai IIS + site frontend HRM tai C:\hrm\www, proxy /api -> localhost:8080
+# Cai IIS + site frontend HRM tai C:\hrm\www, proxy /j1-api -> localhost:8080
 
 $ErrorActionPreference = 'Stop'
 $wwwRoot = 'C:\hrm\www'

@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/nursing-evaluations")
+@RequestMapping("/j1-api/v1/nursing-evaluations")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "Nursing evaluations", description = "Đánh giá ĐD-KTV-HS — xếp loại theo tháng (MA 2026)")

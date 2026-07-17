@@ -213,10 +213,26 @@ export function HolidayWorkConfigDialog({
                 </Typography>
               ))}
             </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(7, 1fr)',
+                gap: '1px',
+                bgcolor: alpha(theme.palette.divider, 0.85),
+                borderTop: `1px solid ${alpha(theme.palette.divider, 0.85)}`,
+              }}
+            >
               {cells.map((c, idx) => {
                 if (!c.iso || c.day == null) {
-                  return <Box key={`e-${idx}`} sx={{ minHeight: 48 }} />;
+                  return (
+                    <Box
+                      key={`e-${idx}`}
+                      sx={{
+                        minHeight: 48,
+                        bgcolor: 'background.paper',
+                      }}
+                    />
+                  );
                 }
                 const active = selected.has(c.iso);
                 return (
@@ -228,20 +244,23 @@ export function HolidayWorkConfigDialog({
                     sx={{
                       minHeight: 48,
                       border: 'none',
-                      borderRight: (idx + 1) % 7 === 0 ? 'none' : `1px solid ${alpha(theme.palette.divider, 0.5)}`,
-                      borderBottom: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
-                      bgcolor: active ? alpha(accent, 0.16) : 'transparent',
+                      bgcolor: active ? accent : 'background.paper',
+                      color: active ? '#fff' : 'inherit',
                       cursor: 'pointer',
                       fontFamily: 'inherit',
-                      transition: 'background-color 0.12s',
-                      '&:hover': { bgcolor: active ? alpha(accent, 0.22) : alpha(theme.palette.primary.main, 0.04) },
+                      transition: 'background-color 0.12s, box-shadow 0.12s',
+                      boxShadow: active ? `inset 0 0 0 2px ${alpha('#000', 0.12)}` : 'none',
+                      '&:hover': {
+                        bgcolor: active ? accent : alpha(theme.palette.primary.main, 0.04),
+                        filter: active ? 'brightness(0.92)' : 'none',
+                      },
                     }}
                   >
                     <Typography
                       variant="body2"
                       sx={{
                         fontWeight: active ? 800 : 500,
-                        color: active ? theme.palette.warning.dark : 'text.primary',
+                        color: active ? '#fff' : 'text.primary',
                       }}
                     >
                       {c.day}

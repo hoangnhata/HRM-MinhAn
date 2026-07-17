@@ -50,6 +50,7 @@ public class CheckInOutSyncService {
                 .connected(connected)
                 .autoSyncEnabled(schedule.isAutoSyncEnabled())
                 .autoSyncTime(chamcongSyncConfigService.formatSyncTime(schedule))
+                .autoSyncIntervalMinutes(chamcongSyncConfigService.resolveIntervalMinutes(schedule))
                 .lastAutoSyncAt(schedule.getLastAutoSyncAt())
                 .lastSyncAt(prev.getLastSyncAt())
                 .lastFromDate(prev.getLastFromDate())
@@ -65,6 +66,12 @@ public class CheckInOutSyncService {
 
     public Map<String, Object> syncRecent() {
         int lookback = Math.max(1, hrmProperties.getChamcong().getLookbackDays());
+        return syncFromDate(LocalDate.now().minusDays(lookback));
+    }
+
+    /** Đồng bộ tự động theo chu kỳ — lookback ngắn để nhanh. */
+    public Map<String, Object> syncRecentForAuto() {
+        int lookback = Math.max(1, hrmProperties.getChamcong().getAutoLookbackDays());
         return syncFromDate(LocalDate.now().minusDays(lookback));
     }
 

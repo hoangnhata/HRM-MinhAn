@@ -3,7 +3,9 @@ import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
-import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import GroupAddOutlinedIcon from '@mui/icons-material/GroupAddOutlined';
+import NightsStayIcon from '@mui/icons-material/NightsStay';
+import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SavingsOutlinedIcon from '@mui/icons-material/SavingsOutlined';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
@@ -34,8 +36,8 @@ type Props = {
   onForgotPenaltyConfig: () => void;
   onLatePenaltyConfig: () => void;
   onHolidayWorkConfig: () => void;
-  onNotify: () => void;
-  notifyDisabled?: boolean;
+  onBulkSupplement?: () => void;
+  onBulkDeployment?: () => void;
   exporting?: boolean;
   recalculating?: boolean;
 };
@@ -49,13 +51,14 @@ export function WorkAdminToolbar({
   onForgotPenaltyConfig,
   onLatePenaltyConfig,
   onHolidayWorkConfig,
-  onNotify,
-  notifyDisabled,
+  onBulkSupplement,
+  onBulkDeployment,
   exporting,
   recalculating,
 }: Props) {
   const theme = useTheme();
   const [configAnchor, setConfigAnchor] = useState<null | HTMLElement>(null);
+  const [bulkAnchor, setBulkAnchor] = useState<null | HTMLElement>(null);
 
   const btnSx = useMemo(
     () => ({
@@ -239,13 +242,53 @@ export function WorkAdminToolbar({
           <Button
             size="small"
             variant="outlined"
-            startIcon={<NotificationsActiveIcon />}
-            disabled={notifyDisabled}
-            onClick={onNotify}
-            sx={btnSx}
+            startIcon={<GroupAddOutlinedIcon />}
+            endIcon={<ArrowDropDownIcon />}
+            onClick={(e) => setBulkAnchor(e.currentTarget)}
+            sx={accentBtnSx}
+            disabled={!onBulkSupplement && !onBulkDeployment}
           >
-            Thông báo
+            Bổ sung hàng loạt
           </Button>
+          <Menu
+            anchorEl={bulkAnchor}
+            open={Boolean(bulkAnchor)}
+            onClose={() => setBulkAnchor(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+            slotProps={{ paper: { sx: { minWidth: 300, borderRadius: 2, mt: 0.5 } } }}
+          >
+            <MenuItem
+              disabled={!onBulkSupplement}
+              onClick={() => {
+                setBulkAnchor(null);
+                onBulkSupplement?.();
+              }}
+            >
+              <ListItemIcon>
+                <NightsStayIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText
+                primary="Công trực / Quang Trung"
+                secondary="Bổ sung theo khoa — ca trực hoặc công QT"
+              />
+            </MenuItem>
+            <MenuItem
+              disabled={!onBulkDeployment}
+              onClick={() => {
+                setBulkAnchor(null);
+                onBulkDeployment?.();
+              }}
+            >
+              <ListItemIcon>
+                <SwapHorizOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText
+                primary="Điều động hàng loạt"
+                secondary="Tạo đơn điều động ×1,5 cho nhiều NV cùng khoa"
+              />
+            </MenuItem>
+          </Menu>
         </ToolbarGroup>
       </Box>
     </Paper>

@@ -193,7 +193,9 @@ public class AttendanceSummaryService {
             boolean hasAfternoon = hasAfternoonPunch(r);
             // Tính theo công thực tế — tránh trạng thái cũ còn sót sau khi xóa bổ sung QT
             // Ngày nghỉ phép / công tác không tính phụ cấp phần ăn tại viện
-            if ("LEAVE".equals(r.getStatus()) || "BUSINESS_TRIP".equals(r.getStatus())) {
+            if ("LEAVE".equals(r.getStatus())
+                    || "UNPAID_LEAVE".equals(r.getStatus())
+                    || "BUSINESS_TRIP".equals(r.getStatus())) {
                 continue;
             }
             if (totalUnits.compareTo(new BigDecimal("0.99")) >= 0) {

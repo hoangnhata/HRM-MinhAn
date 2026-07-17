@@ -48,7 +48,7 @@ public class FrontendStaticFilter extends OncePerRequestFilter {
             return true;
         }
         String path = normalize(request.getRequestURI());
-        return path.startsWith("/api/")
+        return path.startsWith("/j1-api/")
                 || path.startsWith("/actuator/")
                 || path.startsWith("/swagger-ui")
                 || path.startsWith("/api-docs")

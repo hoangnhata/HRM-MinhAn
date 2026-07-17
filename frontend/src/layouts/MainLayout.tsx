@@ -1,11 +1,11 @@
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import AssessmentIcon from '@mui/icons-material/Assessment';
-import CampaignIcon from '@mui/icons-material/Campaign';
 import DescriptionIcon from '@mui/icons-material/Description';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import GroupsIcon from '@mui/icons-material/Groups';
 import LogoutIcon from '@mui/icons-material/Logout';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import PaymentsIcon from '@mui/icons-material/Payments';
@@ -36,7 +36,7 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { NotificationPopover } from '../components/layout/NotificationPopover';
 import { APP_CONTENT_MAX_WIDTH_PX } from '../constants/layout';
@@ -50,9 +50,9 @@ const LOGO_SRC = '/logo.png';
 /** Khớp chiều cao Toolbar — Drawer bắt đầu ngay dưới AppBar, không cắt nội dung */
 const toolbarOffset = { xs: '56px', sm: '64px' };
 
-const ALL_STAFF = ['ADMIN', 'EMPLOYEE', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
-const ADMIN_ONLY = ['ADMIN'] as const;
+const ALL_STAFF = ['ADMIN', 'EMPLOYEE', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING', 'DIRECTOR'] as const;
 const ADMIN_HR = ['ADMIN', 'HR'] as const;
+const ADMIN_HR_HEADS = ['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
 
 const EMPLOYEE_CATEGORY_PATHS = ['/employees/official', '/employees/trial', '/employees/terminated'] as const;
 
@@ -90,33 +90,29 @@ const NAV_ENTRIES: NavEntry[] = [
     item: { kind: 'link', to: '/', label: 'Dashboard', icon: <DashboardIcon fontSize="small" />, roles: ALL_STAFF },
   },
   {
-    kind: 'link',
-    item: {
-      kind: 'link',
-      to: '/announcements',
-      label: 'Thông báo toàn viện',
-      icon: <CampaignIcon fontSize="small" />,
-      roles: ALL_STAFF,
-    },
-  },
-  {
     kind: 'group',
     group: {
       id: 'org',
       label: 'Tổ chức',
       icon: <GroupsIcon fontSize="small" />,
       children: [
-        { kind: 'link', to: '/departments', label: 'Phòng ban', icon: <ApartmentIcon fontSize="small" />, roles: ADMIN_ONLY },
+        {
+          kind: 'link',
+          to: '/departments',
+          label: 'Phòng ban',
+          icon: <ApartmentIcon fontSize="small" />,
+          roles: ['ADMIN', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const,
+        },
         {
           kind: 'submenu',
           id: 'employees',
           label: 'Nhân viên',
           icon: <PeopleIcon fontSize="small" />,
-          roles: ADMIN_HR,
+          roles: ADMIN_HR_HEADS,
           children: [
-            { kind: 'link', to: '/employees/official', label: 'Chính thức', icon: <PeopleIcon fontSize="small" />, roles: ADMIN_HR },
-            { kind: 'link', to: '/employees/trial', label: 'Thử việc / Thực tập', icon: <PeopleIcon fontSize="small" />, roles: ADMIN_HR },
-            { kind: 'link', to: '/employees/terminated', label: 'Nghỉ việc', icon: <PeopleIcon fontSize="small" />, roles: ADMIN_HR },
+            { kind: 'link', to: '/employees/official', label: 'Chính thức', icon: <PeopleIcon fontSize="small" />, roles: ADMIN_HR_HEADS },
+            { kind: 'link', to: '/employees/trial', label: 'Thử việc / Thực tập', icon: <PeopleIcon fontSize="small" />, roles: ADMIN_HR_HEADS },
+            { kind: 'link', to: '/employees/terminated', label: 'Nghỉ việc', icon: <PeopleIcon fontSize="small" />, roles: ADMIN_HR_HEADS },
           ],
         },
       ],
@@ -161,21 +157,26 @@ const NAV_ENTRIES: NavEntry[] = [
   },
 ];
 
-function headerAvatar(name: string) {
+function headerAvatar(name: string, imageUrl?: string | null) {
   const colors = ['#ec407a', '#ab47bc', '#5c6bc0', '#26a69a', '#ffa726', '#78909c'];
   let h = 0;
   for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
   const bg = colors[Math.abs(h) % colors.length];
+  const hasPhoto = Boolean(imageUrl && imageUrl.trim());
   return {
     sx: {
-      width: 36,
-      height: 36,
-      fontSize: '0.95rem',
-      fontWeight: 700,
-      bgcolor: bg,
+      width: 34,
+      height: 34,
+      fontSize: '0.875rem',
+      fontWeight: 600,
+      bgcolor: hasPhoto ? 'rgba(255,255,255,0.12)' : bg,
       color: '#fff',
-      border: '2px solid rgba(255,255,255,0.35)',
+      border: 'none',
+      boxShadow: 'none',
+      flexShrink: 0,
     },
+    src: hasPhoto ? imageUrl! : undefined,
+    imgProps: { style: { objectFit: 'cover' as const } },
     children: (name || '?').charAt(0).toUpperCase(),
   };
 }
@@ -210,7 +211,7 @@ export function MainLayout() {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down('md'));
   const [open, setOpen] = useState(!mobile);
-  const { user, logout } = useAuth();
+  const { user, logout, avatarUrl } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
   const [unread, setUnread] = useState<number | null>(null);
@@ -829,22 +830,105 @@ export function MainLayout() {
                     {user?.fullName || user?.username || '—'}
                   </Typography>
                   <Typography variant="caption" sx={{ opacity: 0.92, display: 'block' }}>
-                    @{user?.username} · {getRoleLabel(user?.role)}
+                    @{user?.username}
                   </Typography>
                 </Stack>
               }
               arrow
               enterTouchDelay={0}
+              disableHoverListener
             >
-              <IconButton
-                onClick={(e) => setUserMenuAnchor(e.currentTarget)}
+              <Box
+                component="button"
+                type="button"
+                onClick={(e: MouseEvent<HTMLButtonElement>) => setUserMenuAnchor(e.currentTarget)}
                 aria-label="Tài khoản"
                 aria-controls={userMenuAnchor ? 'account-menu' : undefined}
                 aria-haspopup="true"
-                sx={{ p: 0.35 }}
+                aria-expanded={Boolean(userMenuAnchor)}
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 1.1,
+                  m: 0,
+                  ml: { xs: 0.5, sm: 0.75 },
+                  py: 0.5,
+                  pl: 0.5,
+                  pr: { xs: 0.5, sm: 0.85 },
+                  border: '1px solid transparent',
+                  borderRadius: 2,
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  bgcolor: 'transparent',
+                  transition: 'background-color 0.18s ease, border-color 0.18s ease',
+                  '&:hover': {
+                    bgcolor: 'rgba(255,255,255,0.1)',
+                    borderColor: 'rgba(255,255,255,0.14)',
+                  },
+                  '&:focus-visible': {
+                    outline: '2px solid rgba(255,255,255,0.5)',
+                    outlineOffset: 2,
+                  },
+                }}
               >
-                <Avatar {...headerAvatar(user?.fullName || user?.username || '?')} />
-              </IconButton>
+                <Avatar {...headerAvatar(user?.fullName || user?.username || '?', avatarUrl)} />
+                <Box
+                  sx={{
+                    display: { xs: 'none', sm: 'flex' },
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    justifyContent: 'center',
+                    minWidth: 0,
+                    maxWidth: { sm: 160, md: 210 },
+                    textAlign: 'left',
+                  }}
+                >
+                  <Typography
+                    component="span"
+                    sx={{
+                      fontSize: '0.8125rem',
+                      fontWeight: 600,
+                      letterSpacing: '0.01em',
+                      lineHeight: 1.2,
+                      color: '#fff',
+                      maxWidth: '100%',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {user?.fullName || user?.username || '—'}
+                  </Typography>
+                  <Typography
+                    component="span"
+                    sx={{
+                      mt: 0.2,
+                      fontSize: '0.6875rem',
+                      fontWeight: 400,
+                      letterSpacing: '0.02em',
+                      lineHeight: 1.2,
+                      color: 'rgba(255,255,255,0.78)',
+                      maxWidth: '100%',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {getRoleLabel(user?.role)}
+                  </Typography>
+                </Box>
+                <KeyboardArrowDownRoundedIcon
+                  sx={{
+                    display: { xs: 'none', sm: 'block' },
+                    fontSize: 18,
+                    color: 'rgba(255,255,255,0.55)',
+                    ml: -0.25,
+                    flexShrink: 0,
+                    transition: 'transform 0.18s ease',
+                    transform: userMenuAnchor ? 'rotate(180deg)' : 'none',
+                  }}
+                />
+              </Box>
             </Tooltip>
             <Menu
               id="account-menu"
@@ -861,6 +945,18 @@ export function MainLayout() {
                 </ListItemIcon>
                 Trang cá nhân
               </MenuItem>
+              {user?.role === 'ADMIN' && (
+                <MenuItem
+                  component={Link}
+                  to="/account-admin"
+                  onClick={() => setUserMenuAnchor(null)}
+                >
+                  <ListItemIcon>
+                    <ManageAccountsIcon fontSize="small" />
+                  </ListItemIcon>
+                  Quản trị tài khoản
+                </MenuItem>
+              )}
               <Divider />
               <MenuItem
                 onClick={() => {

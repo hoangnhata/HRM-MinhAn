@@ -17,7 +17,7 @@ public class ChamcongDataSourceConfig {
     public DataSource chamcongDataSource(HrmProperties hrmProperties) {
         HrmProperties.Chamcong cfg = hrmProperties.getChamcong();
         HikariDataSource ds = new HikariDataSource();
-        ds.setJdbcUrl(ChamcongJdbcUrl.build(cfg.getUrl()));
+        ds.setJdbcUrl(SqlServerJdbcUrl.build(cfg.getUrl()));
         ds.setUsername(cfg.getUsername());
         ds.setPassword(cfg.getPassword());
         ds.setDriverClassName("com.microsoft.sqlserver.jdbc.SQLServerDriver");

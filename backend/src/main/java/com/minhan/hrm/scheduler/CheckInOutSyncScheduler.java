@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * Mỗi phút kiểm tra giờ hẹn — đến đúng HH:mm thì tự đồng bộ 7 ngày gần nhất.
+ * Mỗi phút kiểm tra — nếu bật tự động thì đồng bộ theo chu kỳ (mặc định mỗi 1 phút).
  */
 @Slf4j
 @Component
@@ -33,7 +33,7 @@ public class CheckInOutSyncScheduler {
         }
         LocalDateTime now = LocalDateTime.now();
         AttendanceChamcongSyncConfig cfg = chamcongSyncConfigService.getConfig();
-        if (!chamcongSyncConfigService.matchesNow(cfg, now)) {
+        if (!chamcongSyncConfigService.isDue(cfg, now)) {
             return;
         }
         if (chamcongSyncConfigService.alreadyRanThisMinute(cfg, now)) {
@@ -41,9 +41,13 @@ public class CheckInOutSyncScheduler {
         }
 
         try {
-            Map<String, Object> result = checkInOutSyncService.syncRecent();
+            // Đồng bộ gần đây (2 ngày) để nhanh; đủ bắt chấm mới trong ngày
+            Map<String, Object> result = checkInOutSyncService.syncRecentForAuto();
             chamcongSyncConfigService.markAutoSyncRan(now);
-            log.info("Tự động đồng bộ máy chấm công lúc {}: {}", chamcongSyncConfigService.formatSyncTime(cfg), result);
+            log.info(
+                    "Tự động đồng bộ máy chấm công (mỗi {} phút): {}",
+                    chamcongSyncConfigService.resolveIntervalMinutes(cfg),
+                    result);
         } catch (Exception e) {
             log.error("Tự động đồng bộ máy chấm công thất bại", e);
         }

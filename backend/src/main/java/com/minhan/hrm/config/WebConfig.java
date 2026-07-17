@@ -19,7 +19,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toArray(String[]::new);
-        registry.addMapping("/api/**")
+        registry.addMapping("/j1-api/**")
                 .allowedOrigins(origins)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")

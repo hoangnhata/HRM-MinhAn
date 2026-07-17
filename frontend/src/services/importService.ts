@@ -23,6 +23,7 @@ export type CheckInOutSyncStatus = {
   connected: boolean;
   autoSyncEnabled?: boolean;
   autoSyncTime?: string;
+  autoSyncIntervalMinutes?: number;
   lastAutoSyncAt?: string | null;
   lastSyncAt?: string | null;
   lastFromDate?: string | null;
@@ -32,7 +33,8 @@ export type CheckInOutSyncStatus = {
 
 export type ChamcongSyncSchedulePayload = {
   autoSyncEnabled: boolean;
-  syncTime: string;
+  intervalMinutes: number;
+  syncTime?: string;
 };
 
 export type SalaryImportResult = {
@@ -53,6 +55,26 @@ export async function importWorkforceExcel(file: File) {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;
+}
+
+/** Xuất Excel nhân lực đúng cấu trúc file nhập (chính thức + thử việc/thực tập). */
+export async function downloadWorkforceExcel() {
+  const res = await api.get('/v1/import/workforce/export', {
+    responseType: 'blob',
+    timeout: 300000,
+  });
+  const blob = new Blob([res.data], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  a.download = `NHAN-LUC-BENH-VIEN-MINH-AN-${stamp}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 export async function importCheckInOutSql(file: File) {

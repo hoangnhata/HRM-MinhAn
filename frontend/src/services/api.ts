@@ -2,7 +2,7 @@ import axios from 'axios';
 import { getToken } from '../utils/storage';
 import { handleSessionFailure, isSessionFailure } from '../utils/sessionFailure';
 
-const apiBaseUrl = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '');
+const apiBaseUrl = (import.meta.env.VITE_API_URL ?? '/j1-api').replace(/\/$/, '');
 
 const api = axios.create({
   baseURL: apiBaseUrl,
@@ -13,6 +13,9 @@ api.interceptors.request.use((config) => {
   const t = getToken();
   if (t) {
     config.headers.Authorization = `Bearer ${t}`;
+  }
+  if (config.responseType === 'blob') {
+    delete config.headers['Content-Type'];
   }
   return config;
 });

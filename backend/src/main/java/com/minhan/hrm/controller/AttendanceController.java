@@ -7,8 +7,10 @@ import com.minhan.hrm.dto.attendance.AttendanceRequest;
 import com.minhan.hrm.dto.attendance.AttendanceReviewDto;
 import com.minhan.hrm.dto.attendance.AttendanceShiftConfigUpdateRequest;
 import com.minhan.hrm.dto.attendance.AttendanceWorkRequestSubmitDto;
+import com.minhan.hrm.dto.attendance.DutyShiftBulkRequest;
 import com.minhan.hrm.dto.attendance.DutyShiftUpsertRequest;
 import com.minhan.hrm.dto.attendance.CongHoSupplementRequest;
+import com.minhan.hrm.dto.attendance.QuangTrungSupplementBulkRequest;
 import com.minhan.hrm.dto.attendance.QuangTrungSupplementRequest;
 import com.minhan.hrm.dto.attendance.HolidayWorkDaysUpdateRequest;
 import com.minhan.hrm.dto.attendance.EmployeeContinuousShiftRequest;
@@ -39,12 +41,13 @@ import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/attendance")
+@RequestMapping("/j1-api/v1/attendance")
 @RequiredArgsConstructor
 @Slf4j
 @SecurityRequirement(name = "bearerAuth")
@@ -128,14 +131,50 @@ public class AttendanceController {
         return shiftScheduleService.updateSeasonConfig(season, body);
     }
 
+    @GetMapping("/employees/{employeeId}/schedule/config")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Cấu hình lịch ca riêng của một nhân viên (fallback cấu hình chung)")
+    public Map<String, Object> employeeScheduleConfig(@PathVariable Long employeeId) {
+        return shiftScheduleService.getEmployeeConfigAdminView(employeeId);
+    }
+
+    @PutMapping("/employees/{employeeId}/schedule/config/{season}")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Cập nhật lịch ca riêng của một nhân viên")
+    public Map<String, Object> updateEmployeeScheduleConfig(
+            @PathVariable Long employeeId,
+            @PathVariable AttendanceShiftSeason season,
+            @Valid @RequestBody AttendanceShiftConfigUpdateRequest body) {
+        return shiftScheduleService.updateEmployeeSeasonConfig(employeeId, season, body);
+    }
+
+    @PutMapping("/schedule/config/{season}/apply-all")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Áp dụng cấu hình ca cho tất cả nhân viên đang làm việc")
+    public Map<String, Object> applyScheduleConfigToAll(
+            @PathVariable AttendanceShiftSeason season,
+            @Valid @RequestBody AttendanceShiftConfigUpdateRequest body) {
+        return shiftScheduleService.applySeasonConfigToAll(season, body);
+    }
+
+    @GetMapping("/employees/{employeeId}/continuous-shift")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Danh sách ngày ca thông tầm của nhân viên trong tháng")
+    public Map<String, Object> getContinuousShift(
+            @PathVariable Long employeeId,
+            @RequestParam int year,
+            @RequestParam int month) {
+        return shiftScheduleService.getEmployeeContinuousShiftDays(employeeId, year, month);
+    }
+
     @PutMapping("/employees/{employeeId}/continuous-shift")
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "Bật/tắt ca thông tầm cho nhân viên theo tháng")
+    @Operation(summary = "Cấu hình ngày ca thông tầm trong tháng (thay thế danh sách ngày)")
     public Map<String, Object> setContinuousShift(
             @PathVariable Long employeeId,
             @Valid @RequestBody EmployeeContinuousShiftRequest body) {
         Map<String, Object> result = new LinkedHashMap<>(shiftScheduleService.setEmployeeContinuousShift(
-                employeeId, body.getYear(), body.getMonth(), body.getContinuousShift()));
+                employeeId, body.getYear(), body.getMonth(), body.getContinuousShift(), body.getDates()));
         try {
             int recalculated = attendanceService.recalculateEmployeeMonth(
                     employeeId, body.getYear(), body.getMonth());
@@ -347,6 +386,43 @@ public class AttendanceController {
                 employeeId, body.getWorkDate(), body.getShiftTypeCode(), body.getRoleTierCode(), body.getNote());
     }
 
+    @PostMapping("/duty-shifts/bulk")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "HCNS/Admin nhập ca trực hàng loạt — mỗi NV một loại ca")
+    public Map<String, Object> bulkUpsertDutyShifts(@Valid @RequestBody DutyShiftBulkRequest body) {
+        List<Map<String, Object>> results = new ArrayList<>();
+        int success = 0;
+        int failure = 0;
+        for (DutyShiftBulkRequest.DutyShiftBulkItem item : body.getItems()) {
+            Long employeeId = item.getEmployeeId();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("employeeId", employeeId);
+            try {
+                Map<String, Object> saved = dutyShiftService.upsert(
+                        employeeId,
+                        body.getWorkDate(),
+                        item.getShiftTypeCode(),
+                        item.getRoleTierCode(),
+                        body.getNote());
+                row.put("employeeName", saved.get("employeeName"));
+                row.put("ok", true);
+                row.put("message", "Đã lưu ca trực");
+                success++;
+            } catch (Exception e) {
+                row.put("employeeName", dutyShiftService.employeeDisplayName(employeeId));
+                row.put("ok", false);
+                row.put("message", e.getMessage() != null ? e.getMessage() : "Lỗi không xác định");
+                failure++;
+            }
+            results.add(row);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("successCount", success);
+        out.put("failureCount", failure);
+        out.put("results", results);
+        return out;
+    }
+
     @DeleteMapping("/employees/{employeeId}/duty-shifts/{workDate}")
     @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Operation(summary = "Xóa ca trực")
@@ -363,6 +439,50 @@ public class AttendanceController {
             @PathVariable Long employeeId,
             @Valid @RequestBody QuangTrungSupplementRequest body) {
         return attendanceService.applyQuangTrungSupplement(employeeId, body);
+    }
+
+    @PostMapping("/quang-trung-supplement/bulk")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "HCNS/Admin bổ sung công Quang Trung hàng loạt")
+    public Map<String, Object> bulkQuangTrungSupplement(@Valid @RequestBody QuangTrungSupplementBulkRequest body) {
+        QuangTrungSupplementRequest one = new QuangTrungSupplementRequest();
+        one.setWorkDate(body.getWorkDate());
+        one.setUpdateKind(body.getUpdateKind());
+        one.setReason(body.getReason());
+        one.setRequestedStart(body.getRequestedStart());
+        one.setRequestedEnd(body.getRequestedEnd());
+        one.setRequestedAfternoonStart(body.getRequestedAfternoonStart());
+        one.setRequestedAfternoonEnd(body.getRequestedAfternoonEnd());
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        int success = 0;
+        int failure = 0;
+        for (Long employeeId : body.getEmployeeIds()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("employeeId", employeeId);
+            try {
+                Map<String, Object> saved = attendanceService.applyQuangTrungSupplement(employeeId, one);
+                Object name = saved.get("employeeName");
+                if (name == null) {
+                    name = dutyShiftService.employeeDisplayName(employeeId);
+                }
+                row.put("employeeName", name);
+                row.put("ok", true);
+                row.put("message", "Đã lưu công Quang Trung");
+                success++;
+            } catch (Exception e) {
+                row.put("employeeName", dutyShiftService.employeeDisplayName(employeeId));
+                row.put("ok", false);
+                row.put("message", e.getMessage() != null ? e.getMessage() : "Lỗi không xác định");
+                failure++;
+            }
+            results.add(row);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("successCount", success);
+        out.put("failureCount", failure);
+        out.put("results", results);
+        return out;
     }
 
     @GetMapping("/employees/{employeeId}/quang-trung-supplement")

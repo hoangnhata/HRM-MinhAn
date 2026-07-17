@@ -1,4 +1,3 @@
-import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined';
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
@@ -38,13 +37,16 @@ const CATEGORY_META: Record<
   string,
   { icon: SvgIconComponent; accent: string; label: string }
 > = {
-  ANNOUNCEMENT: { icon: CampaignOutlinedIcon, accent: '#0d9488', label: 'Thông báo toàn viện' },
+  ANNOUNCEMENT: { icon: NotificationsNoneOutlinedIcon, accent: '#64748b', label: 'Thông báo' },
   ATTENDANCE: { icon: ScheduleOutlinedIcon, accent: '#d97706', label: 'Công / đơn công' },
   PAYROLL: { icon: PaymentsOutlinedIcon, accent: '#2563eb', label: 'Bảng lương' },
   SALARY_ADJUSTMENT: { icon: TrendingUpOutlinedIcon, accent: '#7c3aed', label: 'Nâng bậc lương' },
   SALARY_REVIEW: { icon: TrendingUpOutlinedIcon, accent: '#7c3aed', label: 'Xét nâng lương' },
   INTERNAL: { icon: DescriptionOutlinedIcon, accent: '#64748b', label: 'Nội bộ' },
   SYSTEM: { icon: NotificationsNoneOutlinedIcon, accent: '#64748b', label: 'Hệ thống' },
+  DEPARTMENT_TRANSFER: { icon: DescriptionOutlinedIcon, accent: '#0d9488', label: 'Luân chuyển' },
+  PROBATION_CONVERSION: { icon: DescriptionOutlinedIcon, accent: '#15803d', label: 'Chuyển chính thức' },
+  YOUNG_CHILD: { icon: DescriptionOutlinedIcon, accent: '#c026d3', label: 'Nuôi con nhỏ' },
 };
 
 export function notificationMeta(category: string) {
@@ -61,12 +63,18 @@ export function resolveNotificationPath(n: AppNotification): string {
   if (n.actionPath) {
     return n.actionPath;
   }
-  if (n.relatedAnnouncementId != null && n.relatedAnnouncementId > 0) {
-    return `/announcements?announcement=${n.relatedAnnouncementId}`;
-  }
   switch (n.category) {
     case 'ANNOUNCEMENT':
-      return '/announcements';
+      return '/';
+    case 'DEPARTMENT_TRANSFER':
+      return n.title.includes('chờ') ? '/requests?tab=transfers' : '/employees/official';
+    case 'PROBATION_CONVERSION':
+      if (n.title.includes('Đã lên') || n.title.includes('Áp dụng')) {
+        return '/employees/official';
+      }
+      return '/requests?tab=probation-conversions';
+    case 'YOUNG_CHILD':
+      return '/requests?tab=young-child';
     case 'ATTENDANCE':
       return n.title.includes('chờ duyệt') ? '/requests?tab=approve' : '/requests?tab=mine';
     case 'PAYROLL':

@@ -24,8 +24,9 @@ import java.util.Set;
 public class MustChangePasswordFilter extends OncePerRequestFilter {
 
     private static final Set<String> ALLOWED_PATHS = Set.of(
-            "/api/v1/account/me",
-            "/api/v1/account/change-password");
+            "/j1-api/v1/account/me",
+            "/j1-api/v1/account/me/avatar",
+            "/j1-api/v1/account/change-password");
 
     private final UserAccountRepository userAccountRepository;
 
@@ -56,8 +57,8 @@ public class MustChangePasswordFilter extends OncePerRequestFilter {
             return true;
         }
         String path = request.getRequestURI();
-        return !path.startsWith("/api/")
-                || path.startsWith("/api/auth/")
+        return !path.startsWith("/j1-api/")
+                || path.startsWith("/j1-api/auth/")
                 || path.startsWith("/swagger-ui")
                 || path.startsWith("/api-docs")
                 || path.startsWith("/v3/api-docs")

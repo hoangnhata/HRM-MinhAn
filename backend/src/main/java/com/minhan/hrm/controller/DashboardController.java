@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/dashboard")
+@RequestMapping("/j1-api/v1/dashboard")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "Dashboard", description = "Thống kê quản trị")

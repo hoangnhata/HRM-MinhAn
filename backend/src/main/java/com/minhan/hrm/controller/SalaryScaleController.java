@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/salary-scales")
+@RequestMapping("/j1-api/v1/salary-scales")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "Salary Scales", description = "Thang bảng lương — mọi người xem được")

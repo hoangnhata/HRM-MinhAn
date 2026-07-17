@@ -209,10 +209,22 @@ export function AttendanceUpdateRequestDialog({
         reason: reason.trim(),
       };
       if (isFullDay) {
-        payload.requestedStart = morningStart;
-        payload.requestedEnd = morningEnd;
-        payload.requestedAfternoonStart = afternoonStart;
-        payload.requestedAfternoonEnd = afternoonEnd;
+        payload.requestedStart =
+          scenario?.missingMorningIn === false && scenario?.existingMorningIn
+            ? scenario.existingMorningIn
+            : morningStart;
+        payload.requestedEnd =
+          scenario?.missingMorningOut === false && scenario?.existingMorningOut
+            ? scenario.existingMorningOut
+            : morningEnd;
+        payload.requestedAfternoonStart =
+          scenario?.missingAfternoonIn === false && scenario?.existingAfternoonIn
+            ? scenario.existingAfternoonIn
+            : afternoonStart;
+        payload.requestedAfternoonEnd =
+          scenario?.missingAfternoonOut === false && scenario?.existingAfternoonOut
+            ? scenario.existingAfternoonOut
+            : afternoonEnd;
       } else if (updateKind === 'AFTERNOON_SUPPLEMENT') {
         payload.requestedStart = scenario?.missingAfternoonIn === false && scenario?.existingAfternoonIn
           ? scenario.existingAfternoonIn
@@ -266,7 +278,7 @@ export function AttendanceUpdateRequestDialog({
         Sau khi được duyệt, hệ thống cập nhật giờ công theo khung thời gian bạn đề nghị. Mỗi ngày chỉ gửi một đơn
         đang chờ duyệt. Nếu HCNS duyệt có trừ tiền quên chấm: đơn này trừ{' '}
         <strong>{forgotUnits} lần</strong>
-        {scenario?.partial ? ' (thiếu một mốc chấm)' : ''} theo bậc phạt tháng.
+        {scenario?.partial ? ` (thiếu ${forgotUnits} mốc chấm)` : ''} theo bậc phạt tháng.
       </InfoBanner>
 
       <FormSection title="Người nộp đơn">
@@ -353,34 +365,77 @@ export function AttendanceUpdateRequestDialog({
           </Stack>
 
           {isFullDay ? (
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <ShiftTimeBlock
-                  title="Ca sáng"
-                  icon={<WbSunnyOutlinedIcon sx={{ fontSize: 18, color: accent }} />}
-                  accent={accent}
-                  startLabel="Vào ca"
-                  endLabel="Ra ca"
-                  start={morningStart}
-                  end={morningEnd}
-                  onStartChange={setMorningStart}
-                  onEndChange={setMorningEnd}
-                />
+            scenario?.partial ? (
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <WbSunnyOutlinedIcon sx={{ fontSize: 18, color: accent }} />
+                      <Typography variant="subtitle2">Ca sáng</Typography>
+                    </Stack>
+                    <PartialShiftFields
+                      accent={accent}
+                      existingIn={scenario.existingMorningIn}
+                      existingOut={scenario.existingMorningOut}
+                      missingIn={scenario.missingMorningIn}
+                      missingOut={scenario.missingMorningOut}
+                      inValue={morningStart}
+                      outValue={morningEnd}
+                      onInChange={setMorningStart}
+                      onOutChange={setMorningEnd}
+                    />
+                  </Stack>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <WbTwilightIcon sx={{ fontSize: 18, color: accent }} />
+                      <Typography variant="subtitle2">Ca chiều</Typography>
+                    </Stack>
+                    <PartialShiftFields
+                      accent={accent}
+                      existingIn={scenario.existingAfternoonIn}
+                      existingOut={scenario.existingAfternoonOut}
+                      missingIn={scenario.missingAfternoonIn}
+                      missingOut={scenario.missingAfternoonOut}
+                      inValue={afternoonStart}
+                      outValue={afternoonEnd}
+                      onInChange={setAfternoonStart}
+                      onOutChange={setAfternoonEnd}
+                    />
+                  </Stack>
+                </Grid>
               </Grid>
-              <Grid item xs={12} md={6}>
-                <ShiftTimeBlock
-                  title="Ca chiều"
-                  icon={<WbTwilightIcon sx={{ fontSize: 18, color: accent }} />}
-                  accent={accent}
-                  startLabel="Vào ca"
-                  endLabel="Ra ca"
-                  start={afternoonStart}
-                  end={afternoonEnd}
-                  onStartChange={setAfternoonStart}
-                  onEndChange={setAfternoonEnd}
-                />
+            ) : (
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <ShiftTimeBlock
+                    title="Ca sáng"
+                    icon={<WbSunnyOutlinedIcon sx={{ fontSize: 18, color: accent }} />}
+                    accent={accent}
+                    startLabel="Vào ca"
+                    endLabel="Ra ca"
+                    start={morningStart}
+                    end={morningEnd}
+                    onStartChange={setMorningStart}
+                    onEndChange={setMorningEnd}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <ShiftTimeBlock
+                    title="Ca chiều"
+                    icon={<WbTwilightIcon sx={{ fontSize: 18, color: accent }} />}
+                    accent={accent}
+                    startLabel="Vào ca"
+                    endLabel="Ra ca"
+                    start={afternoonStart}
+                    end={afternoonEnd}
+                    onStartChange={setAfternoonStart}
+                    onEndChange={setAfternoonEnd}
+                  />
+                </Grid>
               </Grid>
-            </Grid>
+            )
           ) : updateKind === 'AFTERNOON_SUPPLEMENT' ? (
             scenario?.partial ? (
               <PartialShiftFields

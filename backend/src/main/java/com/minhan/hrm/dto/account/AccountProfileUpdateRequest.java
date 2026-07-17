@@ -16,6 +16,12 @@ public class AccountProfileUpdateRequest {
     @Size(max = 200)
     private String fullName;
 
-    /** Khi có hồ sơ nhân viên — đổi đơn vị làm việc */
+    /** yyyy-MM-dd — đồng bộ ERP DOB */
+    private String dateOfBirth;
+
+    /** URL / base64 avatar ERP (có thể để trống) */
+    private String userAvatar;
+
+    /** Khi có hồ sơ nhân viên HRM — đổi đơn vị làm việc (không ghi ERP) */
     private Long departmentId;
 }

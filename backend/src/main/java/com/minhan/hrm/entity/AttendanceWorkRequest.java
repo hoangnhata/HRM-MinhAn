@@ -33,7 +33,7 @@ public class AttendanceWorkRequest {
     @Column(name = "work_date", nullable = false)
     private LocalDate workDate;
 
-    /** Ngày kết thúc (LEAVE / BUSINESS_TRIP). Null = chỉ một ngày (work_date). */
+    /** Ngày kết thúc (LEAVE / UNPAID_LEAVE / BUSINESS_TRIP). Null = chỉ một ngày (work_date). */
     @Column(name = "end_date")
     private LocalDate endDate;
 

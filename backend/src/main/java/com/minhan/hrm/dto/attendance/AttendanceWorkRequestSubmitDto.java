@@ -23,7 +23,7 @@ public class AttendanceWorkRequestSubmitDto {
     @NotNull
     private LocalDate workDate;
 
-    /** Ngày kết thúc — bắt buộc với LEAVE / BUSINESS_TRIP. */
+    /** Ngày kết thúc — bắt buộc với LEAVE / UNPAID_LEAVE / BUSINESS_TRIP. */
     private LocalDate endDate;
 
     @NotNull

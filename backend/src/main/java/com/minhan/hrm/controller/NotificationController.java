@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/notifications")
+@RequestMapping("/j1-api/v1/notifications")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "Notifications", description = "Thông báo lương & nội bộ")

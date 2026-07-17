@@ -640,6 +640,7 @@ public class AttendanceReportExcelService {
             case "PARTIAL" -> "Thiếu ca";
             case "ABSENT" -> "Vắng";
             case "LEAVE" -> "Phép";
+            case "UNPAID_LEAVE" -> "Không lương";
             case "BUSINESS_TRIP" -> "Công tác";
             default -> status;
         };

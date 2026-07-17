@@ -2,9 +2,11 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import {
@@ -41,9 +43,13 @@ import { EmployeeFormDialog } from '../components/EmployeeFormDialog';
 import { EmployeeStatusChip } from '../components/EmployeeStatusChip';
 import { MaternityLeaveChip } from '../components/MaternityLeaveChip';
 import { PageHeader } from '../components/layout/PageHeader';
+import { DepartmentTransferDialog } from '../components/DepartmentTransferDialog';
+import { ProbationConversionDialog } from '../components/ProbationConversionDialog';
 import { WorkforceImportDialog } from '../components/WorkforceImportDialog';
+import { useAuth } from '../context/AuthContext';
 import * as documentService from '../services/documentService';
 import * as employeeService from '../services/employeeService';
+import * as importService from '../services/importService';
 
 type StatusTab = employeeService.EmployeeStatusGroup;
 
@@ -80,13 +86,26 @@ function formatDate(iso?: string | null) {
 export default function EmployeesPage() {
   const theme = useTheme();
   const location = useLocation();
+  const { user } = useAuth();
   const statusTab = useMemo(() => categoryFromPath(location.pathname), [location.pathname]);
   const categoryMeta = CATEGORY_META[statusTab];
+  const isHrOrAdmin = user?.role === 'ADMIN' || user?.role === 'HR';
+  const isHeadRole = user?.role === 'HEAD_DEPARTMENT' || user?.role === 'HEAD_NURSING';
+  /** Quản lý nhân sự: HCNS/ADMIN/trưởng/DDT toàn viện */
+  const canManageStaff = isHrOrAdmin || isHeadRole;
+  const canCreateConversion =
+    user?.role === 'ADMIN' || user?.role === 'HEAD_DEPARTMENT' || user?.role === 'HEAD_NURSING';
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<employeeService.EmployeeSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [size, setSize] = useState(10);
   const [importOpen, setImportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [transferTarget, setTransferTarget] = useState<{
+    id: number;
+    fullName: string;
+    departmentName?: string;
+  } | null>(null);
   const [listVersion, setListVersion] = useState(0);
 
   const [qInput, setQInput] = useState('');
@@ -105,8 +124,12 @@ export default function EmployeesPage() {
   const [purgeTarget, setPurgeTarget] = useState<{ id: number; name: string } | null>(null);
   const [purging, setPurging] = useState(false);
 
-  const [confirmTarget, setConfirmTarget] = useState<{ id: number; name: string } | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<{
+    id: number;
+    fullName: string;
+    departmentName?: string;
+    status?: string;
+  } | null>(null);
 
   const [replaceDialogEmployeeId, setReplaceDialogEmployeeId] = useState<number | null>(null);
   const [pdfLoadingId, setPdfLoadingId] = useState<number | null>(null);
@@ -137,17 +160,27 @@ export default function EmployeesPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const data = await employeeService.fetchEmployees({
-        page,
-        size,
-        q: q.trim() || undefined,
-        departmentId: filterDept === '' ? undefined : filterDept,
-        statusGroup: statusTab,
-        officialWorkFilter: isOfficialTab && filterWork ? filterWork : undefined,
-      });
-      if (!cancelled) {
-        setRows(data.content);
-        setTotal(data.totalElements);
+      try {
+        const data = await employeeService.fetchEmployees({
+          page,
+          size,
+          q: q.trim() || undefined,
+          departmentId: filterDept === '' ? undefined : filterDept,
+          statusGroup: statusTab,
+          officialWorkFilter: isOfficialTab && filterWork ? filterWork : undefined,
+        });
+        if (!cancelled) {
+          setRows(data.content);
+          setTotal(data.totalElements);
+        }
+      } catch (e: unknown) {
+        if (cancelled) return;
+        setRows([]);
+        setTotal(0);
+        const msg =
+          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+          'Không tải được danh sách nhân viên';
+        setSnackbar({ open: true, message: msg });
       }
     })();
     return () => {
@@ -198,21 +231,6 @@ export default function EmployeesPage() {
       setSnackbar({ open: true, message: 'Không cập nhật được trạng thái.' });
     } finally {
       setTerminating(false);
-    }
-  }
-
-  async function confirmOfficial() {
-    if (!confirmTarget) return;
-    setConfirming(true);
-    try {
-      await employeeService.confirmOfficial(confirmTarget.id);
-      setSnackbar({ open: true, message: 'Đã chuyển nhân viên lên chính thức.' });
-      setConfirmTarget(null);
-      setListVersion((v) => v + 1);
-    } catch {
-      setSnackbar({ open: true, message: 'Không chuyển chính thức được.' });
-    } finally {
-      setConfirming(false);
     }
   }
 
@@ -335,22 +353,15 @@ export default function EmployeesPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={confirmTarget != null} onClose={() => !confirming && setConfirmTarget(null)}>
-        <DialogTitle>Chuyển lên chính thức</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2">
-            Chuyển <strong>{confirmTarget?.name}</strong> từ thử việc/thực tập lên nhân viên chính thức?
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmTarget(null)} disabled={confirming}>
-            Hủy
-          </Button>
-          <Button color="success" variant="contained" onClick={confirmOfficial} disabled={confirming}>
-            {confirming ? 'Đang xử lý…' : 'Chuyển chính thức'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ProbationConversionDialog
+        open={confirmTarget != null}
+        employee={confirmTarget}
+        onClose={() => setConfirmTarget(null)}
+        onSubmitted={() => {
+          setSnackbar({ open: true, message: 'Đã gửi đơn chuyển chính thức — chờ HCNS duyệt.' });
+          setListVersion((v) => v + 1);
+        }}
+      />
 
       <Backdrop sx={{ color: '#fff', zIndex: (t) => t.zIndex.drawer + 1 }} open={uploading}>
         <CircularProgress color="inherit" />
@@ -366,16 +377,44 @@ export default function EmployeesPage() {
       <PageHeader
         overline="Nhân sự"
         title={categoryMeta.title}
-        description={categoryMeta.description}
+        description={
+          isTrialTab && canCreateConversion && !isHrOrAdmin
+            ? 'Lập đơn đề nghị chuyển nhân viên thử việc / thực tập lên chính thức (HCNS → Giám đốc duyệt).'
+            : categoryMeta.description
+        }
         actions={
-          <>
-            <Button variant="outlined" startIcon={<PersonAddIcon />} onClick={openCreate}>
-              Thêm nhân viên
-            </Button>
-            <Button variant="contained" startIcon={<CloudUploadIcon />} onClick={() => setImportOpen(true)}>
-              Import Excel
-            </Button>
-          </>
+          canManageStaff ? (
+            <>
+              <Button variant="outlined" startIcon={<PersonAddIcon />} onClick={openCreate}>
+                Thêm nhân viên
+              </Button>
+              {isHrOrAdmin && (
+                <>
+                  <Button
+                    variant="outlined"
+                    startIcon={exporting ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />}
+                    disabled={exporting}
+                    onClick={async () => {
+                      setExporting(true);
+                      try {
+                        await importService.downloadWorkforceExcel();
+                        setSnackbar({ open: true, message: 'Đã tải file Excel nhân lực.' });
+                      } catch {
+                        setSnackbar({ open: true, message: 'Xuất Excel thất bại. Kiểm tra quyền ADMIN/HCNS.' });
+                      } finally {
+                        setExporting(false);
+                      }
+                    }}
+                  >
+                    Xuất Excel
+                  </Button>
+                  <Button variant="contained" startIcon={<CloudUploadIcon />} onClick={() => setImportOpen(true)}>
+                    Import Excel
+                  </Button>
+                </>
+              )}
+            </>
+          ) : undefined
         }
       />
 
@@ -383,6 +422,16 @@ export default function EmployeesPage() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={() => setListVersion((v) => v + 1)}
+      />
+
+      <DepartmentTransferDialog
+        open={Boolean(transferTarget)}
+        employee={transferTarget}
+        onClose={() => setTransferTarget(null)}
+        onSubmitted={() => {
+          setSnackbar({ open: true, message: 'Đã gửi đề nghị luân chuyển cho Giám đốc duyệt.' });
+          setListVersion((v) => v + 1);
+        }}
       />
 
       {isOfficialTab && filterWork === 'MATERNITY_LEAVE' && total > 0 && (
@@ -487,7 +536,7 @@ export default function EmployeesPage() {
               {isTrialTab && <TableCell>Ngày bắt đầu</TableCell>}
               {isTrialTab && <TableCell>Tháng TV</TableCell>}
               <TableCell>Trạng thái</TableCell>
-              <TableCell align="right" sx={{ width: isTrialTab ? 220 : 168, whiteSpace: 'nowrap' }}>
+              <TableCell align="right" sx={{ width: isTrialTab ? 240 : 220, whiteSpace: 'nowrap' }}>
                 Thao tác
               </TableCell>
             </TableRow>
@@ -545,43 +594,35 @@ export default function EmployeesPage() {
                     {r.maternityLeave && <MaternityLeaveChip />}
                   </Stack>
                 </TableCell>
-                <TableCell align="right">
-                  <Stack direction="row" spacing={0.25} justifyContent="flex-end" alignItems="center" flexWrap="wrap">
-                    {isTrialTab && (
-                      <>
-                        <Tooltip title="Chuyển chính thức">
-                          <IconButton
-                            size="small"
-                            color="success"
-                            aria-label="Chuyển chính thức"
-                            onClick={() => setConfirmTarget({ id: r.id, name: r.fullName })}
-                          >
-                            <CheckCircleOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Nghỉ việc">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            aria-label="Nghỉ việc"
-                            onClick={() => setTerminateTarget({ id: r.id, name: r.fullName })}
-                          >
-                            <DeleteOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </>
+                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                  <Stack
+                    direction="row"
+                    spacing={0.25}
+                    justifyContent="flex-end"
+                    alignItems="center"
+                    flexWrap="nowrap"
+                    sx={{ width: 'max-content', ml: 'auto' }}
+                  >
+                    {isTrialTab && canCreateConversion && (
+                      <Tooltip title="Lập đơn chuyển chính thức">
+                        <IconButton
+                          size="small"
+                          color="success"
+                          aria-label="Lập đơn chuyển chính thức"
+                          onClick={() =>
+                            setConfirmTarget({
+                              id: r.id,
+                              fullName: r.fullName,
+                              departmentName: r.departmentName,
+                              status: r.status,
+                            })
+                          }
+                        >
+                          <CheckCircleOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     )}
-                    <Tooltip title="Xem chi tiết">
-                      <IconButton component={Link} to={`/employees/${r.id}`} size="small" color="primary" aria-label="Chi tiết">
-                        <VisibilityIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Sửa">
-                      <IconButton size="small" color="primary" aria-label="Sửa" onClick={() => openEdit(r.id)}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    {!isTrialTab && !isTerminatedTab && (
+                    {isTrialTab && canManageStaff && (
                       <Tooltip title="Nghỉ việc">
                         <IconButton
                           size="small"
@@ -593,7 +634,49 @@ export default function EmployeesPage() {
                         </IconButton>
                       </Tooltip>
                     )}
-                    {isTerminatedTab && (
+                    <Tooltip title="Xem chi tiết">
+                      <IconButton component={Link} to={`/employees/${r.id}`} size="small" color="primary" aria-label="Chi tiết">
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    {canManageStaff && (
+                      <Tooltip title="Sửa">
+                        <IconButton size="small" color="primary" aria-label="Sửa" onClick={() => openEdit(r.id)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {isHrOrAdmin && !isTerminatedTab && (
+                      <Tooltip title="Luân chuyển phòng ban">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          aria-label="Luân chuyển"
+                          onClick={() =>
+                            setTransferTarget({
+                              id: r.id,
+                              fullName: r.fullName,
+                              departmentName: r.departmentName,
+                            })
+                          }
+                        >
+                          <SwapHorizIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {canManageStaff && !isTrialTab && !isTerminatedTab && (
+                      <Tooltip title="Nghỉ việc">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          aria-label="Nghỉ việc"
+                          onClick={() => setTerminateTarget({ id: r.id, name: r.fullName })}
+                        >
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {isHrOrAdmin && isTerminatedTab && (
                       <Tooltip title="Xóa hồ sơ vĩnh viễn">
                         <IconButton
                           size="small"
@@ -605,6 +688,7 @@ export default function EmployeesPage() {
                         </IconButton>
                       </Tooltip>
                     )}
+                    {canManageStaff && (
                     <Tooltip title="Đính kèm PDF">
                       <span>
                         <IconButton
@@ -618,6 +702,7 @@ export default function EmployeesPage() {
                         </IconButton>
                       </span>
                     </Tooltip>
+                    )}
                   </Stack>
                 </TableCell>
               </TableRow>
@@ -641,7 +726,7 @@ export default function EmployeesPage() {
             setSize(parseInt(e.target.value, 10));
             setPage(0);
           }}
-          rowsPerPageOptions={[5, 10, 20]}
+          rowsPerPageOptions={[10, 25, 50, 100]}
           labelRowsPerPage="Số dòng"
         />
       </TableContainer>

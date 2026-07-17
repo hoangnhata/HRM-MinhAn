@@ -6,5 +6,6 @@ export function getRoleLabel(role: string | undefined): string {
   if (role === 'HR') return 'P. HCNS';
   if (role === 'HEAD_DEPARTMENT') return 'Trưởng khoa / phòng';
   if (role === 'HEAD_NURSING') return 'Điều dưỡng trưởng';
+  if (role === 'DIRECTOR') return 'Giám đốc';
   return role;
 }

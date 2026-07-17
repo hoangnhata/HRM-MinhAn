@@ -19,6 +19,7 @@ import * as attSvc from "../../services/attendanceService";
 import type { AttendanceRow } from "./AttendanceRowActions";
 import {
   continuousShiftHours,
+  continuousShiftRange,
   formatPunchTime,
   formatShiftTime,
   formatWorkedHours,
@@ -242,11 +243,13 @@ export function AttendanceDayDetailDialog({
                       ? "success"
                       : status === "LEAVE"
                         ? "info"
-                        : status === "BUSINESS_TRIP"
-                          ? "warning"
-                          : status === "DEPLOYMENT"
-                            ? "info"
-                            : "default"
+                        : status === "UNPAID_LEAVE"
+                          ? "default"
+                          : status === "BUSINESS_TRIP"
+                            ? "warning"
+                            : status === "DEPLOYMENT"
+                              ? "info"
+                              : "default"
                   }
                   variant="outlined"
                 />
@@ -290,7 +293,7 @@ export function AttendanceDayDetailDialog({
                   ? formatWorkUnits(totalUnits, { suffix: true })
                   : "—"
               }
-              scheduleLine={`${formatShiftTime(sch.morningStart)} – ${formatShiftTime(sch.afternoonEnd)} (${dayHours}h, không nghỉ trưa)`}
+              scheduleLine={`${formatShiftTime(continuousShiftRange(sch).start)} – ${formatShiftTime(continuousShiftRange(sch).end)} (${dayHours}h, không nghỉ trưa)`}
             />
           ) : (
             <Grid container spacing={2}>

@@ -35,15 +35,16 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/auth/login",
+                                "/j1-api/auth/login",
+                                "/j1-api/v1/sso/public/**",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/api-docs/**",
                                 "/actuator/health").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/documents/*/file").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/j1-api/v1/documents/*/file").authenticated()
                         .requestMatchers(HttpMethod.GET, "/", "/index.html", "/assets/**").permitAll()
-                        .requestMatchers("/api/**").authenticated()
+                        .requestMatchers("/j1-api/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(

@@ -5,24 +5,31 @@ import {
   Alert,
   Badge,
   Box,
-  Paper,
+  Grid,
   Stack,
   Tab,
   Tabs,
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import * as att from '../services/attendanceService';
 import { WorkRequestDetailDialog } from './work/WorkRequestDetailDialog';
 import { WorkRequestListCard } from './work/WorkRequestListCard';
 
-export function AttendancePendingPanel({ onChanged }: { onChanged?: () => void }) {
+type Props = {
+  onChanged?: () => void;
+  /** Chỉ hiện các loại đơn này (mặc định: tất cả). */
+  types?: att.WorkRequest['requestType'][];
+  description?: string;
+};
+
+export function AttendancePendingPanel({ onChanged, types, description }: Props) {
   const theme = useTheme();
   const { user } = useAuth();
-  const [pending, setPending] = useState<att.WorkRequest[]>([]);
-  const [history, setHistory] = useState<att.WorkRequest[]>([]);
+  const [pendingAll, setPendingAll] = useState<att.WorkRequest[]>([]);
+  const [historyAll, setHistoryAll] = useState<att.WorkRequest[]>([]);
   const [subTab, setSubTab] = useState(0);
   const [selected, setSelected] = useState<att.WorkRequest | null>(null);
   const [comment, setComment] = useState('');
@@ -32,14 +39,25 @@ export function AttendancePendingPanel({ onChanged }: { onChanged?: () => void }
   const isHead = user?.role === 'ADMIN' || user?.role === 'HEAD_DEPARTMENT' || user?.role === 'HEAD_NURSING';
   const isHr = user?.role === 'ADMIN' || user?.role === 'HR';
 
+  const typeSet = useMemo(() => (types && types.length > 0 ? new Set(types) : null), [types]);
+
+  const pending = useMemo(
+    () => (typeSet ? pendingAll.filter((r) => typeSet.has(r.requestType)) : pendingAll),
+    [pendingAll, typeSet],
+  );
+  const history = useMemo(
+    () => (typeSet ? historyAll.filter((r) => typeSet.has(r.requestType)) : historyAll),
+    [historyAll, typeSet],
+  );
+
   const reload = useCallback(() => {
     if (!isHead && !isHr) return;
     Promise.all([
       att.fetchPendingWorkRequests().catch(() => [] as att.WorkRequest[]),
       att.fetchReviewHistoryWorkRequests().catch(() => [] as att.WorkRequest[]),
     ]).then(([p, h]) => {
-      setPending(p);
-      setHistory(h);
+      setPendingAll(p);
+      setHistoryAll(h);
     });
   }, [isHead, isHr]);
 
@@ -99,58 +117,78 @@ export function AttendancePendingPanel({ onChanged }: { onChanged?: () => void }
 
   return (
     <Stack spacing={2}>
+      {description && (
+        <Typography variant="body2" color="text.secondary">
+          {description}
+        </Typography>
+      )}
+
       {msg && (
         <Alert severity="info" sx={{ borderRadius: 2 }} onClose={() => setMsg(null)}>
           {msg}
         </Alert>
       )}
 
-      <Box
-        sx={{
-          display: 'inline-flex',
-          p: 0.5,
-          borderRadius: 2.5,
-          bgcolor: alpha(theme.palette.grey[500], 0.06),
-          border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
-          width: 'fit-content',
-        }}
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1.5}
+        alignItems={{ xs: 'stretch', sm: 'center' }}
+        justifyContent="space-between"
       >
-        <Tabs
-          value={subTab}
-          onChange={(_, v) => setSubTab(v)}
+        <Box
           sx={{
-            minHeight: 40,
-            '& .MuiTabs-indicator': { display: 'none' },
-            '& .MuiTab-root': {
-              minHeight: 40,
-              textTransform: 'none',
-              fontWeight: 600,
-              borderRadius: 2,
-              px: 1.75,
-              mr: 0.5,
-              '&.Mui-selected': {
-                bgcolor: theme.palette.primary.main,
-                color: theme.palette.primary.contrastText,
-              },
-            },
+            display: 'inline-flex',
+            p: 0.5,
+            borderRadius: 2.5,
+            bgcolor: alpha(theme.palette.grey[500], 0.06),
+            border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+            width: 'fit-content',
           }}
         >
-          <Tab
-            icon={
-              <Badge badgeContent={pending.length} color="warning" max={99}>
-                <PendingActionsIcon fontSize="small" />
-              </Badge>
-            }
-            iconPosition="start"
-            label="Chờ duyệt"
-          />
-          <Tab
-            icon={<HistoryIcon fontSize="small" />}
-            iconPosition="start"
-            label={`Lịch sử (${history.length})`}
-          />
-        </Tabs>
-      </Box>
+          <Tabs
+            value={subTab}
+            onChange={(_, v) => setSubTab(v)}
+            sx={{
+              minHeight: 40,
+              '& .MuiTabs-indicator': { display: 'none' },
+              '& .MuiTab-root': {
+                minHeight: 40,
+                textTransform: 'none',
+                fontWeight: 600,
+                borderRadius: 2,
+                px: 1.75,
+                mr: 0.5,
+                '&.Mui-selected': {
+                  bgcolor: theme.palette.primary.main,
+                  color: theme.palette.primary.contrastText,
+                },
+              },
+            }}
+          >
+            <Tab
+              icon={
+                <Badge badgeContent={pending.length} color="warning" max={99}>
+                  <PendingActionsIcon fontSize="small" />
+                </Badge>
+              }
+              iconPosition="start"
+              label="Chờ duyệt"
+            />
+            <Tab
+              icon={<HistoryIcon fontSize="small" />}
+              iconPosition="start"
+              label={`Lịch sử (${history.length})`}
+            />
+          </Tabs>
+        </Box>
+        {list.length > 0 && (
+          <Typography variant="caption" color="text.secondary" fontWeight={600}>
+            {subTab === 0
+              ? `${pending.length} đơn chờ — bấm thẻ để xem chi tiết và duyệt`
+              : `${history.length} đơn đã xử lý — bấm «Xem chi tiết» để xem nội dung`}
+          </Typography>
+        )}
+      </Stack>
 
       {list.length === 0 ? (
         <Box
@@ -188,11 +226,13 @@ export function AttendancePendingPanel({ onChanged }: { onChanged?: () => void }
           </Typography>
         </Box>
       ) : (
-        <Stack spacing={1.5}>
+        <Grid container spacing={1.75}>
           {list.map((r) => (
-            <WorkRequestListCard key={r.id} request={r} showEmployee onClick={() => openDetail(r)} />
+            <Grid item xs={12} md={6} key={r.id}>
+              <WorkRequestListCard request={r} showEmployee onClick={() => openDetail(r)} />
+            </Grid>
           ))}
-        </Stack>
+        </Grid>
       )}
 
       <WorkRequestDetailDialog

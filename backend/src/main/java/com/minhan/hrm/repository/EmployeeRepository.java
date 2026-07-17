@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Sort;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -78,4 +79,11 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSp
     List<Employee> findByHireYearAndMonth(@Param("year") int year, @Param("month") int month);
 
     List<Employee> findByDepartment_Id(Long departmentId, Sort sort);
+
+    @Query("""
+            SELECT e FROM Employee e
+            LEFT JOIN FETCH e.department
+            ORDER BY e.fullName ASC
+            """)
+    List<Employee> findAllWithDepartment();
 }

@@ -85,7 +85,8 @@ export type EmployeeAccountRole =
   | 'EMPLOYEE'
   | 'HR'
   | 'HEAD_DEPARTMENT'
-  | 'HEAD_NURSING';
+  | 'HEAD_NURSING'
+  | 'DIRECTOR';
 
 export type EmployeeCreatePayload = {
   username?: string;

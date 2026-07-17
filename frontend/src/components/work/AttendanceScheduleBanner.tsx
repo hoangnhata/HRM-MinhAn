@@ -17,6 +17,7 @@ import {
 import { alpha, useTheme } from "@mui/material/styles";
 import {
   continuousShiftHours,
+  continuousShiftRange,
   formatShiftTime,
   scheduleForDate,
   type ShiftScheduleInfo,
@@ -27,15 +28,23 @@ type Props = {
   date?: Date;
   canEdit?: boolean;
   onEdit?: () => void;
+  /** Mở dialog chỉnh giờ vào/ra ca thông tầm (cấu hình mùa) */
+  onEditContinuous?: () => void;
   /** HR/Admin: quản lý ca thông tầm / nuôi con nhỏ cho nhân viên đang chọn */
   canManageContinuous?: boolean;
   employeeName?: string;
   continuousShift?: boolean;
+  continuousDayCount?: number;
   continuousSaving?: boolean;
-  onContinuousShiftChange?: (checked: boolean) => void;
+  onConfigureContinuousShift?: () => void;
   youngChild?: boolean;
   youngChildSaving?: boolean;
+  /** HCNS/ADMIN: bật/tắt trực tiếp */
   onYoungChildChange?: (checked: boolean) => void;
+  /** Trưởng khoa: đề xuất bật/tắt → chờ HCNS */
+  canProposeYoungChild?: boolean;
+  youngChildPending?: boolean;
+  onProposeYoungChild?: (enabled: boolean) => void;
   /** Nhãn tháng đang xem, ví dụ "tháng 7/2026" */
   periodLabel?: string;
 };
@@ -136,17 +145,18 @@ function ShiftBlock({
 
 function ContinuousShiftBlock({ schedule }: { schedule: ShiftScheduleInfo }) {
   const theme = useTheme();
-  const totalHours = schedule.effectiveDayHours ?? continuousShiftHours(schedule);
-  const totalUnits = schedule.morningUnits + schedule.afternoonUnits;
+  const totalHours = continuousShiftHours(schedule);
+  const totalUnits = (schedule.morningUnits ?? 0) + (schedule.afternoonUnits ?? 0);
   const unitsLabel = `${Number(totalUnits).toFixed(2).replace(".", ",")} công`;
+  const { start, end } = continuousShiftRange(schedule);
   return (
     <ShiftBlock
       icon={<TimelineIcon />}
       title={schedule.youngChild ? "Ca thông tầm · nuôi con nhỏ" : "Ca thông tầm"}
       hours={totalHours}
       units={`${unitsLabel} · không nghỉ trưa`}
-      start={schedule.morningStart}
-      end={schedule.afternoonEnd}
+      start={start}
+      end={end}
       accent={theme.palette.success.main}
     />
   );
@@ -157,14 +167,19 @@ export function AttendanceScheduleBanner({
   date,
   canEdit,
   onEdit,
+  onEditContinuous,
   canManageContinuous,
   employeeName,
   continuousShift,
+  continuousDayCount,
   continuousSaving,
-  onContinuousShiftChange,
+  onConfigureContinuousShift,
   youngChild,
   youngChildSaving,
   onYoungChildChange,
+  canProposeYoungChild,
+  youngChildPending,
+  onProposeYoungChild,
   periodLabel,
 }: Props) {
   const theme = useTheme();
@@ -173,13 +188,12 @@ export function AttendanceScheduleBanner({
     ? theme.palette.warning.main
     : theme.palette.info.main;
   const SeasonIcon = schedule.summer ? WbSunnyIcon : AcUnitIcon;
-  const continuous = schedule.continuousShift ?? continuousShift;
+  const continuousDayN = continuousDayCount ?? (continuousShift ? 1 : 0);
+  const continuous = continuousDayN > 0;
   const hasYoungChild = schedule.youngChild ?? youngChild;
   const dayHours =
     schedule.effectiveDayHours ??
-    (continuous
-      ? continuousShiftHours(schedule)
-      : (schedule.morningHours ?? 0) + (schedule.afternoonHours ?? 0));
+    ((schedule.morningHours ?? 0) + (schedule.afternoonHours ?? 0));
 
   return (
     <Paper
@@ -255,7 +269,11 @@ export function AttendanceScheduleBanner({
             {continuous && (
               <Chip
                 icon={<TimelineIcon sx={{ fontSize: "18px !important" }} />}
-                label="Thông tầm"
+                label={
+                  continuousDayCount != null
+                    ? `Thông tầm · ${continuousDayCount} ngày`
+                    : "Thông tầm"
+                }
                 size="small"
                 sx={{
                   fontWeight: 700,
@@ -302,41 +320,52 @@ export function AttendanceScheduleBanner({
                   borderColor: alpha(theme.palette.primary.main, 0.25),
                 }}
               >
-                Chỉnh sửa lịch
+                Chỉnh sửa ca sáng/chiều
+              </Button>
+            )}
+            {canEdit && onEditContinuous && (
+              <Button
+                size="small"
+                variant="outlined"
+                color="success"
+                startIcon={<TimelineIcon />}
+                onClick={onEditContinuous}
+                sx={{
+                  fontWeight: 700,
+                  borderRadius: 2,
+                  bgcolor: alpha("#fff", 0.7),
+                }}
+              >
+                Chỉnh sửa ca thông tầm
               </Button>
             )}
           </Stack>
         </Stack>
 
         <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-          {continuous ? (
-            <ContinuousShiftBlock schedule={schedule} />
-          ) : (
-            <>
-              <ShiftBlock
-                icon={<WbTwilightIcon />}
-                title="Ca sáng"
-                hours={schedule.morningHours}
-                units={schedule.morningUnitsLabel ?? "0,67 công"}
-                start={schedule.morningStart}
-                end={schedule.morningEnd}
-                accent={theme.palette.primary.main}
-              />
-              <ShiftBlock
-                icon={<NightsStayIcon />}
-                title="Ca chiều"
-                hours={schedule.afternoonHours}
-                units={schedule.afternoonUnitsLabel ?? "0,33 công"}
-                start={schedule.afternoonStart}
-                end={schedule.afternoonEnd}
-                accent={theme.palette.secondary.main}
-              />
-            </>
-          )}
+          <ShiftBlock
+            icon={<WbTwilightIcon />}
+            title="Ca sáng"
+            hours={schedule.morningHours}
+            units={schedule.morningUnitsLabel ?? "0,67 công"}
+            start={schedule.morningStart}
+            end={schedule.morningEnd}
+            accent={theme.palette.primary.main}
+          />
+          <ShiftBlock
+            icon={<NightsStayIcon />}
+            title="Ca chiều"
+            hours={schedule.afternoonHours}
+            units={schedule.afternoonUnitsLabel ?? "0,33 công"}
+            start={schedule.afternoonStart}
+            end={schedule.afternoonEnd}
+            accent={theme.palette.secondary.main}
+          />
+          <ContinuousShiftBlock schedule={schedule} />
         </Stack>
       </Box>
 
-      {canManageContinuous && employeeName && (onContinuousShiftChange || onYoungChildChange) && (
+      {canManageContinuous && employeeName && (onConfigureContinuousShift || onYoungChildChange || canProposeYoungChild) && (
         <Box
           sx={{
             px: { xs: 2, sm: 2.5 },
@@ -346,7 +375,7 @@ export function AttendanceScheduleBanner({
           }}
         >
           <Stack spacing={1.75}>
-            {onContinuousShiftChange && (
+            {onConfigureContinuousShift && (
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 alignItems={{ xs: "flex-start", sm: "center" }}
@@ -362,24 +391,41 @@ export function AttendanceScheduleBanner({
                     </Typography>
                   </Stack>
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", pl: 3.5 }}>
-                    Bật/tắt theo từng tháng — khi bật chỉ cần giờ vào đầu ngày và giờ ra cuối ngày, không nghỉ trưa.
+                    Chọn từng ngày trong tháng — ngày thông tầm chỉ cần giờ vào đầu ngày và giờ ra cuối ngày;
+                    ngày còn lại theo ca sáng/chiều thường.
                   </Typography>
                 </Box>
-                <Stack direction="row" spacing={1} alignItems="center">
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                   <Typography variant="caption" color="text.secondary" fontWeight={600}>
-                    {continuousShift ? "Đang bật" : "Tắt"}
+                    {continuousDayN > 0 ? `${continuousDayN} ngày` : "Chưa chọn"}
                   </Typography>
-                  <Switch
-                    checked={Boolean(continuousShift)}
-                    disabled={continuousSaving}
-                    onChange={(_, checked) => onContinuousShiftChange(checked)}
+                  <Button
+                    size="small"
+                    variant="outlined"
                     color="success"
-                  />
+                    disabled={continuousSaving}
+                    onClick={onConfigureContinuousShift}
+                    sx={{ borderRadius: 2, fontWeight: 700 }}
+                  >
+                    Chọn ngày
+                  </Button>
+                  {onEditContinuous && (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="success"
+                      startIcon={<EditIcon />}
+                      onClick={onEditContinuous}
+                      sx={{ borderRadius: 2, fontWeight: 700 }}
+                    >
+                      Chỉnh giờ vào/ra
+                    </Button>
+                  )}
                 </Stack>
               </Stack>
             )}
 
-            {onYoungChildChange && (
+            {(onYoungChildChange || canProposeYoungChild) && (
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 alignItems={{ xs: "flex-start", sm: "center" }}
@@ -393,21 +439,46 @@ export function AttendanceScheduleBanner({
                       Nuôi con nhỏ · {employeeName}
                       {periodLabel ? ` · ${periodLabel}` : ""}
                     </Typography>
+                    {youngChildPending && (
+                      <Chip size="small" color="warning" label="Chờ HCNS duyệt" sx={{ height: 22, fontWeight: 700 }} />
+                    )}
                   </Stack>
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", pl: 3.5 }}>
                     Giảm 1 giờ/ngày (về sớm 1 giờ không bị trừ) — tối thiểu <strong>7 giờ = 1 công</strong>.
+                    {canProposeYoungChild && !onYoungChildChange
+                      ? " Trưởng khoa đề xuất, HCNS duyệt."
+                      : ""}
                   </Typography>
                 </Box>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="caption" color="text.secondary" fontWeight={600}>
-                    {youngChild ? "Đang bật" : "Tắt"}
-                  </Typography>
-                  <Switch
-                    checked={Boolean(youngChild)}
-                    disabled={youngChildSaving}
-                    onChange={(_, checked) => onYoungChildChange(checked)}
-                    color="secondary"
-                  />
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  {onYoungChildChange ? (
+                    <>
+                      <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                        {youngChild ? "Đang bật" : "Tắt"}
+                      </Typography>
+                      <Switch
+                        checked={Boolean(youngChild)}
+                        disabled={youngChildSaving || Boolean(youngChildPending)}
+                        onChange={(_, checked) => onYoungChildChange(checked)}
+                        color="secondary"
+                      />
+                    </>
+                  ) : canProposeYoungChild && onProposeYoungChild ? (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="secondary"
+                      disabled={youngChildSaving || Boolean(youngChildPending)}
+                      onClick={() => onProposeYoungChild(!youngChild)}
+                      sx={{ borderRadius: 2, fontWeight: 700 }}
+                    >
+                      {youngChildPending
+                        ? "Đã gửi đề xuất"
+                        : youngChild
+                          ? "Đề xuất tắt"
+                          : "Đề xuất bật"}
+                    </Button>
+                  ) : null}
                 </Stack>
               </Stack>
             )}

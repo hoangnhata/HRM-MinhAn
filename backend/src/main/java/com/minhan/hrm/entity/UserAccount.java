@@ -29,6 +29,14 @@ public class UserAccount {
     @Column(nullable = false)
     private String email;
 
+    /** Tên từ ERP / SSO — dùng khi chưa có hồ sơ employees. */
+    @Column(name = "display_name", length = 200)
+    private String displayName;
+
+    /** Bearer token ERP — gọi GET/PUT /api/auth/profile. */
+    @Column(name = "erp_access_token", columnDefinition = "TEXT")
+    private String erpAccessToken;
+
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 32)
     private UserRole role;

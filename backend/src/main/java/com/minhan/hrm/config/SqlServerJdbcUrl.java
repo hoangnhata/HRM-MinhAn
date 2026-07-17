@@ -1,10 +1,11 @@
 package com.minhan.hrm.config;
 
-final class ChamcongJdbcUrl {
+/** Chuẩn hóa JDBC URL SQL Server (encrypt / trustServerCertificate). */
+public final class SqlServerJdbcUrl {
 
-    private ChamcongJdbcUrl() {}
+    private SqlServerJdbcUrl() {}
 
-    static String build(String configuredUrl) {
+    public static String build(String configuredUrl) {
         if (configuredUrl == null || configuredUrl.isBlank()) {
             return configuredUrl;
         }

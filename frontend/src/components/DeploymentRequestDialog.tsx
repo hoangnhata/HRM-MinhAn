@@ -102,20 +102,81 @@ function fmtTime(t: string): string {
 const INSIDE_MORNING_UNITS = 1;
 const INSIDE_AFTERNOON_UNITS = 0.5;
 
-function insideDeploymentUnits(scope: InsideScope): { morning: number; afternoon: number; total: number } {
-  if (scope === 'MORNING') return { morning: INSIDE_MORNING_UNITS, afternoon: 0, total: INSIDE_MORNING_UNITS };
-  if (scope === 'AFTERNOON') return { morning: 0, afternoon: INSIDE_AFTERNOON_UNITS, total: INSIDE_AFTERNOON_UNITS };
-  return {
-    morning: INSIDE_MORNING_UNITS,
-    afternoon: INSIDE_AFTERNOON_UNITS,
-    total: INSIDE_MORNING_UNITS + INSIDE_AFTERNOON_UNITS,
-  };
+function hoursBetween(start: string, end: string): number {
+  if (!start || !end) return 0;
+  const mins = toMinutes(end) - toMinutes(start);
+  return mins > 0 ? mins / 60 : 0;
+}
+
+function withinShift(start: string, end: string, shiftStart: string, shiftEnd: string): boolean {
+  if (!start || !end) return false;
+  const s = toMinutes(start);
+  const e = toMinutes(end);
+  return e > s && s >= toMinutes(shiftStart) && e <= toMinutes(shiftEnd);
+}
+
+function prorateInsideUnits(start: string, end: string, shiftStart: string, shiftEnd: string, shiftHours: number, full: number): number {
+  if (fmtTime(start) === fmtTime(shiftStart) && fmtTime(end) === fmtTime(shiftEnd)) return full;
+  const h = hoursBetween(start, end);
+  if (h <= 0 || shiftHours <= 0) return 0;
+  return Math.round(full * Math.min(1, h / shiftHours) * 100) / 100;
+}
+
+function insideDeploymentUnits(
+  scope: InsideScope,
+  schedule: ShiftScheduleInfo,
+  morningStart: string,
+  morningEnd: string,
+  afternoonStart: string,
+  afternoonEnd: string,
+): { morning: number; afternoon: number; total: number } {
+  const mHours = schedule.morningHours || 1;
+  const aHours = schedule.afternoonHours || 1;
+  if (scope === 'MORNING') {
+    const morning = prorateInsideUnits(
+      morningStart,
+      morningEnd,
+      schedule.morningStart,
+      schedule.morningEnd,
+      mHours,
+      INSIDE_MORNING_UNITS,
+    );
+    return { morning, afternoon: 0, total: morning };
+  }
+  if (scope === 'AFTERNOON') {
+    const afternoon = prorateInsideUnits(
+      afternoonStart,
+      afternoonEnd,
+      schedule.afternoonStart,
+      schedule.afternoonEnd,
+      aHours,
+      INSIDE_AFTERNOON_UNITS,
+    );
+    return { morning: 0, afternoon, total: afternoon };
+  }
+  const morning = prorateInsideUnits(
+    morningStart,
+    morningEnd,
+    schedule.morningStart,
+    schedule.morningEnd,
+    mHours,
+    INSIDE_MORNING_UNITS,
+  );
+  const afternoon = prorateInsideUnits(
+    afternoonStart,
+    afternoonEnd,
+    schedule.afternoonStart,
+    schedule.afternoonEnd,
+    aHours,
+    INSIDE_AFTERNOON_UNITS,
+  );
+  return { morning, afternoon, total: Math.round((morning + afternoon) * 100) / 100 };
 }
 
 function isOffOrEmptyDay(status?: string | null): boolean {
   if (status == null || status === '') return true;
   const s = status.toUpperCase();
-  return s === 'ABSENT' || s === 'LEAVE' || s === 'BUSINESS_TRIP';
+  return s === 'ABSENT' || s === 'LEAVE' || s === 'UNPAID_LEAVE' || s === 'BUSINESS_TRIP';
 }
 
 function isWorkedDay(status?: string | null): boolean {
@@ -224,8 +285,18 @@ export function DeploymentRequestDialog({
   }, [timeMode, startTime, endTime]);
 
   const insideUnits = useMemo(
-    () => (timeMode === 'INSIDE' ? insideDeploymentUnits(insideScope) : null),
-    [timeMode, insideScope],
+    () =>
+      timeMode === 'INSIDE'
+        ? insideDeploymentUnits(
+            insideScope,
+            schedule,
+            morningStart,
+            morningEnd,
+            afternoonStart,
+            afternoonEnd,
+          )
+        : null,
+    [timeMode, insideScope, schedule, morningStart, morningEnd, afternoonStart, afternoonEnd],
   );
 
   const creditedHours = timeMode === 'INSIDE' ? (insideUnits?.total ?? 0) : actualHours * COEFF;
@@ -252,15 +323,43 @@ export function DeploymentRequestDialog({
 
   const timeLabel = useMemo(() => {
     if (timeMode === 'INSIDE') {
-      if (insideScope === 'MORNING') return 'Ca sáng — 1 công';
-      if (insideScope === 'AFTERNOON') return 'Ca chiều — 0,5 công';
-      return 'Cả ngày — 1,5 công (sáng 1 + chiều 0,5)';
+      if (insideScope === 'MORNING') {
+        return `Ca sáng ${fmtTime(morningStart)}–${fmtTime(morningEnd)} · ${fmtHours(insideUnits?.morning ?? 0)} công`;
+      }
+      if (insideScope === 'AFTERNOON') {
+        return `Ca chiều ${fmtTime(afternoonStart)}–${fmtTime(afternoonEnd)} · ${fmtHours(insideUnits?.afternoon ?? 0)} công`;
+      }
+      return `Cả ngày · ${fmtHours(insideUnits?.total ?? 0)} công`;
     }
     if (timeMode === 'OUTSIDE') {
       return `${fmtTime(startTime)} – ${fmtTime(endTime)}${overnight ? ' (+1 ngày)' : ''}`;
     }
     return '';
-  }, [timeMode, insideScope, startTime, endTime, overnight]);
+  }, [
+    timeMode,
+    insideScope,
+    startTime,
+    endTime,
+    overnight,
+    morningStart,
+    morningEnd,
+    afternoonStart,
+    afternoonEnd,
+    insideUnits,
+  ]);
+
+  function applyInsideScope(scope: InsideScope) {
+    setInsideScope(scope);
+    const sch = schedule;
+    if (scope === 'MORNING' || scope === 'FULL_DAY') {
+      setMorningStart(sch.morningStart);
+      setMorningEnd(sch.morningEnd);
+    }
+    if (scope === 'AFTERNOON' || scope === 'FULL_DAY') {
+      setAfternoonStart(sch.afternoonStart);
+      setAfternoonEnd(sch.afternoonEnd);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -291,6 +390,37 @@ export function DeploymentRequestDialog({
       );
       return;
     }
+    if (timeMode === 'INSIDE') {
+      if (insideScope === 'MORNING' || insideScope === 'FULL_DAY') {
+        if (
+          !withinShift(morningStart, morningEnd, schedule.morningStart, schedule.morningEnd)
+        ) {
+          setErr(
+            `Giờ ca sáng phải nằm trong ${fmtTime(schedule.morningStart)}–${fmtTime(schedule.morningEnd)} (vd chỉ làm 07:00–09:00).`,
+          );
+          return;
+        }
+      }
+      if (insideScope === 'AFTERNOON' || insideScope === 'FULL_DAY') {
+        if (
+          !withinShift(
+            afternoonStart,
+            afternoonEnd,
+            schedule.afternoonStart,
+            schedule.afternoonEnd,
+          )
+        ) {
+          setErr(
+            `Giờ ca chiều phải nằm trong ${fmtTime(schedule.afternoonStart)}–${fmtTime(schedule.afternoonEnd)}.`,
+          );
+          return;
+        }
+      }
+      if ((insideUnits?.total ?? 0) <= 0) {
+        setErr('Khung giờ điều động trong ca không hợp lệ.');
+        return;
+      }
+    }
 
     setLoading(true);
     try {
@@ -311,8 +441,8 @@ export function DeploymentRequestDialog({
           workDate,
           shiftScope: 'MORNING',
           reason: reason.trim(),
-          requestedStart: schedule.morningStart.slice(0, 5),
-          requestedEnd: schedule.morningEnd.slice(0, 5),
+          requestedStart: morningStart.slice(0, 5),
+          requestedEnd: morningEnd.slice(0, 5),
         });
       } else if (insideScope === 'AFTERNOON') {
         await att.submitWorkRequest({
@@ -321,8 +451,8 @@ export function DeploymentRequestDialog({
           workDate,
           shiftScope: 'AFTERNOON',
           reason: reason.trim(),
-          requestedStart: schedule.afternoonStart.slice(0, 5),
-          requestedEnd: schedule.afternoonEnd.slice(0, 5),
+          requestedStart: afternoonStart.slice(0, 5),
+          requestedEnd: afternoonEnd.slice(0, 5),
         });
       } else {
         await att.submitWorkRequest({
@@ -331,10 +461,10 @@ export function DeploymentRequestDialog({
           workDate,
           shiftScope: 'FULL_DAY',
           reason: reason.trim(),
-          requestedStart: schedule.morningStart.slice(0, 5),
-          requestedEnd: schedule.morningEnd.slice(0, 5),
-          requestedAfternoonStart: schedule.afternoonStart.slice(0, 5),
-          requestedAfternoonEnd: schedule.afternoonEnd.slice(0, 5),
+          requestedStart: morningStart.slice(0, 5),
+          requestedEnd: morningEnd.slice(0, 5),
+          requestedAfternoonStart: afternoonStart.slice(0, 5),
+          requestedAfternoonEnd: afternoonEnd.slice(0, 5),
         });
       }
       onSubmitted?.();
@@ -476,30 +606,82 @@ export function DeploymentRequestDialog({
         <>
           <FormSection
             title="Ca điều động"
-            subtitle="Trong ca: công cố định — sáng 1 · chiều 0,5 · cả ngày 1,5 (không tính giờ)"
+            subtitle="Chọn buổi rồi nhập giờ trong khung ca (có thể chỉ một phần, vd sáng 07:00–09:00)."
           >
             <Stack spacing={1}>
               <SelectableChip
                 selected={insideScope === 'MORNING'}
-                label="Ca sáng — 1 công"
-                onClick={() => setInsideScope('MORNING')}
+                label="Ca sáng — tối đa 1 công"
+                onClick={() => applyInsideScope('MORNING')}
               />
               <SelectableChip
                 selected={insideScope === 'AFTERNOON'}
-                label="Ca chiều — 0,5 công"
-                onClick={() => setInsideScope('AFTERNOON')}
+                label="Ca chiều — tối đa 0,5 công"
+                onClick={() => applyInsideScope('AFTERNOON')}
               />
               <SelectableChip
                 selected={insideScope === 'FULL_DAY'}
-                label="Cả ngày — 1,5 công"
-                onClick={() => setInsideScope('FULL_DAY')}
+                label="Cả ngày — tối đa 1,5 công"
+                onClick={() => applyInsideScope('FULL_DAY')}
               />
             </Stack>
             <Alert severity="info" variant="outlined" sx={{ mt: 1.25, borderRadius: 2 }}>
-              Khung ca tham chiếu: sáng {fmtTime(schedule.morningStart)}–{fmtTime(schedule.morningEnd)} · chiều{' '}
-              {fmtTime(schedule.afternoonStart)}–{fmtTime(schedule.afternoonEnd)}
+              Khung ca: sáng {fmtTime(schedule.morningStart)}–{fmtTime(schedule.morningEnd)} · chiều{' '}
+              {fmtTime(schedule.afternoonStart)}–{fmtTime(schedule.afternoonEnd)}. Làm cả ca → đủ mức tối đa;
+              làm một phần → công tỷ lệ theo giờ.
             </Alert>
           </FormSection>
+          {(insideScope === 'MORNING' || insideScope === 'FULL_DAY') && (
+            <FormSection title="Giờ ca sáng" subtitle={`Trong khoảng ${fmtTime(schedule.morningStart)}–${fmtTime(schedule.morningEnd)}`}>
+              <Grid container spacing={1.5}>
+                <Grid item xs={12} sm={6}>
+                  <TimePickerField
+                    label="Từ giờ"
+                    required
+                    value={morningStart}
+                    onChange={setMorningStart}
+                    sx={fieldSx}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TimePickerField
+                    label="Đến giờ"
+                    required
+                    value={morningEnd}
+                    onChange={setMorningEnd}
+                    sx={fieldSx}
+                  />
+                </Grid>
+              </Grid>
+            </FormSection>
+          )}
+          {(insideScope === 'AFTERNOON' || insideScope === 'FULL_DAY') && (
+            <FormSection
+              title="Giờ ca chiều"
+              subtitle={`Trong khoảng ${fmtTime(schedule.afternoonStart)}–${fmtTime(schedule.afternoonEnd)}`}
+            >
+              <Grid container spacing={1.5}>
+                <Grid item xs={12} sm={6}>
+                  <TimePickerField
+                    label="Từ giờ"
+                    required
+                    value={afternoonStart}
+                    onChange={setAfternoonStart}
+                    sx={fieldSx}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TimePickerField
+                    label="Đến giờ"
+                    required
+                    value={afternoonEnd}
+                    onChange={setAfternoonEnd}
+                    sx={fieldSx}
+                  />
+                </Grid>
+              </Grid>
+            </FormSection>
+          )}
         </>
       )}
 
@@ -558,8 +740,8 @@ export function DeploymentRequestDialog({
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1, lineHeight: 1.5 }}>
           {timeMode === 'INSIDE'
             ? workedDay
-              ? 'Trong ca: thay công ca điều động (sáng 1 · chiều 0,5 · cả ngày 1,5).'
-              : 'Trong ca: cộng công cố định theo ca (sáng 1 · chiều 0,5 · cả ngày 1,5).'
+              ? 'Trong ca: thay công theo giờ đã nhập (tối đa sáng 1 · chiều 0,5).'
+              : 'Trong ca: cộng công theo giờ đã nhập (tối đa sáng 1 · chiều 0,5).'
             : 'Ngoài ca: tính theo giờ ×1,5 rồi quy ra công.'}
         </Typography>
       </Box>

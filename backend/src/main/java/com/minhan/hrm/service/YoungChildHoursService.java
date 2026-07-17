@@ -76,7 +76,7 @@ public class YoungChildHoursService {
     }
 
     /**
-     * Giảm 1 giờ cuối ngày (về sớm được phép): lùi {@code afternoonEnd},
+     * Giảm 1 giờ cuối ngày (về sớm được phép): lùi {@code afternoonEnd} và {@code continuousEnd},
      * tổng giờ ngày = max(gốc − 1, 7).
      */
     public static AttendanceShiftSchedule applyReduction(AttendanceShiftSchedule base) {
@@ -95,11 +95,22 @@ public class YoungChildHoursService {
                 afternoonHours = need;
             }
         }
+        LocalTime contStart = base.continuousDayStart();
+        LocalTime newContEnd = base.continuousDayEnd().minusHours(REDUCTION_HOURS);
+        if (!newContEnd.isAfter(contStart)) {
+            newContEnd = contStart.plusMinutes(Math.round(MAX_DAY_HOURS * 60));
+        }
+        double contHours = Duration.between(contStart, newContEnd).toMinutes() / 60.0;
+        if (contHours < MAX_DAY_HOURS) {
+            newContEnd = contStart.plusMinutes(Math.round(MAX_DAY_HOURS * 60));
+        }
         return new AttendanceShiftSchedule(
                 base.morningStart(),
                 base.morningEnd(),
                 base.afternoonStart(),
                 newEnd,
+                contStart,
+                newContEnd,
                 base.morningUnits(),
                 base.afternoonUnits(),
                 base.summer(),

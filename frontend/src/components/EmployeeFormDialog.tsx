@@ -344,6 +344,7 @@ export function EmployeeFormDialog({ open, onClose, mode, employeeId, onSuccess 
                         <MenuItem value="HR">P. HCNS</MenuItem>
                         <MenuItem value="HEAD_DEPARTMENT">Trưởng khoa / phòng</MenuItem>
                         <MenuItem value="HEAD_NURSING">Điều dưỡng trưởng</MenuItem>
+                        <MenuItem value="DIRECTOR">Giám đốc</MenuItem>
                       </TextField>
                     </Grid>
                   </Grid>

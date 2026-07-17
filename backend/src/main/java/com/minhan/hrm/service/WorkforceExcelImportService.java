@@ -332,6 +332,7 @@ public class WorkforceExcelImportService {
             if (emp.getStatus() != EmployeeStatus.TERMINATED) {
                 emp.setStatus(status);
             }
+            employeeAccountProvisioner.applyImportRole(user, dept, pos);
             employeeRepository.save(emp);
             userAccountRepository.save(user);
             saveTrialWorkforceDetails(sheet, rowIndex, col, emp, fromDate, note, salaryNote, degree);
@@ -342,7 +343,8 @@ public class WorkforceExcelImportService {
         LocalDate hire = fromDate != null ? fromDate : LocalDate.now();
         String email = ensureUniqueEmail("tv_" + sanitizeUsername(employeeCode) + "@import.minhan.vn", employeeCode);
 
-        UserAccount user = employeeAccountProvisioner.buildNewEmployeeUser(null, employeeCode, email);
+        UserRole role = employeeAccountProvisioner.resolveImportRole(dept, pos);
+        UserAccount user = employeeAccountProvisioner.buildNewEmployeeUser(null, employeeCode, email, role);
         user = userAccountRepository.save(user);
 
         Employee emp = Employee.builder()
@@ -564,6 +566,7 @@ public class WorkforceExcelImportService {
             if (emp.getStatus() != EmployeeStatus.TERMINATED) {
                 emp.setStatus(targetStatus);
             }
+            employeeAccountProvisioner.applyImportRole(user, dept, pos);
             employeeRepository.save(emp);
             userAccountRepository.save(user);
             saveWorkforceDetails(sheet, rowIndex, col, emp);
@@ -572,7 +575,8 @@ public class WorkforceExcelImportService {
             return true;
         }
 
-        user = employeeAccountProvisioner.buildNewEmployeeUser(phone, employeeCode, email);
+        UserRole role = employeeAccountProvisioner.resolveImportRole(dept, pos);
+        user = employeeAccountProvisioner.buildNewEmployeeUser(phone, employeeCode, email, role);
         user = userAccountRepository.save(user);
 
         emp = Employee.builder()

@@ -6,6 +6,7 @@ import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import EditCalendarOutlinedIcon from '@mui/icons-material/EditCalendarOutlined';
 import GavelIcon from '@mui/icons-material/Gavel';
+import MoneyOffOutlinedIcon from '@mui/icons-material/MoneyOffOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
@@ -188,19 +189,24 @@ export function WorkRequestDetailDialog({ open, onClose, request, mode, review, 
       ? theme.palette.info.main
       : request.requestType === 'LEAVE'
         ? theme.palette.secondary.main
-        : request.requestType === 'BUSINESS_TRIP'
-          ? theme.palette.warning.dark
-          : request.requestType === 'DEPLOYMENT'
-            ? '#0f766e'
-            : theme.palette.primary.main;
+        : request.requestType === 'UNPAID_LEAVE'
+          ? theme.palette.error.dark
+          : request.requestType === 'BUSINESS_TRIP'
+            ? theme.palette.warning.dark
+            : request.requestType === 'DEPLOYMENT'
+              ? '#0f766e'
+              : theme.palette.primary.main;
   const canHeadAct = mode === 'review' && review?.isHead && request.status === 'PENDING_HEAD';
   const canHrAct = mode === 'review' && review?.isHr && request.status === 'PENDING_HR';
   const canAct = canHeadAct || canHrAct;
   const canWithdraw = mode === 'mine' && att.isRequestWithdrawable(request.status) && Boolean(onWithdraw);
   const shifts = att.resolveRequestShiftTimes(request);
   const explanationTimes = att.formatExplanationTimes(request);
-  const forgotUnits = att.forgotFineUnitsForUpdateKind(request.updateKind);
-  const isRanged = request.requestType === 'LEAVE' || request.requestType === 'BUSINESS_TRIP';
+  const forgotUnits = request.forgotFineUnits ?? att.forgotFineUnitsForUpdateKind(request.updateKind);
+  const isRanged =
+    request.requestType === 'LEAVE' ||
+    request.requestType === 'UNPAID_LEAVE' ||
+    request.requestType === 'BUSINESS_TRIP';
   const hasReviewHistory =
     request.headComment ||
     request.headReviewedAt ||
@@ -214,6 +220,8 @@ export function WorkRequestDetailDialog({ open, onClose, request, mode, review, 
       <DescriptionOutlinedIcon />
     ) : request.requestType === 'LEAVE' ? (
       <BeachAccessOutlinedIcon />
+    ) : request.requestType === 'UNPAID_LEAVE' ? (
+      <MoneyOffOutlinedIcon />
     ) : request.requestType === 'BUSINESS_TRIP' ? (
       <BusinessCenterOutlinedIcon />
     ) : request.requestType === 'DEPLOYMENT' ? (
@@ -335,6 +343,28 @@ export function WorkRequestDetailDialog({ open, onClose, request, mode, review, 
               </Button>
             </>
           )}
+          {canHrAct && request.requestType === 'UNPAID_LEAVE' && (
+            <>
+              <Button
+                variant="outlined"
+                color="error"
+                disabled={review.loading}
+                onClick={() => review.onHrReview?.(false)}
+                sx={{ borderRadius: 2 }}
+              >
+                Không duyệt
+              </Button>
+              <Button
+                variant="contained"
+                disabled={review.loading}
+                startIcon={review.loading ? <CircularProgress size={16} color="inherit" /> : undefined}
+                onClick={() => review.onHrReview?.(true)}
+                sx={{ borderRadius: 2, px: 2.5, bgcolor: accent, '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' } }}
+              >
+                Duyệt nghỉ không lương
+              </Button>
+            </>
+          )}
           {canHrAct && request.requestType === 'BUSINESS_TRIP' && (
             <>
               <Button
@@ -394,10 +424,25 @@ export function WorkRequestDetailDialog({ open, onClose, request, mode, review, 
       loading={review?.loading}
       accent={accent}
       icon={icon}
-      overline={mode === 'review' ? 'Duyệt đơn công' : 'Chi tiết đơn'}
+      overline={mode === 'review' && canAct ? 'Duyệt đơn công' : 'Chi tiết đơn'}
       title={att.requestTypeLabel(request.requestType)}
       description={description}
-      footer={footer}
+      footer={footer || (!canAct && mode === 'review' ? (
+        <Box
+          sx={{
+            px: 2.5,
+            py: 1.75,
+            borderTop: `1px solid ${theme.palette.divider}`,
+            bgcolor: alpha(theme.palette.background.default, 0.5),
+            display: 'flex',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <Button onClick={onClose} variant="contained" sx={{ borderRadius: 2, fontWeight: 700 }}>
+            Đóng
+          </Button>
+        </Box>
+      ) : undefined)}
       headerExtra={
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Chip
@@ -413,6 +458,13 @@ export function WorkRequestDetailDialog({ open, onClose, request, mode, review, 
               size="small"
               variant="outlined"
               label={`${request.leaveDays ?? 1} ngày phép`}
+            />
+          )}
+          {request.requestType === 'UNPAID_LEAVE' && (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={`${request.leaveDays ?? 1} ngày không lương`}
             />
           )}
           {request.requestType === 'BUSINESS_TRIP' && (
@@ -445,7 +497,15 @@ export function WorkRequestDetailDialog({ open, onClose, request, mode, review, 
 
       {request.requestType === 'LEAVE' && (
         <InfoBanner>
-          Sau khi HCNS duyệt, các ngày trong khoảng sẽ chuyển trạng thái bảng công thành <strong>Phép</strong>.
+          Sau khi HCNS duyệt, các ngày trong khoảng sẽ chuyển trạng thái bảng công thành <strong>Phép</strong> (có
+          tính công).
+        </InfoBanner>
+      )}
+
+      {request.requestType === 'UNPAID_LEAVE' && (
+        <InfoBanner>
+          Sau khi HCNS duyệt, các ngày trong khoảng ghi <strong>Không lương</strong> với <strong>0 công</strong> —
+          không trừ hạn mức phép năm.
         </InfoBanner>
       )}
 
@@ -492,13 +552,19 @@ export function WorkRequestDetailDialog({ open, onClose, request, mode, review, 
               />
             </Grid>
           )}
-          {request.requestType === 'LEAVE' && (
+          {(request.requestType === 'LEAVE' || request.requestType === 'UNPAID_LEAVE') && (
             <>
               <Grid item xs={12} sm={6}>
                 <InfoTile
                   label="Số ngày"
                   value={`${request.leaveDays ?? 1} ngày`}
-                  icon={<BeachAccessOutlinedIcon sx={{ fontSize: 16 }} />}
+                  icon={
+                    request.requestType === 'UNPAID_LEAVE' ? (
+                      <MoneyOffOutlinedIcon sx={{ fontSize: 16 }} />
+                    ) : (
+                      <BeachAccessOutlinedIcon sx={{ fontSize: 16 }} />
+                    )
+                  }
                 />
               </Grid>
               <Grid item xs={12} sm={6}>

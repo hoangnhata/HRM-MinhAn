@@ -16,7 +16,7 @@ public class NotificationDto {
     boolean read;
     Instant createdAt;
     Long relatedEmployeeId;
-    /** Thông báo toàn viện — mở trang chủ và cuộn tới mục này */
+    /** Legacy FK — announcement feature removed; kept for existing DB rows */
     Long relatedAnnouncementId;
     /** Bảng lương/công/lương đột xuất — hiển thị cảnh báo bảo mật phía client */
     boolean sensitive;

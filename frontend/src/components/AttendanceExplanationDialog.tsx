@@ -122,8 +122,11 @@ export function AttendanceExplanationDialog({
   }
 
   const sch = scheduleForDate(workDate);
-  const scheduleHint = continuousShift
-    ? `Ca thông tầm: ${sch.morningStart} – ${sch.afternoonEnd}`
+  const cont = continuousShift
+    ? { start: sch.continuousStart ?? sch.morningStart, end: sch.continuousEnd ?? sch.afternoonEnd }
+    : null;
+  const scheduleHint = continuousShift && cont
+    ? `Ca thông tầm: ${cont.start} – ${cont.end}`
     : `Lịch: sáng ${sch.morningStart}–${sch.morningEnd}, chiều ${sch.afternoonStart}–${sch.afternoonEnd}`;
 
   return (

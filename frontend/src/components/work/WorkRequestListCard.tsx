@@ -3,6 +3,7 @@ import BusinessCenterOutlinedIcon from '@mui/icons-material/BusinessCenterOutlin
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import EditCalendarOutlinedIcon from '@mui/icons-material/EditCalendarOutlined';
+import MoneyOffOutlinedIcon from '@mui/icons-material/MoneyOffOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import { Box, Chip, Paper, Stack, Typography } from '@mui/material';
@@ -18,6 +19,7 @@ type Props = {
 function requestAccent(type: att.WorkRequest['requestType'], theme: ReturnType<typeof useTheme>) {
   if (type === 'EXPLANATION') return theme.palette.info.main;
   if (type === 'LEAVE') return theme.palette.secondary.main;
+  if (type === 'UNPAID_LEAVE') return theme.palette.error.dark;
   if (type === 'BUSINESS_TRIP') return theme.palette.warning.dark;
   if (type === 'DEPLOYMENT') return '#0f766e';
   return theme.palette.primary.main;
@@ -26,7 +28,10 @@ function requestAccent(type: att.WorkRequest['requestType'], theme: ReturnType<t
 export function WorkRequestListCard({ request, onClick, showEmployee = false }: Props) {
   const theme = useTheme();
   const accent = requestAccent(request.requestType, theme);
-  const isRanged = request.requestType === 'LEAVE' || request.requestType === 'BUSINESS_TRIP';
+  const isRanged =
+    request.requestType === 'LEAVE' ||
+    request.requestType === 'UNPAID_LEAVE' ||
+    request.requestType === 'BUSINESS_TRIP';
   const times =
     request.requestType === 'UPDATE'
       ? att.formatRequestedTimes(request)
@@ -36,7 +41,7 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
           ? att.formatLeaveRange(request)
           : att.formatExplanationTimes(request);
   const dayCount =
-    request.requestType === 'LEAVE'
+    request.requestType === 'LEAVE' || request.requestType === 'UNPAID_LEAVE'
       ? (request.leaveDays ?? 1)
       : request.requestType === 'BUSINESS_TRIP'
         ? (request.tripDays ?? 1)
@@ -79,6 +84,8 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
               <DescriptionOutlinedIcon sx={{ fontSize: 20 }} />
             ) : request.requestType === 'LEAVE' ? (
               <BeachAccessOutlinedIcon sx={{ fontSize: 20 }} />
+            ) : request.requestType === 'UNPAID_LEAVE' ? (
+              <MoneyOffOutlinedIcon sx={{ fontSize: 20 }} />
             ) : request.requestType === 'BUSINESS_TRIP' ? (
               <BusinessCenterOutlinedIcon sx={{ fontSize: 20 }} />
             ) : request.requestType === 'DEPLOYMENT' ? (
@@ -156,13 +163,11 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
 
             <Typography
               variant="body2"
+              noWrap
+              title={request.reason}
               sx={{
                 mt: 1,
                 color: 'text.primary',
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
                 lineHeight: 1.5,
               }}
             >
@@ -176,6 +181,7 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
             )}
 
             <Typography
+              component="span"
               variant="caption"
               sx={{
                 mt: 1.25,

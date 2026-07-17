@@ -10,7 +10,10 @@ import com.minhan.hrm.mapper.WorkforceProfileMapper;
 import com.minhan.hrm.repository.EmployeeSpecifications;
 import com.minhan.hrm.repository.*;
 import com.minhan.hrm.security.SecurityUtils;
+import com.minhan.hrm.sso.SsoRoleService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -32,6 +35,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EmployeeService {
@@ -48,6 +52,7 @@ public class EmployeeService {
     private final EmployeeWorkforceDetailsRepository employeeWorkforceDetailsRepository;
     private final AttendanceWorkRequestRepository attendanceWorkRequestRepository;
     private final AttendanceRecordRepository attendanceRecordRepository;
+    private final ObjectProvider<SsoRoleService> ssoRoleService;
     private final DutyShiftEntryRepository dutyShiftEntryRepository;
     private final PayrollRecordRepository payrollRecordRepository;
     private final NursingEvaluationRepository nursingEvaluationRepository;
@@ -62,6 +67,24 @@ public class EmployeeService {
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional(readOnly = true)
     public Page<EmployeeSummaryDto> list(
+            Pageable pageable, String q, Long departmentId, EmployeeStatus status, EmployeeStatusGroup statusGroup,
+            OfficialWorkFilter officialWorkFilter) {
+        return listInternal(pageable, q, departmentId, status, statusGroup, officialWorkFilter);
+    }
+
+    /**
+     * Danh sách nhân viên — ADMIN / HR / trưởng khoa / DDT xem toàn bệnh viện.
+     * (Tài khoản seed trưởng/DDT thường chưa gắn hồ sơ NV — không bắt buộc self employee.)
+     */
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @Transactional(readOnly = true)
+    public Page<EmployeeSummaryDto> listForCaller(
+            Pageable pageable, String q, Long departmentId, EmployeeStatus status, EmployeeStatusGroup statusGroup,
+            OfficialWorkFilter officialWorkFilter) {
+        return listInternal(pageable, q, departmentId, status, statusGroup, officialWorkFilter);
+    }
+
+    private Page<EmployeeSummaryDto> listInternal(
             Pageable pageable, String q, Long departmentId, EmployeeStatus status, EmployeeStatusGroup statusGroup,
             OfficialWorkFilter officialWorkFilter) {
         Specification<Employee> spec = EmployeeSpecifications.withFilters(
@@ -91,12 +114,16 @@ public class EmployeeService {
         return loadDetail(e);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Transactional
     public EmployeeDetailDto create(EmployeeCreateRequest req) {
+        UserAccount actor = currentUser();
         if (req.getRole() == null || !CREATABLE_ROLES.contains(req.getRole())) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "Vai trò tạo được: EMPLOYEE, HR, HEAD_DEPARTMENT, HEAD_NURSING");
+        }
+        if (isHeadRole(actor) && req.getRole() != UserRole.EMPLOYEE) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Trưởng chỉ được tạo tài khoản nhân viên thường");
         }
         Department dept = departmentRepository.findById(req.getDepartmentId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phòng ban"));
@@ -157,6 +184,7 @@ public class EmployeeService {
                 .build();
         salaryInfoRepository.save(salary);
 
+        syncHrmRoleToSso(emp.getPhone(), user.getUsername(), user.getRole());
         return loadDetail(emp);
     }
 
@@ -174,11 +202,12 @@ public class EmployeeService {
                 .toList();
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Transactional
     public EmployeeDetailDto update(Long id, EmployeeUpdateRequest req) {
         Employee e = employeeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhân viên"));
+        UserAccount actor = currentUser();
         UserAccount user = e.getUser();
         if (req.getEmail() != null && !req.getEmail().isBlank()) {
             String em = req.getEmail().trim();
@@ -189,6 +218,9 @@ public class EmployeeService {
             user.setEmail(em);
         }
         if (req.getRole() != null) {
+            if (isHeadRole(actor) && req.getRole() != UserRole.EMPLOYEE) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "Trưởng chỉ được gán vai trò nhân viên thường");
+            }
             user.setRole(req.getRole());
         }
         userAccountRepository.save(user);
@@ -252,6 +284,9 @@ public class EmployeeService {
             salaryInfoRepository.save(salary);
         }
 
+        if (req.getRole() != null || req.getPhone() != null) {
+            syncHrmRoleToSso(e.getPhone(), user.getUsername(), user.getRole());
+        }
         return loadDetail(e);
     }
 
@@ -266,7 +301,7 @@ public class EmployeeService {
         employeeWorkforceDetailsRepository.save(w);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Transactional
     public void delete(Long id) {
         Employee e = employeeRepository.findById(id)
@@ -331,10 +366,18 @@ public class EmployeeService {
         employeeDocumentRepository.deleteByEmployee_Id(employee.getId());
     }
 
-    /** Chuyển nhân viên thử việc / thực tập lên chính thức. */
+    /** Chuyển nhân viên thử việc / thực tập lên chính thức (API HCNS — giữ tương thích). */
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
     public EmployeeDetailDto confirmOfficial(Long id, LocalDate officialDate) {
+        return applyOfficialInternal(id, officialDate);
+    }
+
+    /**
+     * Áp dụng chuyển chính thức — dùng nội bộ từ đơn duyệt (không kiểm tra role).
+     */
+    @Transactional
+    public EmployeeDetailDto applyOfficialInternal(Long id, LocalDate officialDate) {
         Employee e = employeeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhân viên"));
         if (e.getStatus() != EmployeeStatus.PROBATION && e.getStatus() != EmployeeStatus.INTERN) {
@@ -372,21 +415,45 @@ public class EmployeeService {
     private void assertCanAccessEmployee(Employee target) {
         UserAccount current = userAccountRepository.findByUsername(SecurityUtils.currentUsername())
                 .orElseThrow();
-        if (current.getRole() == UserRole.ADMIN || current.getRole() == UserRole.HR) {
+        if (current.getRole() == UserRole.ADMIN
+                || current.getRole() == UserRole.HR
+                || isHeadRole(current)) {
             return;
         }
         employeeRepository.findByUser(current).ifPresentOrElse(self -> {
             if (self.getId().equals(target.getId())) {
                 return;
             }
-            if ((current.getRole() == UserRole.HEAD_DEPARTMENT || current.getRole() == UserRole.HEAD_NURSING)
-                    && self.getDepartment().getId().equals(target.getDepartment().getId())) {
-                return;
-            }
             throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ xem được hồ sơ trong phạm vi được phân quyền");
         }, () -> {
             throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền");
         });
+    }
+
+    private static boolean isHeadRole(UserAccount u) {
+        return u.getRole() == UserRole.HEAD_DEPARTMENT || u.getRole() == UserRole.HEAD_NURSING;
+    }
+
+    /**
+     * Đổi vai trò trên form HRM → cập nhật UserAppRoles trên sso_db (khớp LoginPhone).
+     * Không chặn lưu HRM nếu SSO không có SĐT tương ứng.
+     */
+    private void syncHrmRoleToSso(String phone, String username, UserRole role) {
+        SsoRoleService sso = ssoRoleService.getIfAvailable();
+        if (sso == null || role == null) {
+            return;
+        }
+        String key = (phone != null && !phone.isBlank()) ? phone.trim() : (username != null ? username.trim() : null);
+        if (key == null || key.isBlank()) {
+            log.warn("Bỏ qua sync SSO role — thiếu SĐT/username (role={})", role);
+            return;
+        }
+        try {
+            sso.assignHrmRoleByLoginPhone(key, role.name());
+            log.info("Đã sync role SSO HRM={} theo SĐT/username={}", role, key);
+        } catch (Exception ex) {
+            log.warn("Không sync được role SSO cho {} → {}: {}", key, role, ex.getMessage());
+        }
     }
 
     @Transactional(readOnly = true)

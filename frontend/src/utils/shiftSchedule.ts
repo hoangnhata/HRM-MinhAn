@@ -28,8 +28,11 @@ export type ShiftScheduleInfo = {
   morningEnd: string;
   afternoonStart: string;
   afternoonEnd: string;
+  continuousStart?: string;
+  continuousEnd?: string;
   morningHours: number;
   afternoonHours: number;
+  continuousHours?: number;
   totalHours?: number;
   morningUnits: number;
   afternoonUnits: number;
@@ -50,10 +53,13 @@ export type ShiftSeasonConfig = {
   morningEnd: string;
   afternoonStart: string;
   afternoonEnd: string;
+  continuousStart?: string;
+  continuousEnd?: string;
   morningUnits: number;
   afternoonUnits: number;
   morningHours: number;
   afternoonHours: number;
+  continuousHours?: number;
   punchWindows?: PunchWindowConfig;
 };
 
@@ -61,6 +67,10 @@ export type ShiftConfigAdminView = {
   summer: ShiftSeasonConfig;
   winter: ShiftSeasonConfig;
   periodLabels: { summer: string; winter: string };
+  employeeId?: number;
+  inherited?: boolean;
+  summerInherited?: boolean;
+  winterInherited?: boolean;
 };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -110,8 +120,11 @@ export function scheduleForDate(input?: Date | string): ShiftScheduleInfo {
     morningEnd: '12:00',
     afternoonStart: '14:00',
     afternoonEnd: summer ? '17:00' : '17:30',
+    continuousStart: summer ? '06:45' : '07:00',
+    continuousEnd: summer ? '17:00' : '17:30',
     morningHours: summer ? 5 : 4.5,
     afternoonHours: summer ? 3 : 3.5,
+    continuousHours: summer ? 10.25 : 10.5,
     morningUnits: 2 / 3,
     afternoonUnits: 1 / 3,
     morningUnitsLabel: '0,67 công',
@@ -127,11 +140,29 @@ export function hoursBetweenTimes(start: string, end: string): number {
   return (eh * 60 + em - (sh * 60 + sm)) / 60;
 }
 
-/** Ca thông tầm: tổng giờ từ giờ vào đầu ngày đến giờ ra cuối ngày (không trừ nghỉ trưa). */
+/** Ca thông tầm: tổng giờ từ continuousStart → continuousEnd (không trừ nghỉ trưa). */
 export function continuousShiftHours(
-  schedule: Pick<ShiftScheduleInfo, 'morningStart' | 'afternoonEnd'>,
+  schedule: Pick<
+    ShiftScheduleInfo,
+    'morningStart' | 'afternoonEnd' | 'continuousStart' | 'continuousEnd' | 'continuousHours'
+  >,
 ): number {
-  return hoursBetweenTimes(schedule.morningStart, schedule.afternoonEnd);
+  if (typeof schedule.continuousHours === 'number' && schedule.continuousHours > 0) {
+    return schedule.continuousHours;
+  }
+  const start = schedule.continuousStart ?? schedule.morningStart;
+  const end = schedule.continuousEnd ?? schedule.afternoonEnd;
+  return hoursBetweenTimes(start, end);
+}
+
+/** Giờ vào/ra hiển thị cho ca thông tầm. */
+export function continuousShiftRange(
+  schedule: Pick<ShiftScheduleInfo, 'morningStart' | 'afternoonEnd' | 'continuousStart' | 'continuousEnd'>,
+): { start: string; end: string } {
+  return {
+    start: schedule.continuousStart ?? schedule.morningStart,
+    end: schedule.continuousEnd ?? schedule.afternoonEnd,
+  };
 }
 
 /** Hiển thị HH:mm → dạng dễ đọc (7h00, 14h30). */

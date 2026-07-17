@@ -41,7 +41,8 @@ const CONTINUOUS_MIN_HOURS = 8;
 type Props = {
   open: boolean;
   onClose: () => void;
-  onSaved: () => void | Promise<void>;
+  onSaved: (scope: 'employee' | 'all') => void | Promise<void>;
+  employeeId: number;
   /** Khi bật ca thông tầm — form chỉ giờ vào/ra cả ngày */
   continuousShift?: boolean;
   employeeName?: string;
@@ -104,12 +105,14 @@ function punchPayload(form: SeasonForm): Pick<
   };
 }
 
-function schedulePayload(form: SeasonForm): ShiftConfigUpdatePayload {
+function schedulePayload(form: SeasonForm, continuous: { start: string; end: string }): ShiftConfigUpdatePayload {
   return {
     morningStart: form.morningStart,
     morningEnd: form.morningEnd,
     afternoonStart: form.afternoonStart,
     afternoonEnd: form.afternoonEnd,
+    continuousStart: continuous.start,
+    continuousEnd: continuous.end,
     morningUnits: Number(form.morningUnits),
     afternoonUnits: Number(form.afternoonUnits),
     ...punchPayload(form),
@@ -126,9 +129,16 @@ function seasonToContinuousForm(cfg: ShiftSeasonConfig): ContinuousForm {
   const total = Math.round((cfg.morningUnits + cfg.afternoonUnits) * 1e6) / 1e6;
   const normalized = Math.abs(total - 1) < 0.02 ? 1 : total;
   return {
-    dayStart: toTimeInput(cfg.morningStart),
-    dayEnd: toTimeInput(cfg.afternoonEnd),
+    dayStart: toTimeInput(cfg.continuousStart ?? cfg.morningStart),
+    dayEnd: toTimeInput(cfg.continuousEnd ?? cfg.afternoonEnd),
     totalUnits: String(normalized),
+  };
+}
+
+function preservedContinuous(cfg: ShiftSeasonConfig | undefined, fallback: SeasonForm): { start: string; end: string } {
+  return {
+    start: toTimeInput(cfg?.continuousStart ?? fallback.morningStart),
+    end: toTimeInput(cfg?.continuousEnd ?? fallback.afternoonEnd),
   };
 }
 
@@ -449,6 +459,7 @@ export function AttendanceScheduleEditDialog({
   open,
   onClose,
   onSaved,
+  employeeId,
   continuousShift,
   employeeName,
 }: Props) {
@@ -461,12 +472,13 @@ export function AttendanceScheduleEditDialog({
   const [winterCont, setWinterCont] = useState<ContinuousForm>(seasonToContinuousForm({} as ShiftSeasonConfig));
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [applyingAll, setApplyingAll] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setErr(null);
     attSvc
-      .fetchShiftConfigAdmin()
+      .fetchEmployeeShiftConfigAdmin(employeeId)
       .then((c) => {
         setConfig(c);
         setSummer(seasonToForm(c.summer));
@@ -475,7 +487,7 @@ export function AttendanceScheduleEditDialog({
         setWinterCont(seasonToContinuousForm(c.winter));
       })
       .catch(() => setErr('Không tải được cấu hình lịch ca.'));
-  }, [open]);
+  }, [open, employeeId]);
 
   const active = tab === 0 ? summer : winter;
   const setActive = tab === 0 ? setSummer : setWinter;
@@ -617,26 +629,82 @@ export function AttendanceScheduleEditDialog({
         }
         const total = Number(form.totalUnits);
         const { morningUnits, afternoonUnits } = splitTotalUnits(total);
-        await attSvc.updateShiftConfig(season, {
+        // Chỉ cập nhật giờ thông tầm — giữ nguyên khung sáng/chiều
+        await attSvc.updateEmployeeShiftConfig(employeeId, season, {
           ...punchPayload(punchForm),
-          morningStart: form.dayStart,
-          morningEnd: baseSeason?.morningEnd?.slice(0, 5) ?? punchForm.morningEnd,
-          afternoonStart: baseSeason?.afternoonStart?.slice(0, 5) ?? punchForm.afternoonStart,
-          afternoonEnd: form.dayEnd,
+          morningStart: toTimeInput(baseSeason?.morningStart ?? punchForm.morningStart),
+          morningEnd: toTimeInput(baseSeason?.morningEnd ?? punchForm.morningEnd),
+          afternoonStart: toTimeInput(baseSeason?.afternoonStart ?? punchForm.afternoonStart),
+          afternoonEnd: toTimeInput(baseSeason?.afternoonEnd ?? punchForm.afternoonEnd),
+          continuousStart: form.dayStart,
+          continuousEnd: form.dayEnd,
           morningUnits,
           afternoonUnits,
         });
       } else {
         const form = tab === 0 ? summer : winter;
-        await attSvc.updateShiftConfig(season, schedulePayload(form));
+        // Chỉ cập nhật sáng/chiều — giữ nguyên giờ thông tầm
+        await attSvc.updateEmployeeShiftConfig(
+          employeeId,
+          season,
+          schedulePayload(form, preservedContinuous(baseSeason, form)),
+        );
       }
       // Đóng dialog ngay; onSaved tự reload UI rồi tính lại công nền.
       onClose();
-      void Promise.resolve(onSaved());
+      void Promise.resolve(onSaved('employee'));
     } catch {
       setErr('Không lưu được. Kiểm tra giờ ca và đơn vị công.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function applyToAllEmployees() {
+    const season = tab === 0 ? 'SUMMER' : 'WINTER';
+    const punchForm = tab === 0 ? summer : winter;
+    let payload: ShiftConfigUpdatePayload;
+
+    if (continuousShift) {
+      const form = tab === 0 ? summerCont : winterCont;
+      const dayHours = hoursBetweenTimes(form.dayStart, form.dayEnd);
+      if (dayHours < CONTINUOUS_MIN_HOURS) {
+        setErr(`Ca thông tầm phải tối thiểu ${CONTINUOUS_MIN_HOURS} giờ.`);
+        return;
+      }
+      const { morningUnits, afternoonUnits } = splitTotalUnits(Number(form.totalUnits));
+      payload = {
+        ...punchPayload(punchForm),
+        morningStart: toTimeInput(baseSeason?.morningStart ?? punchForm.morningStart),
+        morningEnd: toTimeInput(baseSeason?.morningEnd ?? punchForm.morningEnd),
+        afternoonStart: toTimeInput(baseSeason?.afternoonStart ?? punchForm.afternoonStart),
+        afternoonEnd: toTimeInput(baseSeason?.afternoonEnd ?? punchForm.afternoonEnd),
+        continuousStart: form.dayStart,
+        continuousEnd: form.dayEnd,
+        morningUnits,
+        afternoonUnits,
+      };
+    } else {
+      const form = tab === 0 ? summer : winter;
+      payload = schedulePayload(form, preservedContinuous(baseSeason, form));
+    }
+
+    const seasonLabel = season === 'SUMMER' ? 'mùa hè' : 'mùa đông';
+    if (!window.confirm(`Áp dụng cấu hình ${seasonLabel} hiện tại cho tất cả nhân viên đang làm việc?`)) {
+      return;
+    }
+
+    setApplyingAll(true);
+    setErr(null);
+    try {
+      const result = await attSvc.applyShiftConfigToAll(season, payload);
+      window.alert(`Đã áp dụng cho ${result.updatedEmployees} nhân viên.`);
+      onClose();
+      void Promise.resolve(onSaved('all'));
+    } catch {
+      setErr('Không áp dụng được cấu hình cho tất cả nhân viên.');
+    } finally {
+      setApplyingAll(false);
     }
   }
 
@@ -649,7 +717,7 @@ export function AttendanceScheduleEditDialog({
         <Typography variant="body2" color="text.secondary">
           {continuousShift
             ? `Ca thông tầm${employeeName ? ` · ${employeeName}` : ''} — chỉnh giờ vào/ra cả ngày, không nghỉ trưa.`
-            : 'Cập nhật khung giờ và đơn vị công theo mùa hè / mùa đông.'}
+            : `Cập nhật ca sáng / chiều riêng cho ${employeeName || 'nhân viên đang chọn'}.`}
         </Typography>
       </DialogTitle>
       <DialogContent sx={{ px: 3, pt: 1 }}>
@@ -658,6 +726,10 @@ export function AttendanceScheduleEditDialog({
             {err}
           </Alert>
         )}
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+          Thay đổi này chỉ áp dụng cho <strong>{employeeName || 'nhân viên đang chọn'}</strong>.
+          Chỉ dùng nút “Áp dụng cho tất cả” khi muốn cập nhật toàn bộ nhân viên.
+        </Alert>
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
@@ -782,7 +854,15 @@ export function AttendanceScheduleEditDialog({
         <Button onClick={onClose} color="inherit">
           Hủy
         </Button>
-        <Button variant="contained" onClick={save} disabled={saving}>
+        <Button
+          variant="outlined"
+          color="warning"
+          onClick={applyToAllEmployees}
+          disabled={saving || applyingAll}
+        >
+          {applyingAll ? 'Đang áp dụng…' : 'Áp dụng cho tất cả'}
+        </Button>
+        <Button variant="contained" onClick={save} disabled={saving || applyingAll}>
           Lưu thay đổi
         </Button>
       </DialogActions>

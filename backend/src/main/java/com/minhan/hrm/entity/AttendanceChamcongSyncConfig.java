@@ -29,6 +29,11 @@ public class AttendanceChamcongSyncConfig {
     @Column(name = "auto_sync_minute", nullable = false)
     private int autoSyncMinute;
 
+    /** Chu kỳ tự đồng bộ (phút). 1 = mỗi phút khi backend chạy. */
+    @Column(name = "auto_sync_interval_minutes", nullable = false)
+    @Builder.Default
+    private int autoSyncIntervalMinutes = 1;
+
     @Column(name = "last_auto_sync_at")
     private LocalDateTime lastAutoSyncAt;
 

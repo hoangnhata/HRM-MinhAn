@@ -36,6 +36,14 @@ public class AttendanceShiftConfig {
     @Column(name = "afternoon_end", nullable = false)
     private LocalTime afternoonEnd;
 
+    /** Giờ vào đầu ngày ca thông tầm (độc lập ca sáng/chiều). */
+    @Column(name = "continuous_start", nullable = false)
+    private LocalTime continuousStart;
+
+    /** Giờ ra cuối ngày ca thông tầm. */
+    @Column(name = "continuous_end", nullable = false)
+    private LocalTime continuousEnd;
+
     @Column(name = "morning_units", nullable = false, precision = 10, scale = 8)
     private BigDecimal morningUnits;
 

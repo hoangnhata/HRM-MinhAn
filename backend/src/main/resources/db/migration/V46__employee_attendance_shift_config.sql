@@ -1,0 +1,26 @@
+CREATE TABLE employee_attendance_shift_config (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    employee_id BIGINT NOT NULL,
+    season VARCHAR(16) NOT NULL,
+    morning_start TIME NOT NULL,
+    morning_end TIME NOT NULL,
+    afternoon_start TIME NOT NULL,
+    afternoon_end TIME NOT NULL,
+    continuous_start TIME NOT NULL,
+    continuous_end TIME NOT NULL,
+    morning_units DECIMAL(10,8) NOT NULL,
+    afternoon_units DECIMAL(10,8) NOT NULL,
+    morning_in_before_min INT NOT NULL,
+    morning_in_after_min INT NOT NULL,
+    morning_out_before_min INT NOT NULL,
+    morning_out_after_min INT NOT NULL,
+    afternoon_in_before_min INT NOT NULL,
+    afternoon_in_after_min INT NOT NULL,
+    afternoon_out_before_min INT NOT NULL,
+    afternoon_out_after_min INT NOT NULL,
+    updated_at TIMESTAMP NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_employee_shift_season UNIQUE (employee_id, season),
+    CONSTRAINT fk_employee_shift_config_employee
+        FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+);

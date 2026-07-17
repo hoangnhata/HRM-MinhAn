@@ -34,8 +34,11 @@ export default function LoginPage() {
     try {
       await login(username, password);
       nav(from, { replace: true });
-    } catch {
-      setErr('Đăng nhập thất bại. Kiểm tra tài khoản hoặc mật khẩu.');
+    } catch (e: unknown) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Đăng nhập thất bại. Kiểm tra số điện thoại hoặc mật khẩu.';
+      setErr(msg);
     } finally {
       setLoading(false);
     }
@@ -178,7 +181,8 @@ export default function LoginPage() {
                 )}
                 <Box component="form" onSubmit={onSubmit}>
                   <TextField
-                    label="Tên đăng nhập"
+                    label="Số điện thoại"
+                    placeholder="VD: 849xxxxxxxx"
                     fullWidth
                     margin="normal"
                     value={username}
@@ -207,22 +211,6 @@ export default function LoginPage() {
                     {loading ? 'Đang đăng nhập…' : 'Đăng nhập'}
                   </Button>
                 </Box>
-                <Typography
-                  variant="caption"
-                  display="block"
-                  sx={{
-                    mt: 3,
-                    color: 'text.secondary',
-                    lineHeight: 1.6,
-                    p: 1.5,
-                    borderRadius: 2,
-                    bgcolor: alpha(theme.palette.primary.main, 0.06),
-                  }}
-                >
-                  Tài khoản mẫu: <strong>admin</strong> / Admin@123 · <strong>nhanvien</strong> / Emp@123 ·{' '}
-                  <strong>hcns</strong> / Hcns@123 (tổng hợp xếp loại) · <strong>truongkhoa</strong> / Tk@12345 ·{' '}
-                  <strong>dieuduongtruong</strong> / Ddt@12345
-                </Typography>
               </CardContent>
             </Card>
           </Container>

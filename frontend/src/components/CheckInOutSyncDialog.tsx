@@ -9,8 +9,12 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  FormControl,
   FormControlLabel,
+  InputLabel,
   LinearProgress,
+  MenuItem,
+  Select,
   Stack,
   Switch,
   Typography,
@@ -18,7 +22,13 @@ import {
 import axios from 'axios';
 import { useEffect, useState } from 'react';
 import * as importService from '../services/importService';
-import { DatePickerField, TimePickerField } from './ui/DateTimeFields';
+import { DatePickerField } from './ui/DateTimeFields';
+
+const INTERVAL_OPTIONS = [
+  { value: 1, label: 'Mỗi 1 phút' },
+  { value: 2, label: 'Mỗi 2 phút' },
+  { value: 5, label: 'Mỗi 5 phút' },
+];
 
 function syncErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
@@ -58,7 +68,7 @@ export function CheckInOutSyncDialog({ open, onClose, onSynced, defaultFromDate 
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
-  const [syncTime, setSyncTime] = useState('01:30');
+  const [intervalMinutes, setIntervalMinutes] = useState(1);
   const [lastAutoSyncAt, setLastAutoSyncAt] = useState<string | null>(null);
   const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
   const [result, setResult] = useState<importService.ImportCheckInOutResult | null>(null);
@@ -78,11 +88,11 @@ export function CheckInOutSyncDialog({ open, onClose, onSynced, defaultFromDate 
       .fetchCheckInOutSyncStatus()
       .then((s) => {
         setAutoSyncEnabled(s.autoSyncEnabled ?? true);
-        setSyncTime(s.autoSyncTime ?? '01:30');
+        setIntervalMinutes(s.autoSyncIntervalMinutes ?? 1);
         setLastAutoSyncAt(s.lastAutoSyncAt ?? null);
       })
       .catch(() => {
-        setScheduleMsg('Không tải được cấu hình hẹn giờ.');
+        setScheduleMsg('Không tải được cấu hình đồng bộ.');
       })
       .finally(() => setScheduleLoading(false));
   }, [open, defaultFromDate]);
@@ -116,23 +126,19 @@ export function CheckInOutSyncDialog({ open, onClose, onSynced, defaultFromDate 
   }
 
   async function saveSchedule() {
-    if (!syncTime) {
-      setScheduleMsg('Chọn giờ tự động đồng bộ.');
-      return;
-    }
     setScheduleSaving(true);
     setScheduleMsg(null);
     try {
       const s = await importService.updateCheckInOutSyncSchedule({
         autoSyncEnabled,
-        syncTime,
+        intervalMinutes,
       });
       setAutoSyncEnabled(s.autoSyncEnabled ?? autoSyncEnabled);
-      setSyncTime(s.autoSyncTime ?? syncTime);
+      setIntervalMinutes(s.autoSyncIntervalMinutes ?? intervalMinutes);
       setLastAutoSyncAt(s.lastAutoSyncAt ?? null);
       setScheduleMsg(
         autoSyncEnabled
-          ? `Đã lưu — tự động đồng bộ lúc ${s.autoSyncTime ?? syncTime} hàng ngày.`
+          ? `Đã lưu — tự động đồng bộ mỗi ${s.autoSyncIntervalMinutes ?? intervalMinutes} phút khi backend đang chạy.`
           : 'Đã tắt tự động đồng bộ.',
       );
     } catch (e) {
@@ -173,10 +179,11 @@ export function CheckInOutSyncDialog({ open, onClose, onSynced, defaultFromDate 
         <Stack spacing={2}>
           <Box>
             <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-              Hẹn giờ tự động
+              Tự động đồng bộ liên tục
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Đến giờ đã chọn, hệ thống tự đồng bộ <strong>7 ngày gần nhất</strong> (backend phải đang chạy).
+              Khi bật, hệ thống tự kéo dữ liệu mới từ máy chấm theo chu kỳ (không cần chờ giờ cố định trong ngày).
+              Màn bảng công cũng tự làm mới khi đang mở.
             </Typography>
             {scheduleLoading ? (
               <LinearProgress sx={{ mb: 1 }} />
@@ -190,17 +197,24 @@ export function CheckInOutSyncDialog({ open, onClose, onSynced, defaultFromDate 
                       disabled={scheduleSaving || loading}
                     />
                   }
-                  label="Bật tự động đồng bộ hàng ngày"
+                  label="Bật tự động đồng bộ"
                 />
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'flex-start' }}>
-                  <TimePickerField
-                    label="Giờ đồng bộ"
-                    value={syncTime}
-                    onChange={setSyncTime}
-                    disabled={!autoSyncEnabled || scheduleSaving || loading}
-                    minuteStep={1}
-                    sx={{ minWidth: 160 }}
-                  />
+                  <FormControl size="small" sx={{ minWidth: 180 }} disabled={!autoSyncEnabled || scheduleSaving || loading}>
+                    <InputLabel id="chamcong-interval-label">Chu kỳ</InputLabel>
+                    <Select
+                      labelId="chamcong-interval-label"
+                      label="Chu kỳ"
+                      value={intervalMinutes}
+                      onChange={(e) => setIntervalMinutes(Number(e.target.value))}
+                    >
+                      {INTERVAL_OPTIONS.map((o) => (
+                        <MenuItem key={o.value} value={o.value}>
+                          {o.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                   <Button
                     variant="outlined"
                     startIcon={<ScheduleIcon />}
@@ -208,7 +222,7 @@ export function CheckInOutSyncDialog({ open, onClose, onSynced, defaultFromDate 
                     disabled={scheduleSaving || loading}
                     sx={{ mt: { xs: 0, sm: 0.5 }, whiteSpace: 'nowrap' }}
                   >
-                    {scheduleSaving ? 'Đang lưu…' : 'Lưu hẹn giờ'}
+                    {scheduleSaving ? 'Đang lưu…' : 'Lưu cấu hình'}
                   </Button>
                 </Stack>
                 <Typography variant="caption" color="text.secondary">
@@ -230,7 +244,7 @@ export function CheckInOutSyncDialog({ open, onClose, onSynced, defaultFromDate 
               Nhanh — 7 ngày gần nhất
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Dùng hàng ngày; đủ cho cập nhật mới và chỉnh sửa trễ gần đây.
+              Đồng bộ thủ công ngay; đủ cho cập nhật mới và chỉnh sửa trễ gần đây.
             </Typography>
             <Button
               variant="contained"

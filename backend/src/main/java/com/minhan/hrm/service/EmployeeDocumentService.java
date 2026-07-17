@@ -33,10 +33,11 @@ public class EmployeeDocumentService {
     private final FileStorageService fileStorageService;
     private final EmployeeService employeeService;
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Transactional
     public void deleteAllForEmployee(Long employeeId) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
+        employeeService.getById(employeeId); // RBAC: trưởng chỉ trong khoa
         List<EmployeeDocument> docs = documentRepository.findByEmployeeOrderByCreatedAtDesc(emp);
         for (EmployeeDocument d : docs) {
             try {
@@ -49,9 +50,10 @@ public class EmployeeDocumentService {
         documentRepository.deleteAll(docs);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Transactional
     public Map<String, Object> upload(Long employeeId, MultipartFile file, String docType) {
+        employeeService.getById(employeeId); // RBAC
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
         UserAccount uploader = employeeService.currentUser();
         String relative = fileStorageService.storePdf(file, "employees/" + employeeId);
@@ -109,7 +111,10 @@ public class EmployeeDocumentService {
 
     private void assertCanAccessDocuments(Employee target) {
         UserAccount current = employeeService.currentUser();
-        if (current.getRole() == UserRole.ADMIN) {
+        if (current.getRole() == UserRole.ADMIN
+                || current.getRole() == UserRole.HR
+                || current.getRole() == UserRole.HEAD_DEPARTMENT
+                || current.getRole() == UserRole.HEAD_NURSING) {
             return;
         }
         Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);

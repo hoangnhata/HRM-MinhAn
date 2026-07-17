@@ -39,14 +39,18 @@ import { AttendanceScheduleBanner } from '../components/work/AttendanceScheduleB
 import { AttendanceScheduleEditDialog } from '../components/work/AttendanceScheduleEditDialog';
 import { DeploymentRequestDialog } from '../components/DeploymentRequestDialog';
 import { DutyShiftDialog } from '../components/work/DutyShiftDialog';
+import { BulkWorkSupplementDialog } from '../components/work/BulkWorkSupplementDialog';
+import { BulkDeploymentDialog } from '../components/work/BulkDeploymentDialog';
 import { WorkSupplementDialog } from '../components/work/WorkSupplementDialog';
 import { ForgotPenaltyConfigDialog } from '../components/work/ForgotPenaltyConfigDialog';
 import { HolidayWorkConfigDialog } from '../components/work/HolidayWorkConfigDialog';
+import { ContinuousShiftConfigDialog } from '../components/work/ContinuousShiftConfigDialog';
 import { LatePenaltyConfigDialog } from '../components/work/LatePenaltyConfigDialog';
 import { WorkAdminToolbar } from '../components/work/WorkAdminToolbar';
 import { MonthPickerField } from '../components/ui/DateTimeFields';
 import { useAuth } from '../context/AuthContext';
 import * as attSvc from '../services/attendanceService';
+import * as youngChildReq from '../services/youngChildRequestService';
 import * as employeeService from '../services/employeeService';
 import * as importService from '../services/importService';
 import * as pa from '../services/payrollAttendanceService';
@@ -67,6 +71,7 @@ const STATUS_CHIP: Record<string, { label: string; color: 'success' | 'warning' 
   PARTIAL: { label: 'Thiếu ca', color: 'warning' },
   ABSENT: { label: 'Vắng', color: 'error' },
   LEAVE: { label: 'Phép', color: 'info' },
+  UNPAID_LEAVE: { label: 'Không lương', color: 'default' },
   BUSINESS_TRIP: { label: 'Công tác', color: 'warning' },
   DEPLOYMENT: { label: 'Điều động', color: 'info' },
 };
@@ -195,17 +200,22 @@ export default function WorkPage() {
   const [dayDetailRow, setDayDetailRow] = useState<Record<string, unknown> | null>(null);
   const [schedule, setSchedule] = useState<ShiftScheduleInfo>(() => scheduleForDate());
   const [scheduleEditOpen, setScheduleEditOpen] = useState(false);
+  const [scheduleEditContinuous, setScheduleEditContinuous] = useState(false);
   const [forgotPenaltyConfigOpen, setForgotPenaltyConfigOpen] = useState(false);
   const [latePenaltyConfigOpen, setLatePenaltyConfigOpen] = useState(false);
   const [holidayWorkConfigOpen, setHolidayWorkConfigOpen] = useState(false);
   const [holidayDates, setHolidayDates] = useState<Set<string>>(() => new Set());
   const [continuousShift, setContinuousShift] = useState(false);
-  const [continuousSaving, setContinuousSaving] = useState(false);
+  const [continuousDates, setContinuousDates] = useState<Set<string>>(() => new Set());
+  const [continuousConfigOpen, setContinuousConfigOpen] = useState(false);
   const [youngChild, setYoungChild] = useState(false);
   const [youngChildSaving, setYoungChildSaving] = useState(false);
+  const [youngChildPending, setYoungChildPending] = useState(false);
   const [dutyShifts, setDutyShifts] = useState<attSvc.DutyShiftEntry[]>([]);
   const [dutyOpen, setDutyOpen] = useState(false);
   const [supplementOpen, setSupplementOpen] = useState(false);
+  const [bulkSupplementOpen, setBulkSupplementOpen] = useState(false);
+  const [bulkDeploymentOpen, setBulkDeploymentOpen] = useState(false);
   const [deploymentOpen, setDeploymentOpen] = useState(false);
   const [dutyDate, setDutyDate] = useState('');
   const [deploymentDate, setDeploymentDate] = useState('');
@@ -259,14 +269,44 @@ export default function WorkPage() {
       .fetchShiftSchedule(refDate, id)
       .then((s) => {
         setSchedule(s);
-        setContinuousShift(Boolean(s.continuousShift));
         setYoungChild(Boolean(s.youngChild));
       })
       .catch(() => setSchedule(scheduleForDate(refDate)));
+    if (id != null && (isHrOrAdmin || isHeadRole)) {
+      youngChildReq
+        .fetchPendingYoungChildForEmployee(id, periodYear, periodMonth)
+        .then((p) => setYoungChildPending(Boolean(p?.id)))
+        .catch(() => setYoungChildPending(false));
+    } else {
+      setYoungChildPending(false);
+    }
+  }
+
+  function reloadContinuousDates(employeeId?: number, periodYear = year, periodMonth = month) {
+    const id =
+      employeeId ??
+      (selected !== '' ? Number(selected) : user?.employeeId != null ? user.employeeId : undefined);
+    if (id == null) {
+      setContinuousDates(new Set());
+      setContinuousShift(false);
+      return;
+    }
+    attSvc
+      .fetchEmployeeContinuousShiftDays(id, periodYear, periodMonth)
+      .then((r) => {
+        const set = new Set(r.dates ?? []);
+        setContinuousDates(set);
+        setContinuousShift(set.size > 0);
+      })
+      .catch(() => {
+        setContinuousDates(new Set());
+        setContinuousShift(false);
+      });
   }
 
   useEffect(() => {
     reloadSchedule();
+    reloadContinuousDates();
   }, [selected, user?.employeeId, year, month]);
 
   useEffect(() => {
@@ -367,21 +407,29 @@ export default function WorkPage() {
     reloadAll();
   }, [selected, year, month, filterDept]);
 
+  // Tự làm mới bảng công khi đang xem (backend đồng bộ theo chu kỳ)
+  useEffect(() => {
+    if (selected === '') return;
+    const REFRESH_MS = 30_000;
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return;
+      reloadAll();
+    };
+    const id = window.setInterval(tick, REFRESH_MS);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') reloadAll();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [selected, year, month, filterDept]);
+
   function onMonthInputChange(value: string) {
     if (!value) return;
     const [y, m] = value.split('-').map(Number);
     if (y && m) setPeriod({ year: y, month: m });
-  }
-
-  async function sendAttendanceNotify() {
-    setNotifyMsg(null);
-    if (selected === '' || !isHrOrAdmin) return;
-    try {
-      await pa.notifyAttendanceMonth(Number(selected), year, month);
-      setNotifyMsg(`Đã gửi thông báo bảng công tháng ${month}/${year}.`);
-    } catch {
-      setNotifyMsg('Không gửi được thông báo.');
-    }
   }
 
   async function handleHolidayWorkSaved(savedYear: number, savedMonth: number, dates: string[]) {
@@ -438,14 +486,16 @@ export default function WorkPage() {
     }
   }
 
-  async function handleScheduleSaved() {
+  async function handleScheduleSaved(scope: 'employee' | 'all') {
     const empId = selected !== '' ? Number(selected) : undefined;
     // Banner/lịch cập nhật ngay; tính lại công chạy nền (không chặn đóng dialog).
     reloadSchedule(empId, year, month);
     reloadAll();
     setNotifyMsg(`Đã lưu lịch ca tháng ${month}/${year}. Đang tính lại công…`);
     try {
-      const r = await attSvc.recalculateMonth(year, month);
+      const r = scope === 'all' || empId == null
+        ? await attSvc.recalculateMonth(year, month)
+        : await attSvc.recalculateEmployeeMonth(empId, year, month);
       reloadAll();
       setNotifyMsg(`Đã lưu lịch ca — tính lại ${r.recalculated} ngày công tháng ${month}/${year}.`);
     } catch {
@@ -453,26 +503,17 @@ export default function WorkPage() {
     }
   }
 
-  async function handleContinuousShiftChange(checked: boolean) {
-    if (selected === '' || !isHrOrAdmin) return;
-    setContinuousSaving(true);
-    try {
-      const result = await attSvc.setEmployeeContinuousShift(Number(selected), year, month, checked);
-      setContinuousShift(checked);
-      reloadSchedule(Number(selected), year, month);
-      reloadAll();
-      setNotifyMsg(
-        result.recalculateWarning
-          ? result.recalculateWarning
-          : checked
-            ? `Đã bật ca thông tầm tháng ${month}/${year} — tính lại ${result.recalculated} ngày.`
-            : `Đã tắt ca thông tầm tháng ${month}/${year} — tính lại ${result.recalculated} ngày.`,
-      );
-    } catch {
-      setNotifyMsg('Không cập nhật được ca thông tầm.');
-    } finally {
-      setContinuousSaving(false);
-    }
+  async function handleContinuousShiftSaved(dates: string[], recalculated: number, warning?: string) {
+    const set = new Set(dates);
+    setContinuousDates(set);
+    setContinuousShift(set.size > 0);
+    reloadSchedule();
+    reloadAll();
+    setNotifyMsg(
+      warning
+        ? warning
+        : `Đã lưu ${dates.length} ngày ca thông tầm tháng ${month}/${year} — tính lại ${recalculated} ngày.`,
+    );
   }
 
   async function handleYoungChildChange(checked: boolean) {
@@ -492,6 +533,29 @@ export default function WorkPage() {
       );
     } catch {
       setNotifyMsg('Không cập nhật được chế độ nuôi con nhỏ.');
+    } finally {
+      setYoungChildSaving(false);
+    }
+  }
+
+  async function handleProposeYoungChild(enabled: boolean) {
+    if (selected === '' || !isHeadRole) return;
+    setYoungChildSaving(true);
+    try {
+      await youngChildReq.createYoungChildRequest({
+        employeeId: Number(selected),
+        year,
+        month,
+        enabled,
+      });
+      setYoungChildPending(true);
+      setNotifyMsg(
+        enabled
+          ? `Đã gửi đề xuất bật nuôi con nhỏ tháng ${month}/${year} — chờ HCNS duyệt.`
+          : `Đã gửi đề xuất tắt nuôi con nhỏ tháng ${month}/${year} — chờ HCNS duyệt.`,
+      );
+    } catch {
+      setNotifyMsg('Không gửi được đề xuất nuôi con nhỏ. Kiểm tra quyền hoặc đề xuất đang chờ.');
     } finally {
       setYoungChildSaving(false);
     }
@@ -575,15 +639,25 @@ export default function WorkPage() {
       <AttendanceScheduleBanner
         schedule={schedule}
         canEdit={isHrOrAdmin}
-        onEdit={() => setScheduleEditOpen(true)}
-        canManageContinuous={isHrOrAdmin && selected !== ''}
+        onEdit={() => {
+          setScheduleEditContinuous(false);
+          setScheduleEditOpen(true);
+        }}
+        onEditContinuous={() => {
+          setScheduleEditContinuous(true);
+          setScheduleEditOpen(true);
+        }}
+        canManageContinuous={(isHrOrAdmin || isHeadRole) && selected !== ''}
         employeeName={selectedEmployee?.fullName}
         continuousShift={continuousShift}
-        continuousSaving={continuousSaving}
-        onContinuousShiftChange={handleContinuousShiftChange}
+        continuousDayCount={continuousDates.size}
+        onConfigureContinuousShift={isHrOrAdmin ? () => setContinuousConfigOpen(true) : undefined}
         youngChild={youngChild}
         youngChildSaving={youngChildSaving}
-        onYoungChildChange={handleYoungChildChange}
+        youngChildPending={youngChildPending}
+        onYoungChildChange={isHrOrAdmin ? handleYoungChildChange : undefined}
+        canProposeYoungChild={isHeadRole && !isHrOrAdmin && selected !== ''}
+        onProposeYoungChild={handleProposeYoungChild}
         periodLabel={`tháng ${month}/${year}`}
       />
 
@@ -626,8 +700,8 @@ export default function WorkPage() {
                 onForgotPenaltyConfig={() => setForgotPenaltyConfigOpen(true)}
                 onLatePenaltyConfig={() => setLatePenaltyConfigOpen(true)}
                 onHolidayWorkConfig={() => setHolidayWorkConfigOpen(true)}
-                onNotify={sendAttendanceNotify}
-                notifyDisabled={selected === ''}
+                onBulkSupplement={() => setBulkSupplementOpen(true)}
+                onBulkDeployment={() => setBulkDeploymentOpen(true)}
               />
             )}
           </Stack>
@@ -759,34 +833,18 @@ export default function WorkPage() {
                   border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
                 }}
               >
-                <Table size="small" sx={{ tableLayout: 'fixed', minWidth: continuousShift ? 940 : 880 }}>
+                <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 920 }}>
                   <TableHead>
                     <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.06) }}>
                       <TableCell sx={{ fontWeight: 700, width: 64, whiteSpace: 'nowrap', px: 1.5 }}>
                         Ngày
                       </TableCell>
-                      {continuousShift ? (
-                        <>
-                          <TableCell align="center" sx={{ fontWeight: 700, width: 72 }}>
-                            Vào
-                          </TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700, width: 72 }}>
-                            Ra
-                          </TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700, width: 72 }}>
-                            Giờ làm
-                          </TableCell>
-                        </>
-                      ) : (
-                        <>
-                          <TableCell align="center" sx={{ fontWeight: 700, width: 88 }}>
-                            Ca sáng
-                          </TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700, width: 88 }}>
-                            Ca chiều
-                          </TableCell>
-                        </>
-                      )}
+                      <TableCell align="center" sx={{ fontWeight: 700, width: 96 }}>
+                        Ca sáng / Vào
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 700, width: 96 }}>
+                        Ca chiều / Ra
+                      </TableCell>
                       <TableCell align="center" sx={{ fontWeight: 700, width: 88 }}>
                         Ngoài giờ
                       </TableCell>
@@ -805,7 +863,7 @@ export default function WorkPage() {
                   <TableBody>
                     {selected === '' && (
                       <TableRow>
-                        <TableCell colSpan={continuousShift ? 9 : 8} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                        <TableCell colSpan={8} align="center" sx={{ py: 5, color: 'text.secondary' }}>
                           Chọn nhân viên để xem bảng công tháng.
                         </TableCell>
                       </TableRow>
@@ -819,32 +877,55 @@ export default function WorkPage() {
                         const warnRow = canActOnRows && rowNeedsUpdate(row, workDate);
                         const noData = !row;
                         const isDeployment = attSvc.isDeploymentRow(row);
+                        const dayContinuous = continuousDates.has(workDate);
                         return (
                           <TableRow
                             key={workDate}
                             hover
                             sx={{
                               ...(warnRow ? { bgcolor: alpha(theme.palette.warning.main, 0.06) } : {}),
+                              ...(dayContinuous && !warnRow
+                                ? { bgcolor: alpha(theme.palette.success.main, 0.04) }
+                                : {}),
                               ...(noData && !warnRow ? { opacity: 0.72 } : {}),
                             }}
                           >
                             <TableCell
                               sx={{
-                                fontWeight: holidayDates.has(workDate) ? 800 : 500,
-                                color: holidayDates.has(workDate) ? 'warning.dark' : 'inherit',
+                                fontWeight: holidayDates.has(workDate) || dayContinuous ? 800 : 500,
+                                color: holidayDates.has(workDate)
+                                  ? 'warning.dark'
+                                  : dayContinuous
+                                    ? 'success.dark'
+                                    : 'inherit',
                                 whiteSpace: 'nowrap',
                                 width: 64,
                                 px: 1.5,
                                 fontVariantNumeric: 'tabular-nums',
                               }}
-                              title={holidayDates.has(workDate) ? 'Ngày lễ — đi làm = 2 công' : undefined}
+                              title={
+                                holidayDates.has(workDate)
+                                  ? 'Ngày lễ — đi làm = 2 công'
+                                  : dayContinuous
+                                    ? 'Ca thông tầm'
+                                    : undefined
+                              }
                             >
                               {(parseLocalDate(workDate) ?? new Date()).toLocaleDateString('vi-VN', {
                                 day: '2-digit',
                                 month: '2-digit',
                               })}
+                              {dayContinuous ? (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{ display: 'block', fontWeight: 700, color: 'success.main', lineHeight: 1.1 }}
+                                >
+                                  TT
+                                </Typography>
+                              ) : null}
                             </TableCell>
-                            {continuousShift ? (
+                            {dayContinuous ? (
                               <>
                                 <TableCell align="center" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {formatPunchTime(row?.morningCheckIn as string | undefined)}
@@ -852,7 +933,6 @@ export default function WorkPage() {
                                 <TableCell align="center" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {formatPunchTime(row?.afternoonCheckOut as string | undefined)}
                                 </TableCell>
-                                <TableCell align="center">{continuousHoursLabel(row, schedule)}</TableCell>
                               </>
                             ) : (
                               <>
@@ -860,7 +940,7 @@ export default function WorkPage() {
                                 <TableCell align="center">{shiftHoursLabel(row, schedule, 'afternoon')}</TableCell>
                               </>
                             )}
-                            <TableCell align="center">{overtimeHoursLabel(row, schedule, continuousShift)}</TableCell>
+                            <TableCell align="center">{overtimeHoursLabel(row, schedule, dayContinuous)}</TableCell>
                             <TableCell align="right" sx={{ fontWeight: 600 }}>
                               {(() => {
                                 const attUnits = row ? normalizeWorkUnits(Number(row.totalWorkUnits ?? 0)) : 0;
@@ -1053,7 +1133,7 @@ export default function WorkPage() {
         onSubmitted={reloadAll}
         defaultDate={dialogDate}
         attendanceRow={explainRow}
-        continuousShift={continuousShift}
+        continuousShift={dialogDate ? continuousDates.has(dialogDate) : false}
       />
       {dayDetailOpen && dayDetailDate && (
         <AttendanceDayDetailDialog
@@ -1064,16 +1144,28 @@ export default function WorkPage() {
           employeeName={employeeName}
           monthSummary={summary}
           schedule={schedule}
-          continuousShift={continuousShift}
+          continuousShift={continuousDates.has(dayDetailDate)}
         />
       )}
       <AttendanceScheduleEditDialog
         open={scheduleEditOpen}
         onClose={() => setScheduleEditOpen(false)}
         onSaved={handleScheduleSaved}
-        continuousShift={continuousShift}
-        employeeName={continuousShift ? employeeName : undefined}
+        employeeId={Number(selected)}
+        continuousShift={scheduleEditContinuous}
+        employeeName={selectedEmployee?.fullName || employeeName}
       />
+      {isHrOrAdmin && selected !== '' && (
+        <ContinuousShiftConfigDialog
+          open={continuousConfigOpen}
+          onClose={() => setContinuousConfigOpen(false)}
+          employeeId={Number(selected)}
+          employeeName={selectedEmployee?.fullName || employeeName || ''}
+          year={year}
+          month={month}
+          onSaved={handleContinuousShiftSaved}
+        />
+      )}
       <ForgotPenaltyConfigDialog
         open={forgotPenaltyConfigOpen}
         onClose={() => setForgotPenaltyConfigOpen(false)}
@@ -1102,6 +1194,29 @@ export default function WorkPage() {
           existingDuty={dutyByDate.get(dutyDate) ?? null}
           attendanceRow={attByDate.get(dutyDate) ?? null}
           initialTab={supplementInitialTab}
+        />
+      )}
+      {isHrOrAdmin && (
+        <BulkWorkSupplementDialog
+          open={bulkSupplementOpen}
+          onClose={() => setBulkSupplementOpen(false)}
+          onSaved={reloadAll}
+          initialDepartmentId={filterDept}
+          initialWorkDate={`${year}-${String(month).padStart(2, '0')}-01`}
+        />
+      )}
+      {isHrOrAdmin && (
+        <BulkDeploymentDialog
+          open={bulkDeploymentOpen}
+          onClose={() => setBulkDeploymentOpen(false)}
+          onSaved={() => {
+            setNotifyMsg('Đã tạo đơn điều động hàng loạt.');
+            reloadAll();
+          }}
+          initialDepartmentId={filterDept}
+          initialWorkDate={`${year}-${String(month).padStart(2, '0')}-01`}
+          periodYear={year}
+          periodMonth={month}
         />
       )}
       {canManageDutyOnly && dutyOpen && dutyDate && selected !== '' && (

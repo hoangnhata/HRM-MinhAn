@@ -14,6 +14,7 @@ public class CheckInOutSyncStatusDto {
     boolean connected;
     boolean autoSyncEnabled;
     String autoSyncTime;
+    int autoSyncIntervalMinutes;
     LocalDateTime lastAutoSyncAt;
     LocalDateTime lastSyncAt;
     LocalDate lastFromDate;

@@ -18,6 +18,8 @@ public record AttendanceShiftSchedule(
         LocalTime morningEnd,
         LocalTime afternoonStart,
         LocalTime afternoonEnd,
+        LocalTime continuousStart,
+        LocalTime continuousEnd,
         BigDecimal morningUnits,
         BigDecimal afternoonUnits,
         boolean summer,
@@ -53,9 +55,19 @@ public record AttendanceShiftSchedule(
         return morningHours + afternoonHours;
     }
 
-    /** Ca thông tầm: làm liên tục từ đầu đến cuối ngày, không trừ nghỉ trưa. */
+    /** Ca thông tầm: làm liên tục từ giờ vào → giờ ra riêng, không trừ nghỉ trưa. */
     public double continuousHours() {
-        return Duration.between(morningStart, afternoonEnd).toMinutes() / 60.0;
+        LocalTime start = continuousStart != null ? continuousStart : morningStart;
+        LocalTime end = continuousEnd != null ? continuousEnd : afternoonEnd;
+        return Duration.between(start, end).toMinutes() / 60.0;
+    }
+
+    public LocalTime continuousDayStart() {
+        return continuousStart != null ? continuousStart : morningStart;
+    }
+
+    public LocalTime continuousDayEnd() {
+        return continuousEnd != null ? continuousEnd : afternoonEnd;
     }
 
     public Map<String, Object> toInfoMap() {
@@ -67,8 +79,11 @@ public record AttendanceShiftSchedule(
         m.put("morningEnd", morningEnd.toString());
         m.put("afternoonStart", afternoonStart.toString());
         m.put("afternoonEnd", afternoonEnd.toString());
+        m.put("continuousStart", continuousDayStart().toString());
+        m.put("continuousEnd", continuousDayEnd().toString());
         m.put("morningHours", morningHours);
         m.put("afternoonHours", afternoonHours);
+        m.put("continuousHours", continuousHours());
         m.put("totalHours", totalHours());
         m.put("morningUnits", morningUnits);
         m.put("afternoonUnits", afternoonUnits);

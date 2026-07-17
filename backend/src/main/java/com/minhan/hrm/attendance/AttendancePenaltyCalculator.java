@@ -25,11 +25,17 @@ public final class AttendancePenaltyCalculator {
 
     /**
      * Phạt quên chấm công theo số lần quên thực tế khi nộp đơn:
-     * thiếu 1 mốc (vào hoặc ra) = 1 lần; thiếu cả ca = 2 lần; cả ngày = 4 lần.
+     * thiếu 1 mốc (vào hoặc ra) = 1 lần; thiếu cả ca = 2 lần;
+     * cả ngày = số mốc còn thiếu trên cả 2 ca (tối đa 4; đã có một phần chấm thì không hardcode 4).
      */
     public static int forgotFineUnitsForUpdate(AttendanceUpdateKind kind, AttendanceRecord rec) {
         if (kind == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
-            return 4;
+            if (rec == null) {
+                return 4;
+            }
+            int missing = countAbsentPunches(rec.getMorningCheckIn(), rec.getMorningCheckOut())
+                    + countAbsentPunches(rec.getAfternoonCheckIn(), rec.getAfternoonCheckOut());
+            return missing > 0 ? missing : 4;
         }
         if (kind == AttendanceUpdateKind.MORNING_SUPPLEMENT) {
             return missingPunchCount(
@@ -44,7 +50,8 @@ public final class AttendancePenaltyCalculator {
         return 2;
     }
 
-    private static int missingPunchCount(java.time.LocalTime in, java.time.LocalTime out) {
+    /** Số mốc chưa có (0–2); không ép về 2 khi ca đã đủ. */
+    private static int countAbsentPunches(java.time.LocalTime in, java.time.LocalTime out) {
         int missing = 0;
         if (in == null) {
             missing++;
@@ -52,6 +59,11 @@ public final class AttendancePenaltyCalculator {
         if (out == null) {
             missing++;
         }
+        return missing;
+    }
+
+    private static int missingPunchCount(java.time.LocalTime in, java.time.LocalTime out) {
+        int missing = countAbsentPunches(in, out);
         if (missing == 0) {
             return 2;
         }

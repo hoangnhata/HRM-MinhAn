@@ -425,13 +425,6 @@ export default function DashboardPage() {
         </Alert>
       )}
 
-      {stats && stats.accountsMatchEmployees === false && (
-        <Alert severity="warning" sx={{ mb: 2.5 }} variant="outlined">
-          Số hồ sơ nhân viên và số tài khoản vai trò <strong>EMPLOYEE</strong> chưa khớp. Kiểm tra import Excel hoặc
-          tài khoản thừa — mục tiêu: <strong>một nhân viên một tài khoản</strong>.
-        </Alert>
-      )}
-
       {statCards && (
         <Box
           sx={{

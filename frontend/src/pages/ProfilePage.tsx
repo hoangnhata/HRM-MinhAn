@@ -11,7 +11,6 @@ import {
   Card,
   CardContent,
   CircularProgress,
-  Divider,
   FormControl,
   Grid,
   InputLabel,
@@ -22,7 +21,6 @@ import {
   MenuItem,
   Select,
   Snackbar,
-  Stack,
   TextField,
   Tooltip,
   Typography,
@@ -35,7 +33,7 @@ import * as accountService from '../services/accountService';
 import * as departmentService from '../services/departmentService';
 import { getRoleLabel } from '../utils/roleLabels';
 
-function avatarProps(name: string) {
+function avatarProps(name: string, imageUrl?: string | null) {
   const colors = ['#ec407a', '#ab47bc', '#5c6bc0', '#26a69a', '#ffa726', '#78909c'];
   let h = 0;
   for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
@@ -50,13 +48,14 @@ function avatarProps(name: string) {
       color: '#fff',
       cursor: 'default',
     },
+    src: imageUrl && imageUrl.trim() ? imageUrl : undefined,
     children: (name || '?').charAt(0).toUpperCase(),
   };
 }
 
 export default function ProfilePage() {
   const theme = useTheme();
-  const { refreshUser } = useAuth();
+  const { refreshUser, avatarUrl } = useAuth();
   const [account, setAccount] = useState<accountService.AccountMe | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
@@ -64,18 +63,16 @@ export default function ProfilePage() {
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [fullNameProfile, setFullNameProfile] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [departmentId, setDepartmentId] = useState<number | ''>('');
   const [departments, setDepartments] = useState<departmentService.DepartmentRow[]>([]);
   const [saving, setSaving] = useState(false);
 
-  const [oldPassword, setOldPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [pwdLoading, setPwdLoading] = useState(false);
-
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>(
     { open: false, message: '', severity: 'success' }
   );
+
+  const erpLinked = Boolean(account?.erpLinked);
 
   useEffect(() => {
     let c = false;
@@ -88,6 +85,7 @@ export default function ProfilePage() {
           setPhone(a.phone || '');
           setAddress(a.address || '');
           setFullNameProfile(a.fullName || '');
+          setDateOfBirth(a.dateOfBirth || '');
           setDepartmentId(a.departmentId ?? '');
         }
       } catch {
@@ -129,11 +127,11 @@ export default function ProfilePage() {
 
   async function handleSaveProfile() {
     if (!account) return;
+    if (!fullNameProfile.trim()) {
+      setSnackbar({ open: true, message: 'Vui lòng nhập họ và tên.', severity: 'info' });
+      return;
+    }
     if (account.employeeId != null) {
-      if (!fullNameProfile.trim()) {
-        setSnackbar({ open: true, message: 'Vui lòng nhập họ và tên.', severity: 'info' });
-        return;
-      }
       if (departmentId === '' || typeof departmentId !== 'number') {
         setSnackbar({ open: true, message: 'Vui lòng chọn phòng ban.', severity: 'info' });
         return;
@@ -143,51 +141,38 @@ export default function ProfilePage() {
     try {
       const updated = await accountService.updateAccount({
         email: email.trim(),
-        phone: phone.trim(),
+        fullName: fullNameProfile.trim(),
         address: address.trim(),
-        ...(account.employeeId != null
-          ? {
-              fullName: fullNameProfile.trim(),
-              departmentId: typeof departmentId === 'number' ? departmentId : undefined,
-            }
-          : {}),
+        ...(account.employeeId != null && typeof departmentId === 'number' ? { departmentId } : {}),
+        ...(erpLinked
+          ? { dateOfBirth: dateOfBirth.trim() || undefined }
+          : { phone: phone.trim() }),
       });
       setAccount(updated);
+      setEmail(updated.email || '');
+      setPhone(updated.phone || '');
+      setAddress(updated.address || '');
       setFullNameProfile(updated.fullName || '');
+      setDateOfBirth(updated.dateOfBirth || '');
       setDepartmentId(updated.departmentId ?? '');
       await refreshUser();
-      setSnackbar({ open: true, message: 'Đã cập nhật thông tin.', severity: 'success' });
-    } catch {
-      setSnackbar({ open: true, message: 'Cập nhật thất bại.', severity: 'error' });
+      setSnackbar({
+        open: true,
+        message: erpLinked ? 'Đã cập nhật hồ sơ trên ERP.' : 'Đã cập nhật thông tin.',
+        severity: 'success',
+      });
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? String((err as { response?: { data?: { message?: string } } }).response?.data?.message || '')
+          : '';
+      setSnackbar({
+        open: true,
+        message: msg || 'Cập nhật thất bại.',
+        severity: 'error',
+      });
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleChangePassword() {
-    if (!oldPassword || !newPassword || !confirmPassword) {
-      setSnackbar({ open: true, message: 'Vui lòng điền đủ các ô mật khẩu.', severity: 'info' });
-      return;
-    }
-    if (newPassword.length < 6) {
-      setSnackbar({ open: true, message: 'Mật khẩu mới ít nhất 6 ký tự.', severity: 'info' });
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setSnackbar({ open: true, message: 'Xác nhận mật khẩu không khớp.', severity: 'info' });
-      return;
-    }
-    setPwdLoading(true);
-    try {
-      await accountService.changeAccountPassword({ oldPassword, newPassword });
-      setOldPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      setSnackbar({ open: true, message: 'Đã đổi mật khẩu.', severity: 'success' });
-    } catch {
-      setSnackbar({ open: true, message: 'Đổi mật khẩu thất bại (kiểm tra mật khẩu hiện tại).', severity: 'error' });
-    } finally {
-      setPwdLoading(false);
     }
   }
 
@@ -215,7 +200,11 @@ export default function ProfilePage() {
       <PageHeader
         overline="Tài khoản"
         title="Trang cá nhân"
-        description="Quản lý thông tin liên hệ và bảo mật đăng nhập."
+        description={
+          erpLinked
+            ? 'Hồ sơ đồng bộ từ ERP. Phòng ban và vai trò theo hệ thống HRM. Đổi mật khẩu trên trang ERP.'
+            : 'Quản lý thông tin liên hệ. Đổi mật khẩu trên trang ERP.'
+        }
       />
 
       <Snackbar
@@ -240,18 +229,20 @@ export default function ProfilePage() {
             }}
           >
             <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-              <Tooltip title="Ảnh đại diện theo chữ cái (HRM chưa lưu file ảnh)">
-                <Avatar {...avatarProps(fullNameProfile || account.username)} />
+              <Tooltip title={avatarUrl ? 'Ảnh đại diện từ ERP' : 'Ảnh đại diện theo chữ cái'}>
+                <Avatar {...avatarProps(fullNameProfile || account.username, avatarUrl)} />
               </Tooltip>
             </Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-              Màu avatar phân biệt theo tên — tương tự web quản lý tài sản
+              {erpLinked
+                ? 'Hồ sơ liên kết ERP — phòng ban & vai trò theo HRM'
+                : 'Màu avatar phân biệt theo tên'}
             </Typography>
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
               {fullNameProfile || account.fullName}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              {account.email}
+              {email || account.email}
             </Typography>
             <List dense disablePadding sx={{ mt: 2, textAlign: 'left' }}>
               <ListItem alignItems="flex-start" sx={{ px: 0, py: 0.75 }}>
@@ -319,19 +310,36 @@ export default function ProfilePage() {
                     value={fullNameProfile}
                     onChange={(e) => setFullNameProfile(e.target.value)}
                     fullWidth
-                    disabled={account.employeeId == null}
-                    helperText={account.employeeId == null ? 'Tài khoản quản trị không gắn hồ sơ NV.' : undefined}
+                    disabled={!erpLinked && account.employeeId == null}
+                    helperText={
+                      !erpLinked && account.employeeId == null
+                        ? 'Tài khoản quản trị không gắn hồ sơ NV.'
+                        : undefined
+                    }
                   />
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} fullWidth />
                 </Grid>
                 <Grid item xs={12} md={6}>
-                  <TextField label="Số điện thoại" value={phone} onChange={(e) => setPhone(e.target.value)} fullWidth />
+                  <TextField
+                    label="Số điện thoại"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    fullWidth
+                    disabled={erpLinked}
+                    helperText={erpLinked ? 'SĐT lấy từ ERP (không sửa tại đây).' : undefined}
+                  />
                 </Grid>
                 <Grid item xs={12} md={6}>
                   {account.employeeId == null ? (
-                    <TextField label="Phòng ban" value="—" fullWidth disabled />
+                    <TextField
+                      label="Phòng ban"
+                      value={account.departmentName || '—'}
+                      fullWidth
+                      disabled
+                      helperText="Chưa gắn hồ sơ nhân viên HRM."
+                    />
                   ) : (
                     <FormControl fullWidth size="medium">
                       <InputLabel id="profile-dept-label">Phòng ban</InputLabel>
@@ -350,6 +358,18 @@ export default function ProfilePage() {
                     </FormControl>
                   )}
                 </Grid>
+                {erpLinked && (
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      label="Ngày sinh"
+                      type="date"
+                      value={dateOfBirth}
+                      onChange={(e) => setDateOfBirth(e.target.value)}
+                      fullWidth
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                )}
                 <Grid item xs={12}>
                   <TextField
                     label="Địa chỉ"
@@ -358,59 +378,13 @@ export default function ProfilePage() {
                     fullWidth
                     multiline
                     minRows={2}
+                    helperText={erpLinked ? 'Địa chỉ lưu trên HRM (ERP không có trường này).' : undefined}
                   />
                 </Grid>
               </Grid>
               <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
                 <Button variant="contained" size="large" disabled={saving} onClick={handleSaveProfile}>
                   {saving ? <CircularProgress size={22} color="inherit" /> : 'Lưu thông tin'}
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-
-          <Card sx={{ borderRadius: 3, border: `1px solid ${alpha(theme.palette.divider, 1)}`, mt: 3 }}>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>
-                Đổi mật khẩu
-              </Typography>
-              <Stack spacing={2}>
-                <TextField
-                  label="Mật khẩu hiện tại"
-                  type="password"
-                  value={oldPassword}
-                  onChange={(e) => setOldPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-                <TextField
-                  label="Mật khẩu mới"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  autoComplete="new-password"
-                />
-                <TextField
-                  label="Xác nhận mật khẩu mới"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  autoComplete="new-password"
-                />
-              </Stack>
-              <Divider sx={{ my: 2.5 }} />
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                <Button
-                  variant="outlined"
-                  onClick={() => {
-                    setOldPassword('');
-                    setNewPassword('');
-                    setConfirmPassword('');
-                  }}
-                >
-                  Làm mới
-                </Button>
-                <Button variant="contained" disabled={pwdLoading} onClick={handleChangePassword}>
-                  {pwdLoading ? <CircularProgress size={22} color="inherit" /> : 'Cập nhật mật khẩu'}
                 </Button>
               </Box>
             </CardContent>

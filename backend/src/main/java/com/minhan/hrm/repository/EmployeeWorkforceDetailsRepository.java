@@ -16,6 +16,14 @@ public interface EmployeeWorkforceDetailsRepository extends JpaRepository<Employ
 
     Optional<EmployeeWorkforceDetails> findByAttendanceCode(String attendanceCode);
 
+    @Query("""
+            SELECT w FROM EmployeeWorkforceDetails w
+            JOIN FETCH w.employee e
+            LEFT JOIN FETCH e.department
+            WHERE w.attendanceCode IS NOT NULL AND TRIM(w.attendanceCode) <> ''
+            """)
+    List<EmployeeWorkforceDetails> findAllWithAttendanceCodeAndEmployee();
+
     List<EmployeeWorkforceDetails> findByAttendanceCodeIsNotNull();
 
     @Query("""

@@ -453,26 +453,6 @@ export default function SalaryPage() {
                   </Box>
                   <Divider />
                   <Box sx={{ p: 2.5 }}>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-                      <Chip
-                        size="small"
-                        label={form.salaryCategory === 'DOCTOR' ? 'Bác sỹ' : 'Nhân viên'}
-                        color="primary"
-                        variant="outlined"
-                      />
-                      {form.salaryCategory === 'EMPLOYEE' && (
-                        <>
-                          <Chip
-                            size="small"
-                            label={form.employeeBlock === 'INDIRECT' ? 'Gián tiếp' : 'Trực tiếp'}
-                            variant="outlined"
-                          />
-                          {form.qualification && (
-                            <Chip size="small" label={form.qualification} variant="outlined" />
-                          )}
-                        </>
-                      )}
-                    </Stack>
                     <Grid container spacing={2}>
                       <Grid item xs={12} sm={6}>
                         <TextField

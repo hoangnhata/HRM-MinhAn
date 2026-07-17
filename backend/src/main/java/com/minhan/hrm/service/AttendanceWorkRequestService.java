@@ -50,8 +50,9 @@ public class AttendanceWorkRequestService {
     private static final EnumSet<UserRole> HR_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.HR);
     /** Hệ số công điều động ngoài ca: 1 giờ thực tế = 1.5 giờ công. */
     public static final BigDecimal DEPLOYMENT_COEFFICIENT = new BigDecimal("1.5");
-    /** Điều động trong ca — công cố định, không tính theo giờ. */
+    /** Điều động cả ca sáng trong ca — tối đa 1 công (tỷ lệ theo giờ nếu làm một phần ca). */
     public static final BigDecimal DEPLOYMENT_INSIDE_MORNING_UNITS = new BigDecimal("1.0");
+    /** Điều động cả ca chiều trong ca — tối đa 0,5 công (tỷ lệ theo giờ nếu làm một phần ca). */
     public static final BigDecimal DEPLOYMENT_INSIDE_AFTERNOON_UNITS = new BigDecimal("0.5");
 
     private final AttendanceWorkRequestRepository requestRepository;
@@ -73,10 +74,12 @@ public class AttendanceWorkRequestService {
         validateSubmit(dto, emp);
         AttendanceShiftScope scope = dto.getShiftScope();
         if (dto.getRequestType() == AttendanceRequestType.LEAVE
+                || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
                 || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
             scope = AttendanceShiftScope.FULL_DAY;
         }
         boolean ranged = dto.getRequestType() == AttendanceRequestType.LEAVE
+                || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
                 || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP;
         Integer forgotFineUnits = null;
         if (dto.getRequestType() == AttendanceRequestType.UPDATE && dto.getUpdateKind() != null) {
@@ -206,12 +209,12 @@ public class AttendanceWorkRequestService {
         boolean insideShift = isInsideShiftDeployment(dto);
 
         if (insideShift) {
-            // Trong ca: không kiểm tra giờ — công cố định theo ca
             if (scope == AttendanceShiftScope.FULL_DAY
                     && (dto.getRequestedAfternoonStart() == null || dto.getRequestedAfternoonEnd() == null)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST,
                         "Điều động cả ngày trong ca cần xác nhận cả ca sáng và ca chiều");
             }
+            validateInsideShiftTimes(dto, scope, schedule);
         } else {
             if (dto.getRequestedStart().equals(dto.getRequestedEnd())) {
                 throw new ApiException(HttpStatus.BAD_REQUEST,
@@ -267,18 +270,84 @@ public class AttendanceWorkRequestService {
 
     private record InsideDeploymentUnits(BigDecimal morning, BigDecimal afternoon, String label) {}
 
-    private static InsideDeploymentUnits resolveInsideDeploymentUnits(AttendanceWorkRequest req) {
+    /**
+     * Công trong ca tối đa sáng 1 / chiều 0,5; nếu chỉ làm một phần ca thì tỷ lệ theo giờ
+     * (vd sáng 07:00–09:00 trong ca 07:00–11:30 → ~0,44 công).
+     */
+    private static BigDecimal prorateInsideUnits(
+            LocalTime start,
+            LocalTime end,
+            LocalTime shiftStart,
+            LocalTime shiftEnd,
+            double shiftHours,
+            BigDecimal fullUnits) {
+        if (start == null || end == null || fullUnits == null || fullUnits.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        if (start.equals(shiftStart) && end.equals(shiftEnd)) {
+            return fullUnits;
+        }
+        double hours = ChronoUnit.MINUTES.between(start, end) / 60.0;
+        if (hours <= 0 || shiftHours <= 0) {
+            return BigDecimal.ZERO;
+        }
+        double ratio = Math.min(1.0, hours / shiftHours);
+        return fullUnits.multiply(BigDecimal.valueOf(ratio)).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static InsideDeploymentUnits resolveInsideDeploymentUnits(
+            AttendanceWorkRequest req,
+            AttendanceShiftSchedule schedule) {
+        double morningHours = schedule.morningHours() > 0 ? schedule.morningHours() : 1;
+        double afternoonHours = schedule.afternoonHours() > 0 ? schedule.afternoonHours() : 1;
         if (req.getRequestedAfternoonStart() != null && req.getRequestedAfternoonEnd() != null) {
-            return new InsideDeploymentUnits(
-                    DEPLOYMENT_INSIDE_MORNING_UNITS,
-                    DEPLOYMENT_INSIDE_AFTERNOON_UNITS,
-                    "Cả ngày (sáng + chiều)");
+            BigDecimal morning = prorateInsideUnits(
+                    req.getRequestedStart(),
+                    req.getRequestedEnd(),
+                    schedule.morningStart(),
+                    schedule.morningEnd(),
+                    morningHours,
+                    DEPLOYMENT_INSIDE_MORNING_UNITS);
+            BigDecimal afternoon = prorateInsideUnits(
+                    req.getRequestedAfternoonStart(),
+                    req.getRequestedAfternoonEnd(),
+                    schedule.afternoonStart(),
+                    schedule.afternoonEnd(),
+                    afternoonHours,
+                    DEPLOYMENT_INSIDE_AFTERNOON_UNITS);
+            String label = String.format(
+                    "Cả ngày (%s–%s + %s–%s)",
+                    req.getRequestedStart(),
+                    req.getRequestedEnd(),
+                    req.getRequestedAfternoonStart(),
+                    req.getRequestedAfternoonEnd());
+            return new InsideDeploymentUnits(morning, afternoon, label);
         }
         if (req.getShiftScope() == AttendanceShiftScope.MORNING) {
-            return new InsideDeploymentUnits(DEPLOYMENT_INSIDE_MORNING_UNITS, BigDecimal.ZERO, "Ca sáng");
+            BigDecimal morning = prorateInsideUnits(
+                    req.getRequestedStart(),
+                    req.getRequestedEnd(),
+                    schedule.morningStart(),
+                    schedule.morningEnd(),
+                    morningHours,
+                    DEPLOYMENT_INSIDE_MORNING_UNITS);
+            return new InsideDeploymentUnits(
+                    morning,
+                    BigDecimal.ZERO,
+                    String.format("Ca sáng %s–%s", req.getRequestedStart(), req.getRequestedEnd()));
         }
         if (req.getShiftScope() == AttendanceShiftScope.AFTERNOON) {
-            return new InsideDeploymentUnits(BigDecimal.ZERO, DEPLOYMENT_INSIDE_AFTERNOON_UNITS, "Ca chiều");
+            BigDecimal afternoon = prorateInsideUnits(
+                    req.getRequestedStart(),
+                    req.getRequestedEnd(),
+                    schedule.afternoonStart(),
+                    schedule.afternoonEnd(),
+                    afternoonHours,
+                    DEPLOYMENT_INSIDE_AFTERNOON_UNITS);
+            return new InsideDeploymentUnits(
+                    BigDecimal.ZERO,
+                    afternoon,
+                    String.format("Ca chiều %s–%s", req.getRequestedStart(), req.getRequestedEnd()));
         }
         return new InsideDeploymentUnits(BigDecimal.ZERO, BigDecimal.ZERO, "");
     }
@@ -386,7 +455,8 @@ public class AttendanceWorkRequestService {
                     if (st == null || st.isBlank()) {
                         return true;
                     }
-                    return "ABSENT".equals(st) || "LEAVE".equals(st) || "BUSINESS_TRIP".equals(st);
+                    return "ABSENT".equals(st) || "LEAVE".equals(st) || "UNPAID_LEAVE".equals(st)
+                            || "BUSINESS_TRIP".equals(st);
                 })
                 .orElse(true);
     }
@@ -489,6 +559,9 @@ public class AttendanceWorkRequestService {
         } else if (req.getRequestType() == AttendanceRequestType.LEAVE) {
             req.setStatus(AttendanceRequestStatus.APPROVED);
             applyApprovedLeave(req);
+        } else if (req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) {
+            req.setStatus(AttendanceRequestStatus.APPROVED);
+            applyApprovedUnpaidLeave(req);
         } else if (req.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
             req.setStatus(AttendanceRequestStatus.APPROVED);
             applyApprovedBusinessTrip(req);
@@ -621,6 +694,14 @@ public class AttendanceWorkRequestService {
         }
     }
 
+    private void applyApprovedUnpaidLeave(AttendanceWorkRequest req) {
+        LocalDate from = req.getWorkDate();
+        LocalDate to = req.getEndDate() != null ? req.getEndDate() : from;
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            applyUnpaidLeaveDay(req.getEmployee(), d, req.getReason());
+        }
+    }
+
     private void applyApprovedBusinessTrip(AttendanceWorkRequest req) {
         LocalDate from = req.getWorkDate();
         LocalDate to = req.getEndDate() != null ? req.getEndDate() : from;
@@ -656,7 +737,7 @@ public class AttendanceWorkRequestService {
         String timeLabel;
 
         if (insideShift) {
-            InsideDeploymentUnits inside = resolveInsideDeploymentUnits(req);
+            InsideDeploymentUnits inside = resolveInsideDeploymentUnits(req, schedule);
             morningBonus = inside.morning();
             afternoonBonus = inside.afternoon();
             timeLabel = inside.label();
@@ -777,7 +858,7 @@ public class AttendanceWorkRequestService {
                         .workDate(workDate)
                         .status("ABSENT")
                         .build());
-        AttendanceShiftSchedule schedule = shiftScheduleService.forDate(workDate);
+        AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(emp.getId(), workDate);
         rec.setPunchTimesJson("[]");
         rec.setCheckIn(null);
         rec.setCheckOut(null);
@@ -800,6 +881,37 @@ public class AttendanceWorkRequestService {
         attendanceRecordRepository.save(rec);
     }
 
+    /** Nghỉ không lương: khóa ngày, 0 công — không tính vào tổng công / lương. */
+    private void applyUnpaidLeaveDay(Employee emp, LocalDate workDate, String reason) {
+        AttendanceRecord rec = attendanceRecordRepository
+                .findByEmployeeAndWorkDate(emp, workDate)
+                .orElseGet(() -> AttendanceRecord.builder()
+                        .employee(emp)
+                        .workDate(workDate)
+                        .status("ABSENT")
+                        .build());
+        rec.setPunchTimesJson("[]");
+        rec.setCheckIn(null);
+        rec.setCheckOut(null);
+        rec.setMorningCheckIn(null);
+        rec.setMorningCheckOut(null);
+        rec.setAfternoonCheckIn(null);
+        rec.setAfternoonCheckOut(null);
+        rec.setMorningWorkUnits(BigDecimal.ZERO);
+        rec.setAfternoonWorkUnits(BigDecimal.ZERO);
+        rec.setOvertimeWorkUnits(BigDecimal.ZERO);
+        rec.setLateMinutes(0);
+        rec.setLateMinutesExempt(true);
+        rec.setForgotShifts(null);
+        rec.setStatus("UNPAID_LEAVE");
+        String noteLine = "Nghỉ không lương đã duyệt";
+        if (reason != null && !reason.isBlank()) {
+            noteLine += ": " + reason.trim();
+        }
+        rec.setNote(appendNote(stripProtectedDayNotes(rec.getNote()), noteLine));
+        attendanceRecordRepository.save(rec);
+    }
+
     private void applyBusinessTripDay(Employee emp, LocalDate workDate, String reason, String location) {
         AttendanceRecord rec = attendanceRecordRepository
                 .findByEmployeeAndWorkDate(emp, workDate)
@@ -808,7 +920,7 @@ public class AttendanceWorkRequestService {
                         .workDate(workDate)
                         .status("ABSENT")
                         .build());
-        AttendanceShiftSchedule schedule = shiftScheduleService.forDate(workDate);
+        AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(emp.getId(), workDate);
         rec.setPunchTimesJson("[]");
         rec.setCheckIn(null);
         rec.setCheckOut(null);
@@ -843,6 +955,7 @@ public class AttendanceWorkRequestService {
             String p = part.trim();
             if (p.isEmpty()
                     || p.startsWith("Nghỉ phép đã duyệt")
+                    || p.startsWith("Nghỉ không lương đã duyệt")
                     || p.startsWith("Công tác đã duyệt")
                     || p.startsWith("Điều động")) {
                 continue;
@@ -908,8 +1021,13 @@ public class AttendanceWorkRequestService {
                                 requestDays,
                                 bal.get("entitlementDays")));
             }
-            assertNoOverlappingRangedRequest(emp.getId(), AttendanceRequestType.LEAVE, dto.getWorkDate(), end,
-                    "Khoảng ngày trùng với đơn nghỉ phép khác (đang chờ hoặc đã duyệt)");
+            assertNoOverlappingLeaveKinds(emp.getId(), dto.getWorkDate(), end);
+        } else if (dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) {
+            LocalDate end = dto.getEndDate() != null ? dto.getEndDate() : dto.getWorkDate();
+            if (end.isBefore(dto.getWorkDate())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Ngày kết thúc phải sau hoặc bằng ngày bắt đầu");
+            }
+            assertNoOverlappingLeaveKinds(emp.getId(), dto.getWorkDate(), end);
         } else if (dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
             LocalDate end = dto.getEndDate() != null ? dto.getEndDate() : dto.getWorkDate();
             if (end.isBefore(dto.getWorkDate())) {
@@ -928,6 +1046,30 @@ public class AttendanceWorkRequestService {
                             || r.getStatus() == AttendanceRequestStatus.PENDING_HR);
             if (open) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Đã có đơn đang chờ duyệt cho ngày này");
+            }
+        }
+    }
+
+    private void assertNoOverlappingLeaveKinds(Long employeeId, LocalDate from, LocalDate to) {
+        EnumSet<AttendanceRequestStatus> blocking = EnumSet.of(
+                AttendanceRequestStatus.PENDING_HEAD,
+                AttendanceRequestStatus.PENDING_HR,
+                AttendanceRequestStatus.APPROVED);
+        List<AttendanceWorkRequest> ranged = requestRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId).stream()
+                .filter(r -> r.getRequestType() == AttendanceRequestType.LEAVE
+                        || r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE)
+                .filter(r -> blocking.contains(r.getStatus()))
+                .toList();
+        for (AttendanceWorkRequest r : ranged) {
+            LocalDate rFrom = r.getWorkDate();
+            LocalDate rTo = r.getEndDate() != null ? r.getEndDate() : rFrom;
+            boolean overlap = !from.isAfter(rTo) && !to.isBefore(rFrom);
+            if (overlap) {
+                String kind = r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                        ? "nghỉ không lương"
+                        : "nghỉ phép";
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "Khoảng ngày trùng với đơn " + kind + " khác (đang chờ hoặc đã duyệt)");
             }
         }
     }
@@ -1062,11 +1204,13 @@ public class AttendanceWorkRequestService {
         m.put("workDate", r.getWorkDate().toString());
         m.put("endDate", r.getEndDate() != null ? r.getEndDate().toString() : "");
         int rangedDays = (r.getRequestType() == AttendanceRequestType.LEAVE
+                || r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
                 || r.getRequestType() == AttendanceRequestType.BUSINESS_TRIP)
                 ? LeaveEntitlement.calendarDaysInclusive(
                         r.getWorkDate(), r.getEndDate() != null ? r.getEndDate() : r.getWorkDate())
                 : 0;
-        m.put("leaveDays", r.getRequestType() == AttendanceRequestType.LEAVE ? rangedDays : 0);
+        m.put("leaveDays", (r.getRequestType() == AttendanceRequestType.LEAVE
+                || r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) ? rangedDays : 0);
         m.put("tripDays", r.getRequestType() == AttendanceRequestType.BUSINESS_TRIP ? rangedDays : 0);
         m.put("shiftScope", r.getShiftScope().name());
         m.put("updateKind", r.getUpdateKind() != null ? r.getUpdateKind().name() : "");
@@ -1078,7 +1222,8 @@ public class AttendanceWorkRequestService {
                 && r.getRequestedStart() != null && r.getRequestedEnd() != null) {
             m.put("deploymentCoefficient", DEPLOYMENT_COEFFICIENT.doubleValue());
             if (isInsideShiftDeploymentFromRequest(r)) {
-                InsideDeploymentUnits inside = resolveInsideDeploymentUnits(r);
+                AttendanceShiftSchedule sch = shiftScheduleService.forEmployee(r.getEmployee().getId(), r.getWorkDate());
+                InsideDeploymentUnits inside = resolveInsideDeploymentUnits(r, sch);
                 BigDecimal totalUnits = inside.morning().add(inside.afternoon());
                 m.put("deploymentInsideShift", true);
                 m.put("deploymentMorningUnits", inside.morning().doubleValue());

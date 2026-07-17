@@ -3,10 +3,14 @@ import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 import BeachAccessOutlinedIcon from '@mui/icons-material/BeachAccessOutlined';
 import BusinessCenterOutlinedIcon from '@mui/icons-material/BusinessCenterOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import EditCalendarOutlinedIcon from '@mui/icons-material/EditCalendarOutlined';
 import EventAvailableOutlinedIcon from '@mui/icons-material/EventAvailableOutlined';
-import GavelIcon from '@mui/icons-material/Gavel';
 import HourglassEmptyOutlinedIcon from '@mui/icons-material/HourglassEmptyOutlined';
 import InboxOutlinedIcon from '@mui/icons-material/InboxOutlined';
+import MoneyOffOutlinedIcon from '@mui/icons-material/MoneyOffOutlined';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import HowToRegIcon from '@mui/icons-material/HowToReg';
+import ChildCareIcon from '@mui/icons-material/ChildCare';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import {
   Alert,
@@ -29,14 +33,24 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AttendancePendingPanel } from '../components/AttendancePendingPanel';
 import { BusinessTripRequestDialog } from '../components/BusinessTripRequestDialog';
+import { DepartmentTransferPendingPanel } from '../components/DepartmentTransferPendingPanel';
 import { LeaveRequestDialog } from '../components/LeaveRequestDialog';
+import { ProbationConversionPendingPanel } from '../components/ProbationConversionPendingPanel';
+import { YoungChildRequestPendingPanel } from '../components/YoungChildRequestPendingPanel';
+import { UnpaidLeaveRequestDialog } from '../components/UnpaidLeaveRequestDialog';
 import { PageHeader } from '../components/layout/PageHeader';
 import { WorkRequestDetailDialog } from '../components/work/WorkRequestDetailDialog';
 import { WorkRequestListCard } from '../components/work/WorkRequestListCard';
 import { useAuth } from '../context/AuthContext';
 import * as att from '../services/attendanceService';
 
-type FilterKey = 'all' | 'leave' | 'trip' | 'pending' | 'done';
+type FilterKey = 'all' | 'leave' | 'unpaid' | 'trip' | 'work' | 'pending' | 'done';
+
+const WORK_REQUEST_TYPES = new Set<att.WorkRequest['requestType']>([
+  'UPDATE',
+  'EXPLANATION',
+  'DEPLOYMENT',
+]);
 
 function BalanceStat({
   label,
@@ -107,6 +121,27 @@ export default function RequestsPage() {
     user?.role === 'ADMIN' || user?.role === 'HEAD_DEPARTMENT' || user?.role === 'HEAD_NURSING';
   const isHrOrAdmin = user?.role === 'ADMIN' || user?.role === 'HR';
   const canApprove = isHead || isHrOrAdmin;
+  const canViewTransfers =
+    user?.role === 'ADMIN' || user?.role === 'DIRECTOR' || user?.role === 'HR';
+  const canViewConversions =
+    user?.role === 'ADMIN'
+    || user?.role === 'HR'
+    || user?.role === 'DIRECTOR'
+    || user?.role === 'HEAD_DEPARTMENT'
+    || user?.role === 'HEAD_NURSING';
+  const canViewYoungChild =
+    user?.role === 'ADMIN'
+    || user?.role === 'HR'
+    || user?.role === 'HEAD_DEPARTMENT'
+    || user?.role === 'HEAD_NURSING';
+
+  let nextTab = 1;
+  const leaveTabIndex = canApprove ? nextTab++ : -1;
+  const tripTabIndex = canApprove ? nextTab++ : -1;
+  const workTabIndex = canApprove ? nextTab++ : -1;
+  const transfersTabIndex = canViewTransfers ? nextTab++ : -1;
+  const conversionsTabIndex = canViewConversions ? nextTab++ : -1;
+  const youngChildTabIndex = canViewYoungChild ? nextTab++ : -1;
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState(0);
@@ -114,6 +149,7 @@ export default function RequestsPage() {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [detail, setDetail] = useState<att.WorkRequest | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [unpaidLeaveOpen, setUnpaidLeaveOpen] = useState(false);
   const [tripOpen, setTripOpen] = useState(false);
   const [createMenuEl, setCreateMenuEl] = useState<null | HTMLElement>(null);
   const [balance, setBalance] = useState<att.LeaveBalance | null>(null);
@@ -145,24 +181,53 @@ export default function RequestsPage() {
 
   useEffect(() => {
     const raw = searchParams.get('tab');
-    if (raw === 'approve' || raw === 'pending') {
-      setTab(canApprove ? 1 : 0);
+    if (raw === 'young-child' && canViewYoungChild) {
+      setTab(youngChildTabIndex);
+    } else if (raw === 'probation-conversions' && canViewConversions) {
+      setTab(conversionsTabIndex);
+    } else if (raw === 'transfers' && canViewTransfers) {
+      setTab(transfersTabIndex);
+    } else if (raw === 'leave' && canApprove) {
+      setTab(leaveTabIndex);
+    } else if (raw === 'trip' && canApprove) {
+      setTab(tripTabIndex);
+    } else if ((raw === 'work' || raw === 'approve' || raw === 'pending') && canApprove) {
+      setTab(workTabIndex);
     } else if (raw === 'mine' || raw === '0') {
       setTab(0);
+    } else if (!raw && user?.role === 'DIRECTOR' && canViewTransfers) {
+      setTab(transfersTabIndex);
     }
-  }, [searchParams, canApprove]);
+  }, [
+    searchParams,
+    canApprove,
+    canViewTransfers,
+    canViewConversions,
+    canViewYoungChild,
+    leaveTabIndex,
+    tripTabIndex,
+    workTabIndex,
+    transfersTabIndex,
+    conversionsTabIndex,
+    youngChildTabIndex,
+    user?.role,
+  ]);
 
   const counts = useMemo(() => {
     const leave = myRequests.filter((r) => r.requestType === 'LEAVE').length;
+    const unpaid = myRequests.filter((r) => r.requestType === 'UNPAID_LEAVE').length;
     const trip = myRequests.filter((r) => r.requestType === 'BUSINESS_TRIP').length;
+    const work = myRequests.filter((r) => WORK_REQUEST_TYPES.has(r.requestType)).length;
     const pending = myRequests.filter((r) => att.isRequestPending(r.status)).length;
     const done = myRequests.filter((r) => !att.isRequestPending(r.status)).length;
-    return { all: myRequests.length, leave, trip, pending, done };
+    return { all: myRequests.length, leave, unpaid, trip, work, pending, done };
   }, [myRequests]);
 
   const filtered = useMemo(() => {
     if (filter === 'leave') return myRequests.filter((r) => r.requestType === 'LEAVE');
+    if (filter === 'unpaid') return myRequests.filter((r) => r.requestType === 'UNPAID_LEAVE');
     if (filter === 'trip') return myRequests.filter((r) => r.requestType === 'BUSINESS_TRIP');
+    if (filter === 'work') return myRequests.filter((r) => WORK_REQUEST_TYPES.has(r.requestType));
     if (filter === 'pending') return myRequests.filter((r) => att.isRequestPending(r.status));
     if (filter === 'done') return myRequests.filter((r) => !att.isRequestPending(r.status));
     return myRequests;
@@ -171,7 +236,14 @@ export default function RequestsPage() {
   function changeTab(next: number) {
     setTab(next);
     const params = new URLSearchParams(searchParams);
-    params.set('tab', next === 1 ? 'approve' : 'mine');
+    let tabKey = 'mine';
+    if (next === leaveTabIndex) tabKey = 'leave';
+    else if (next === tripTabIndex) tabKey = 'trip';
+    else if (next === workTabIndex) tabKey = 'work';
+    else if (next === transfersTabIndex) tabKey = 'transfers';
+    else if (next === conversionsTabIndex) tabKey = 'probation-conversions';
+    else if (next === youngChildTabIndex) tabKey = 'young-child';
+    params.set('tab', tabKey);
     setSearchParams(params, { replace: true });
   }
 
@@ -195,7 +267,9 @@ export default function RequestsPage() {
   const filters: { key: FilterKey; label: string; count: number }[] = [
     { key: 'all', label: 'Tất cả', count: counts.all },
     { key: 'leave', label: 'Nghỉ phép', count: counts.leave },
+    { key: 'unpaid', label: 'Không lương', count: counts.unpaid },
     { key: 'trip', label: 'Công tác', count: counts.trip },
+    { key: 'work', label: 'Đơn công', count: counts.work },
     { key: 'pending', label: 'Chờ duyệt', count: counts.pending },
     { key: 'done', label: 'Đã xử lý', count: counts.done },
   ];
@@ -208,7 +282,7 @@ export default function RequestsPage() {
       <PageHeader
         overline="Đơn từ"
         title="Đơn nghỉ phép & công tác"
-        description="Gửi đơn nghỉ phép hoặc công tác, theo dõi trạng thái duyệt và hạn mức phép năm. Lãnh đạo / HCNS duyệt theo quy trình hiện hành."
+        description="Gửi đơn nghỉ phép, nghỉ không lương hoặc công tác; theo dõi trạng thái duyệt và hạn mức phép năm. Lãnh đạo / HCNS duyệt theo quy trình hiện hành."
         actions={
           <>
             <Button
@@ -235,7 +309,7 @@ export default function RequestsPage() {
               PaperProps={{
                 sx: {
                   mt: 1,
-                  minWidth: 220,
+                  minWidth: 240,
                   borderRadius: 2.5,
                   border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
                   boxShadow: `0 12px 32px ${alpha('#0f172a', 0.12)}`,
@@ -254,7 +328,24 @@ export default function RequestsPage() {
                 </ListItemIcon>
                 <ListItemText
                   primary="Xin nghỉ phép"
-                  secondary="Khoảng ngày · hạn mức năm"
+                  secondary="Có tính công · trừ hạn mức năm"
+                  primaryTypographyProps={{ fontWeight: 700, fontSize: '0.9rem' }}
+                  secondaryTypographyProps={{ fontSize: '0.72rem' }}
+                />
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setCreateMenuEl(null);
+                  setUnpaidLeaveOpen(true);
+                }}
+                sx={{ py: 1.25, borderRadius: 1.5, mx: 0.5 }}
+              >
+                <ListItemIcon>
+                  <MoneyOffOutlinedIcon fontSize="small" color="error" />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Xin nghỉ không lương"
+                  secondary="0 công · không trừ phép năm"
                   primaryTypographyProps={{ fontWeight: 700, fontSize: '0.9rem' }}
                   secondaryTypographyProps={{ fontSize: '0.72rem' }}
                 />
@@ -373,7 +464,24 @@ export default function RequestsPage() {
             }}
           >
             <Tab icon={<AssignmentOutlinedIcon />} iconPosition="start" label="Đơn của tôi" />
-            {canApprove && <Tab icon={<GavelIcon />} iconPosition="start" label="Duyệt đơn" />}
+            {canApprove && (
+              <Tab icon={<BeachAccessOutlinedIcon />} iconPosition="start" label="Nghỉ phép" />
+            )}
+            {canApprove && (
+              <Tab icon={<BusinessCenterOutlinedIcon />} iconPosition="start" label="Công tác" />
+            )}
+            {canApprove && (
+              <Tab icon={<EditCalendarOutlinedIcon />} iconPosition="start" label="Đơn công" />
+            )}
+            {canViewTransfers && (
+              <Tab icon={<SwapHorizIcon />} iconPosition="start" label="Luân chuyển" />
+            )}
+            {canViewConversions && (
+              <Tab icon={<HowToRegIcon />} iconPosition="start" label="Chuyển chính thức" />
+            )}
+            {canViewYoungChild && (
+              <Tab icon={<ChildCareIcon />} iconPosition="start" label="Nuôi con nhỏ" />
+            )}
           </Tabs>
         </Box>
 
@@ -485,19 +593,34 @@ export default function RequestsPage() {
                     sx={{ maxWidth: 420, mx: 'auto', mb: 2.5, lineHeight: 1.65 }}
                   >
                     {filter === 'all'
-                      ? 'Bắt đầu bằng đơn nghỉ phép hoặc công tác — chọn khoảng ngày và lý do, rồi gửi lãnh đạo duyệt.'
+                      ? 'Bắt đầu bằng đơn nghỉ phép, nghỉ không lương hoặc công tác — chọn khoảng ngày và lý do, rồi gửi lãnh đạo duyệt.'
                       : filter === 'trip'
                         ? 'Chưa có đơn công tác. Tạo đơn với khoảng ngày, địa điểm và lý do.'
-                        : 'Thử đổi bộ lọc hoặc tạo đơn mới.'}
+                        : filter === 'unpaid'
+                          ? 'Chưa có đơn nghỉ không lương. Ngày được duyệt ghi 0 công, không trừ phép năm.'
+                          : filter === 'work'
+                            ? 'Chưa có đơn cập nhật công, giải trình hoặc điều động. Tạo từ trang Công.'
+                            : 'Thử đổi bộ lọc hoặc tạo đơn mới.'}
                   </Typography>
                   {(filter === 'all' || filter === 'leave') && (
                     <Button
                       variant="contained"
                       startIcon={<BeachAccessOutlinedIcon />}
                       onClick={() => setLeaveOpen(true)}
-                      sx={{ borderRadius: 2.5, px: 2.5, fontWeight: 700, mr: 1 }}
+                      sx={{ borderRadius: 2.5, px: 2.5, fontWeight: 700, mr: 1, mb: 1 }}
                     >
                       Tạo đơn nghỉ phép
+                    </Button>
+                  )}
+                  {(filter === 'all' || filter === 'unpaid') && (
+                    <Button
+                      variant={filter === 'unpaid' ? 'contained' : 'outlined'}
+                      color="error"
+                      startIcon={<MoneyOffOutlinedIcon />}
+                      onClick={() => setUnpaidLeaveOpen(true)}
+                      sx={{ borderRadius: 2.5, px: 2.5, fontWeight: 700, mr: 1, mb: 1 }}
+                    >
+                      Tạo đơn nghỉ không lương
                     </Button>
                   )}
                   {(filter === 'all' || filter === 'trip') && (
@@ -533,7 +656,51 @@ export default function RequestsPage() {
             </Stack>
           )}
 
-          {tab === 1 && canApprove && <AttendancePendingPanel onChanged={reload} />}
+          {tab === leaveTabIndex && canApprove && (
+            <AttendancePendingPanel
+              onChanged={reload}
+              types={['LEAVE', 'UNPAID_LEAVE']}
+              description="Đơn nghỉ phép / nghỉ không lương chờ lãnh đạo / HCNS duyệt. Bấm thẻ để xem chi tiết và xử lý."
+            />
+          )}
+          {tab === tripTabIndex && canApprove && (
+            <AttendancePendingPanel
+              onChanged={reload}
+              types={['BUSINESS_TRIP']}
+              description="Đơn công tác chờ lãnh đạo / HCNS duyệt. Bấm thẻ để xem chi tiết và xử lý."
+            />
+          )}
+          {tab === workTabIndex && canApprove && (
+            <AttendancePendingPanel
+              onChanged={reload}
+              types={['UPDATE', 'EXPLANATION', 'DEPLOYMENT']}
+              description="Đơn cập nhật công, giải trình công và điều động. Bấm thẻ để xem chi tiết và duyệt."
+            />
+          )}
+          {tab === transfersTabIndex && canViewTransfers && (
+            <DepartmentTransferPendingPanel
+              onChanged={() => {
+                setMsg('Đã cập nhật đề nghị luân chuyển.');
+                setMsgSeverity('success');
+              }}
+            />
+          )}
+          {tab === conversionsTabIndex && canViewConversions && (
+            <ProbationConversionPendingPanel
+              onChanged={() => {
+                setMsg('Đã cập nhật đơn chuyển chính thức.');
+                setMsgSeverity('success');
+              }}
+            />
+          )}
+          {tab === youngChildTabIndex && canViewYoungChild && (
+            <YoungChildRequestPendingPanel
+              onChanged={() => {
+                setMsg('Đã cập nhật đề xuất nuôi con nhỏ.');
+                setMsgSeverity('success');
+              }}
+            />
+          )}
         </Box>
       </Paper>
 
@@ -542,6 +709,16 @@ export default function RequestsPage() {
         onClose={() => setLeaveOpen(false)}
         onSubmitted={() => {
           setMsg('Đã gửi đơn nghỉ phép thành công.');
+          setMsgSeverity('success');
+          reload();
+        }}
+      />
+
+      <UnpaidLeaveRequestDialog
+        open={unpaidLeaveOpen}
+        onClose={() => setUnpaidLeaveOpen(false)}
+        onSubmitted={() => {
+          setMsg('Đã gửi đơn nghỉ không lương thành công.');
           setMsgSeverity('success');
           reload();
         }}

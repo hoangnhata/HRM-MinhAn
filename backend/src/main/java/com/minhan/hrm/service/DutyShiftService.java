@@ -235,6 +235,8 @@ public class DutyShiftService {
         DutyRoleTier tier = DutyRoleTier.fromCode(e.getRoleTier());
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", e.getId());
+        m.put("employeeId", emp.getId());
+        m.put("employeeName", emp.getFullName());
         m.put("workDate", e.getWorkDate().toString());
         m.put("shiftTypeCode", type.getCode());
         m.put("shiftTypeLabel", type.getLabel());
@@ -245,6 +247,12 @@ public class DutyShiftService {
         m.put("postDutyPay", calc.postDutyPay());
         m.put("note", e.getNote() != null ? e.getNote() : "");
         return m;
+    }
+
+    /** Tên NV để hiển thị khi bulk lỗi (không throw nếu không tìm thấy). */
+    @Transactional(readOnly = true)
+    public String employeeDisplayName(Long employeeId) {
+        return employeeRepository.findById(employeeId).map(Employee::getFullName).orElse("NV#" + employeeId);
     }
 
     private Map<String, Object> tierView(DutyRoleTier tier) {

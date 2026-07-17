@@ -2,9 +2,9 @@ spring:
   application:
     name: minhan-hrm-api
   datasource:
-    url: jdbc:mysql://localhost:3307/minhan_hrm?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&serverTimezone=Asia/Ho_Chi_Minh
+    url: jdbc:mysql://localhost:3306/minhan_hrm?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&serverTimezone=Asia/Ho_Chi_Minh
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:root}
+    password: ${MYSQL_PASSWORD:Nhat123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -35,11 +35,17 @@ minhan:
       allowed-origins: "http://localhost:5173,http://localhost:3000"
     jwt:
       secret: ${JWT_SECRET:change-me-in-production-use-long-random-secret-key-min-256-bits}
-      expiration-ms: 86400000
+      # 8 giờ — khớp JWT ERP; hết hạn → 401 → đăng nhập lại
+      expiration-ms: ${JWT_EXPIRATION_MS:28800000}
     upload:
       dir: ${UPLOAD_DIR:./data/uploads}
     import:
       default-employee-password: ${IMPORT_DEFAULT_PASSWORD:123}
+    erp-auth:
+      base-url: ${ERP_AUTH_BASE_URL:https://erp.benhvienminhan.com}
+      asset-base-url: ${ERP_ASSET_BASE_URL:http://192.168.8.16:3000}
+      login-path: ${ERP_AUTH_LOGIN_PATH:/api/auth/login}
+      profile-path: ${ERP_AUTH_PROFILE_PATH:/api/auth/profile}
     chamcong:
       enabled: ${CHAMCONG_ENABLED:true}
       url: jdbc:sqlserver://${DB_SERVER:192.168.31.101}:${DB_PORT:1433};databaseName=${CHAMCONG_DATABASE:chamcong};encrypt=optional;trustServerCertificate=true
@@ -47,7 +53,16 @@ minhan:
       password: ${DB_PASSWORD:323321@Vn}
       table: dbo.CheckInOut
       lookback-days: ${CHAMCONG_LOOKBACK_DAYS:7}
-      sync-cron: ${CHAMCONG_SYNC_CRON:0 30 1 * * *}
+      auto-lookback-days: ${CHAMCONG_AUTO_LOOKBACK_DAYS:2}
+      sync-cron: ${CHAMCONG_SYNC_CRON:0 * * * * *}
+    sso:
+      enabled: ${SSO_ENABLED:true}
+      url: jdbc:sqlserver://${SSO_DB_SERVER:192.168.8.16}:${SSO_DB_PORT:1433};databaseName=${SSO_DATABASE:sso_db};encrypt=optional;trustServerCertificate=true
+      username: ${SSO_DB_USER:sa}
+      password: ${SSO_DB_PASSWORD:123@lrco}
+      app-code: HRM
+      auto-migrate: ${SSO_AUTO_MIGRATE:true}
+      auto-assign-defaults: ${SSO_AUTO_ASSIGN:true}
     frontend:
       enabled: ${FRONTEND_ENABLED:false}
       dir: ${FRONTEND_DIR:C:/hrm/www}

@@ -27,5 +27,5 @@ export async function deleteAllEmployeeDocuments(employeeId: number) {
 }
 
 export function documentDownloadUrl(id: number) {
-  return `/api/v1/documents/${id}/file`;
+  return `/j1-api/v1/documents/${id}/file`;
 }

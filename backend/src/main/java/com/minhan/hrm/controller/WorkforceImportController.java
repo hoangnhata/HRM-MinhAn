@@ -6,12 +6,16 @@ import com.minhan.hrm.dto.attendance.ChamcongSyncScheduleUpdateRequest;
 import com.minhan.hrm.service.CheckInOutImportService;
 import com.minhan.hrm.service.CheckInOutSyncService;
 import com.minhan.hrm.service.SalaryImportService;
+import com.minhan.hrm.service.WorkforceExcelExportService;
 import com.minhan.hrm.service.WorkforceExcelImportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,17 +28,21 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/import")
+@RequestMapping("/j1-api/v1/import")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "Import", description = "Nhập Excel nhân lực & dữ liệu chấm công")
 public class WorkforceImportController {
 
     private final WorkforceExcelImportService workforceExcelImportService;
+    private final WorkforceExcelExportService workforceExcelExportService;
     private final CheckInOutImportService checkInOutImportService;
     private final CheckInOutSyncService checkInOutSyncService;
     private final SalaryImportService salaryImportService;
@@ -44,6 +52,24 @@ public class WorkforceImportController {
     @Operation(summary = "Import file TỔNG HỢP THÔNG TIN NHÂN LỰC (.xlsx) — sheet chính thức + thử việc/thực tập")
     public Map<String, Object> importWorkforce(@RequestPart("file") MultipartFile file) {
         return workforceExcelImportService.importWorkforceExcel(file);
+    }
+
+    @GetMapping("/workforce/export")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Xuất Excel nhân lực theo cấu trúc file nhập (chính thức + thử việc/thực tập)")
+    public ResponseEntity<byte[]> exportWorkforce() {
+        byte[] body = workforceExcelExportService.exportWorkforceExcel();
+        String filename = "NHAN-LUC-BENH-VIEN-MINH-AN-"
+                + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmm"))
+                + ".xlsx";
+        ContentDisposition cd = ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(body);
     }
 
     @PostMapping(value = "/check-in-out", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

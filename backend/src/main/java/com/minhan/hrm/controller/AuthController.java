@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/j1-api/auth")
 @RequiredArgsConstructor
 @Tag(name = "Auth", description = "Đăng nhập JWT")
 public class AuthController {

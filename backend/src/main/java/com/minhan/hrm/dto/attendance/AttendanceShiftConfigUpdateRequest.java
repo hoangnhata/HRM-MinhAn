@@ -17,6 +17,12 @@ public class AttendanceShiftConfigUpdateRequest {
     private LocalTime afternoonStart;
     @NotNull
     private LocalTime afternoonEnd;
+    /** Giờ vào ca thông tầm — độc lập ca sáng/chiều. */
+    @NotNull
+    private LocalTime continuousStart;
+    /** Giờ ra ca thông tầm. */
+    @NotNull
+    private LocalTime continuousEnd;
     @NotNull
     private BigDecimal morningUnits;
     @NotNull

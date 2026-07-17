@@ -296,8 +296,8 @@ export function ForgotPenaltyConfigDialog({ open, onClose, onSaved }: Props) {
 
             <InfoBanner>
               Tính theo <strong>tổng số lần quên</strong> trong tháng: 1 lần = 10k; 2–4 lần = 50k × số lần;
-              từ 5 lần = 100k × số lần. Đơn cập nhật: <strong>1 ca = 2 lần</strong>,{' '}
-              <strong>cả ngày = 4 lần</strong>.
+              từ 5 lần = 100k × số lần. Đơn cập nhật: thiếu 1 mốc = 1 lần; thiếu cả ca = 2 lần; cả ngày
+              = số mốc còn thiếu (đã chấm một phần thì không hardcode 4; thiếu hết 4 mốc mới = 4 lần).
             </InfoBanner>
 
             <FormSection title="Ba mức phạt" subtitle="Mức / lần được xác định theo tổng số lần quên trong tháng">

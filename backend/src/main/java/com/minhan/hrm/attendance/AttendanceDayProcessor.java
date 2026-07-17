@@ -35,7 +35,9 @@ public class AttendanceDayProcessor {
     public void applyToRecord(AttendanceRecord rec) {
         // Ngày nghỉ phép / công tác đã duyệt — không ghi đè bằng chấm công / tính lại
         // (Điều động làm thêm không khóa ngày — vẫn cho chấm công chính)
-        if ("LEAVE".equals(rec.getStatus()) || "BUSINESS_TRIP".equals(rec.getStatus())) {
+        if ("LEAVE".equals(rec.getStatus())
+                || "UNPAID_LEAVE".equals(rec.getStatus())
+                || "BUSINESS_TRIP".equals(rec.getStatus())) {
             return;
         }
         DeploymentBonusSplit deployment = extractDeploymentBonusSplit(rec.getNote());
@@ -78,14 +80,14 @@ public class AttendanceDayProcessor {
     private boolean isContinuousShift(AttendanceRecord rec) {
         Set<String> cache = CONTINUOUS_SHIFT_MONTH_KEYS.get();
         if (cache != null) {
-            return cache.contains(ContinuousShiftService.monthKey(rec.getEmployee().getId(), rec.getWorkDate()));
+            return cache.contains(ContinuousShiftService.dayKey(rec.getEmployee().getId(), rec.getWorkDate()));
         }
         return continuousShiftService.isContinuousShift(rec.getEmployee().getId(), rec.getWorkDate());
     }
 
-    /** Chạy xử lý hàng loạt với cache ca thông tầm đã tải trước (import SQL, tính lại tháng). */
-    public void runWithContinuousShiftCache(Set<String> monthKeys, Runnable action) {
-        CONTINUOUS_SHIFT_MONTH_KEYS.set(monthKeys);
+    /** Chạy xử lý hàng loạt với cache ca thông tầm theo ngày đã tải trước (import SQL, tính lại tháng). */
+    public void runWithContinuousShiftCache(Set<String> dayKeys, Runnable action) {
+        CONTINUOUS_SHIFT_MONTH_KEYS.set(dayKeys);
         try {
             action.run();
         } finally {
@@ -93,8 +95,8 @@ public class AttendanceDayProcessor {
         }
     }
 
-    public <T> T callWithContinuousShiftCache(Set<String> monthKeys, Supplier<T> action) {
-        CONTINUOUS_SHIFT_MONTH_KEYS.set(monthKeys);
+    public <T> T callWithContinuousShiftCache(Set<String> dayKeys, Supplier<T> action) {
+        CONTINUOUS_SHIFT_MONTH_KEYS.set(dayKeys);
         try {
             return action.get();
         } finally {
@@ -137,8 +139,8 @@ public class AttendanceDayProcessor {
     private void applyContinuousShift(
             AttendanceRecord rec, List<LocalTime> punches, AttendanceShiftSchedule schedule) {
         List<LocalTime> available = new ArrayList<>(punches.stream().sorted().distinct().toList());
-        LocalTime dayStart = schedule.morningStart();
-        LocalTime dayEnd = schedule.afternoonEnd();
+        LocalTime dayStart = schedule.continuousDayStart();
+        LocalTime dayEnd = schedule.continuousDayEnd();
         AttendancePunchWindows w = schedule.punchWindows();
 
         LocalTime dayIn = pickMinInWindow(
