@@ -61,6 +61,9 @@ public class DepartmentTransferRequest {
     @Column(name = "director_comment", length = 1000)
     private String directorComment;
 
+    @Column(name = "director_signature_path", length = 500)
+    private String directorSignaturePath;
+
     @Column(name = "applied_at")
     private Instant appliedAt;
 

@@ -46,14 +46,21 @@ public class DepartmentTransferController {
         return transferService.listReviewHistory();
     }
 
+    @GetMapping("/related-to-me")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Đề nghị luân chuyển liên quan đến tôi")
+    public List<Map<String, Object>> relatedToMe() {
+        return transferService.listRelatedToMe();
+    }
+
     @GetMapping("/employee/{employeeId}")
-    @PreAuthorize("hasAnyRole('ADMIN','HR','DIRECTOR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','DIRECTOR','EMPLOYEE')")
     public List<Map<String, Object>> byEmployee(@PathVariable Long employeeId) {
         return transferService.listByEmployee(employeeId);
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','DIRECTOR','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','DIRECTOR','HR','EMPLOYEE')")
     @Operation(summary = "Chi tiết một đề nghị luân chuyển")
     public Map<String, Object> get(@PathVariable Long id) {
         return transferService.getById(id);
@@ -73,5 +80,14 @@ public class DepartmentTransferController {
     @Operation(summary = "Hủy đề nghị đang chờ")
     public Map<String, Object> cancel(@PathVariable Long id) {
         return transferService.cancel(id);
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Chỉnh sửa đề nghị luân chuyển đang chờ duyệt (người lập hoặc ADMIN)")
+    public Map<String, Object> update(
+            @PathVariable Long id,
+            @Valid @RequestBody DepartmentTransferCreateRequest request) {
+        return transferService.update(id, request);
     }
 }

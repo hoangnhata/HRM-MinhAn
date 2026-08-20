@@ -43,12 +43,13 @@ public class HrmEmployeeAccountController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false, defaultValue = "1") Integer page,
             @RequestParam(required = false, defaultValue = "100") Integer limit,
-            @RequestParam(required = false) String dept) {
+            @RequestParam(required = false) String dept,
+            @RequestParam(required = false) String trialGroup) {
         assertAccountManagementAllowed();
         if (hasAccount) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Chỉ hỗ trợ hasAccount=false");
         }
-        return ssoEmployeeAccountService.listEmployeesWithoutAccount(search, page, limit, dept);
+        return ssoEmployeeAccountService.listEmployeesWithoutAccount(search, page, limit, dept, trialGroup);
     }
 
     @PostMapping("/{userEnrollNumber}/account")

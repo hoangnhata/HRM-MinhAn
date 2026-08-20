@@ -85,11 +85,11 @@ export function DutyShiftDialog({
     setErr(null);
     setTypesLoading(true);
     attSvc
-      .fetchDutyShiftTypes()
+      .fetchDutyShiftTypes(employeeId)
       .then(setTypes)
       .catch(() => setTypes([]))
       .finally(() => setTypesLoading(false));
-  }, [open]);
+  }, [open, employeeId]);
 
   useEffect(() => {
     if (!open) return;
@@ -207,6 +207,12 @@ export function DutyShiftDialog({
         Ca trực mục <strong>1, 3, 5</strong>: thưởng theo vị trí +{" "}
         <strong>0,33 công</strong>. Ca <strong>Trực kèm (TK)</strong>:{" "}
         <strong>50%</strong> mức trực chính, không cộng 0,33 công.
+        {types.length === 1 && types[0]?.code === 'TK' && (
+          <>
+            {' '}
+            Nhân viên chưa được duyệt <strong>đơn trực chính</strong> — chỉ chọn được TK.
+          </>
+        )}
       </InfoBanner>
 
       <FormSection

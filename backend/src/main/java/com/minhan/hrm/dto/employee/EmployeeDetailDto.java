@@ -30,7 +30,11 @@ public class EmployeeDetailDto {
     String positionTitle;
     LocalDate hireDate;
     EmployeeStatus status;
+    /** FULL_TIME / PART_TIME */
+    String employmentType;
     boolean continuousShift;
+    /** true = được chọn mọi loại trực; false = chỉ trực kèm (TK). */
+    boolean mainDutyAuthorized;
     SalaryInfoDto salary;
     List<ContractDto> contracts;
     /** Các trường bổ sung từ Excel TỔNG HỢP NHÂN LỰC BVMA (nếu có) */

@@ -38,7 +38,7 @@ public class DashboardService {
     private final EmployeeDocumentRepository employeeDocumentRepository;
     private final SalaryInfoRepository salaryInfoRepository;
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional(readOnly = true)
     public Map<String, Object> stats() {
         Map<String, Object> m = new HashMap<>();
@@ -78,14 +78,14 @@ public class DashboardService {
         return out;
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional(readOnly = true)
     public List<EmployeeSummaryDto> employeesHiredInMonth(int year, int month) {
         List<Employee> employees = employeeRepository.findByHireYearAndMonth(year, month);
         return toSummaries(employees);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional(readOnly = true)
     public List<EmployeeSummaryDto> employeesInDepartment(Long departmentId) {
         List<Employee> employees = employeeRepository.findByDepartment_Id(

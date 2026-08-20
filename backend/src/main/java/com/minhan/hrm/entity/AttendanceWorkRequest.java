@@ -87,6 +87,19 @@ public class AttendanceWorkRequest {
     @Column(name = "explained_afternoon_out")
     private LocalTime explainedAfternoonOut;
 
+    /** Giờ máy chấm gốc tại thời điểm gửi giải trình (để hiển thị trước → sau). */
+    @Column(name = "original_morning_in")
+    private LocalTime originalMorningIn;
+
+    @Column(name = "original_morning_out")
+    private LocalTime originalMorningOut;
+
+    @Column(name = "original_afternoon_in")
+    private LocalTime originalAfternoonIn;
+
+    @Column(name = "original_afternoon_out")
+    private LocalTime originalAfternoonOut;
+
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 32)
     private AttendanceRequestStatus status;
@@ -101,6 +114,22 @@ public class AttendanceWorkRequest {
     @Column(name = "head_comment", length = 500)
     private String headComment;
 
+    @Column(name = "head_signature_path", length = 500)
+    private String headSignaturePath;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "nursing_head_reviewer_id")
+    private UserAccount nursingHeadReviewer;
+
+    @Column(name = "nursing_head_reviewed_at")
+    private Instant nursingHeadReviewedAt;
+
+    @Column(name = "nursing_head_comment", length = 500)
+    private String nursingHeadComment;
+
+    @Column(name = "nursing_head_signature_path", length = 500)
+    private String nursingHeadSignaturePath;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "hr_reviewer_id")
     private UserAccount hrReviewer;
@@ -111,6 +140,9 @@ public class AttendanceWorkRequest {
     @Column(name = "hr_comment", length = 500)
     private String hrComment;
 
+    @Column(name = "hr_signature_path", length = 500)
+    private String hrSignaturePath;
+
     @Column(name = "hr_waive_forgot_fine", nullable = false)
     @Builder.Default
     private boolean hrWaiveForgotFine = false;
@@ -118,6 +150,19 @@ public class AttendanceWorkRequest {
     /** Số lần trừ quên chấm khi duyệt (1 = thiếu một mốc, 2 = thiếu cả ca, 4 = cả ngày). */
     @Column(name = "forgot_fine_units")
     private Integer forgotFineUnits;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "director_reviewer_id")
+    private UserAccount directorReviewer;
+
+    @Column(name = "director_reviewed_at")
+    private Instant directorReviewedAt;
+
+    @Column(name = "director_comment", length = 500)
+    private String directorComment;
+
+    @Column(name = "director_signature_path", length = 500)
+    private String directorSignaturePath;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

@@ -57,9 +57,9 @@ MERGE dbo.Roles AS t
 USING (VALUES
     (N'HRM', N'ADMIN',           N'Quản trị hệ thống'),
     (N'HRM', N'EMPLOYEE',        N'Nhân viên'),
-    (N'HRM', N'HR',              N'Hành chính nhân sự'),
-    (N'HRM', N'HEAD_DEPARTMENT', N'Trưởng khoa / phòng'),
-    (N'HRM', N'HEAD_NURSING',    N'Điều dưỡng trưởng'),
+    (N'HRM', N'HR',              N'HCNS 1'),
+    (N'HRM', N'HR2',             N'HCNS 2'),
+    (N'HRM', N'HEAD_DEPARTMENT', N'Trưởng khoa / Điều dưỡng trưởng'),
     (N'HRM', N'DIRECTOR',        N'Giám đốc')
 ) AS s (AppCode, RoleCode, RoleName)
 ON t.AppCode = s.AppCode AND t.RoleCode = s.RoleCode

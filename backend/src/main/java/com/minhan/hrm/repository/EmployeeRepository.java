@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.data.domain.Sort;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -18,6 +17,19 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSp
 
     Optional<Employee> findByUser(UserAccount user);
 
+    @Query(
+            """
+            SELECT e FROM Employee e
+            WHERE e.phone IS NOT NULL AND TRIM(e.phone) <> ''
+              AND (
+                   e.phone LIKE CONCAT('%', :tail9)
+                OR REPLACE(REPLACE(REPLACE(REPLACE(e.phone, '+', ''), ' ', ''), '-', ''), '.', '')
+                     LIKE CONCAT('%', :tail9)
+              )
+            ORDER BY e.id ASC
+            """)
+    List<Employee> findByPhoneEndingWith(@Param("tail9") String tail9);
+
     Optional<Employee> findByUserUsername(String username);
 
     Optional<Employee> findByEmployeeCode(String employeeCode);
@@ -25,6 +37,23 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSp
     boolean existsByEmployeeCode(String employeeCode);
 
     Optional<Employee> findByIdCardNumber(String idCardNumber);
+
+    @Query(
+            value =
+                    """
+                    SELECT * FROM employees e
+                    WHERE REGEXP_REPLACE(COALESCE(e.id_card_number, ''), '[^0-9]', '') = :normalized
+                    ORDER BY e.id ASC
+                    """,
+            nativeQuery = true)
+    List<Employee> findAllByIdCardNumberNormalized(@Param("normalized") String normalized);
+
+    default Optional<Employee> findByIdCardNumberNormalized(String normalized) {
+        List<Employee> list = findAllByIdCardNumberNormalized(normalized);
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    List<Employee> findByStatusNot(EmployeeStatus status);
 
     @Query("SELECT e FROM Employee e WHERE LOWER(TRIM(e.fullName)) = LOWER(TRIM(:name))")
     List<Employee> findByFullNameIgnoreCaseTrim(@Param("name") String name);
@@ -83,6 +112,8 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSp
     @Query("""
             SELECT e FROM Employee e
             LEFT JOIN FETCH e.department
+            LEFT JOIN FETCH e.position
+            LEFT JOIN FETCH e.user
             ORDER BY e.fullName ASC
             """)
     List<Employee> findAllWithDepartment();

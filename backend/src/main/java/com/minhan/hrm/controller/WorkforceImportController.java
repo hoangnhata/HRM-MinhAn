@@ -3,6 +3,8 @@ package com.minhan.hrm.controller;
 import com.minhan.hrm.dto.salary.SalaryImportResultDto;
 import com.minhan.hrm.dto.attendance.CheckInOutSyncStatusDto;
 import com.minhan.hrm.dto.attendance.ChamcongSyncScheduleUpdateRequest;
+import com.minhan.hrm.service.AccompanyingDutyImportService;
+import com.minhan.hrm.service.AttendanceCodeSyncService;
 import com.minhan.hrm.service.CheckInOutImportService;
 import com.minhan.hrm.service.CheckInOutSyncService;
 import com.minhan.hrm.service.SalaryImportService;
@@ -42,16 +44,25 @@ import java.util.Map;
 public class WorkforceImportController {
 
     private final WorkforceExcelImportService workforceExcelImportService;
+    private final AccompanyingDutyImportService accompanyingDutyImportService;
     private final WorkforceExcelExportService workforceExcelExportService;
     private final CheckInOutImportService checkInOutImportService;
     private final CheckInOutSyncService checkInOutSyncService;
+    private final AttendanceCodeSyncService attendanceCodeSyncService;
     private final SalaryImportService salaryImportService;
 
     @PostMapping(value = "/workforce", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "Import file TỔNG HỢP THÔNG TIN NHÂN LỰC (.xlsx) — sheet chính thức + thử việc/thực tập")
+    @Operation(summary = "Import file NHÂN LỰC BỆNH VIỆN MINH AN (.xlsx) — TTG/BTG + thâm niên/thang lương + thử việc")
     public Map<String, Object> importWorkforce(@RequestPart("file") MultipartFile file) {
         return workforceExcelImportService.importWorkforceExcel(file);
+    }
+
+    @PostMapping(value = "/accompanying-duty", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Import danh sách nhân viên trực kèm (.xlsx) — NV trong file chỉ được ca TK; còn lại được trực bình thường")
+    public Map<String, Object> importAccompanyingDuty(@RequestPart("file") MultipartFile file) {
+        return accompanyingDutyImportService.importAccompanyingDutyList(file);
     }
 
     @GetMapping("/workforce/export")
@@ -73,7 +84,7 @@ public class WorkforceImportController {
     }
 
     @PostMapping(value = "/check-in-out", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Import file SQL CheckInOut từ máy chấm công — gộp theo ngày vào bảng công")
     public Map<String, Object> importCheckInOut(@RequestPart("file") MultipartFile file) {
         return checkInOutImportService.importCheckInOutSql(file);
@@ -105,16 +116,16 @@ public class WorkforceImportController {
         return checkInOutSyncService.syncRecent();
     }
 
-    @PostMapping(value = "/salary-seniority", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping("/attendance-codes/sync")
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "Import thâm niên / cấu hình lương từ thâm niên nv.xlsx")
-    public SalaryImportResultDto importSalarySeniority(@RequestPart("file") MultipartFile file) {
-        return salaryImportService.importSeniorityExcel(file);
+    @Operation(summary = "Đồng bộ mã chấm công từ chamcong.dbo.UserInfo cho NV còn thiếu mã")
+    public Map<String, Object> syncAttendanceCodes() {
+        return attendanceCodeSyncService.syncMissingAttendanceCodes();
     }
 
     @PostMapping(value = "/salary-scale", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "Import thang bảng lương từ thang bảng lương ma.xlsx")
+    @Operation(summary = "Import thang bảng lương (định nghĩa bậc) từ file riêng — tùy chọn")
     public SalaryImportResultDto importSalaryScale(@RequestPart("file") MultipartFile file) {
         return salaryImportService.importScaleExcel(file);
     }

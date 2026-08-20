@@ -37,12 +37,38 @@ public class UserAccount {
     @Column(name = "erp_access_token", columnDefinition = "TEXT")
     private String erpAccessToken;
 
+    /** Đường dẫn tương đối file chữ ký cá nhân (PNG) trong thư mục upload. */
+    @Column(name = "signature_path", length = 500)
+    private String signaturePath;
+
+    /** Ảnh đại diện local (PNG/JPG) trong thư mục upload. */
+    @Column(name = "avatar_path", length = 500)
+    private String avatarPath;
+
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 32)
     private UserRole role;
 
     @Column(nullable = false)
     private boolean enabled = true;
+
+    /** Quyền duyệt các bước Giám đốc, độc lập với vai trò chính của tài khoản. */
+    @Column(name = "director_approval_enabled", nullable = false)
+    private boolean directorApprovalEnabled = false;
+
+    /**
+     * Được xem menu/API báo cáo nhân lực (toàn viện, đi làm hằng ngày),
+     * độc lập với vai trò — cấp bởi Admin qua công tắc «Báo cáo».
+     */
+    @Column(name = "report_view_enabled", nullable = false)
+    private boolean reportViewEnabled = false;
+
+    /**
+     * Trưởng khoa/phòng được đánh dấu "Trưởng bộ phận":
+     * chỉ quản lý nhân sự cùng bộ phận (workUnitDetail), không cả khoa.
+     */
+    @Column(name = "work_unit_scoped", nullable = false)
+    private boolean workUnitScoped = false;
 
     /** Bắt đổi mật khẩu sau lần đăng nhập đầu (tài khoản NV mới / import). */
     @Column(name = "must_change_password", nullable = false)

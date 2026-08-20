@@ -9,6 +9,9 @@ export function isSessionFailure(err: unknown): boolean {
   if (!ax) return false;
 
   const status = ax.response?.status;
+  // Mật khẩu mở khóa lương độc lập với mật khẩu đăng nhập. Không được xóa phiên
+  // đăng nhập khi endpoint này trả lỗi xác thực mật khẩu khu vực lương.
+  if (ax.config?.url?.includes('/salary-profiles/unlock')) return false;
   if (status === 401) return true;
 
   if (!ax.response) {

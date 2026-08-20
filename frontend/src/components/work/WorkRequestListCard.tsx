@@ -7,7 +7,7 @@ import MoneyOffOutlinedIcon from '@mui/icons-material/MoneyOffOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import { Box, Chip, Paper, Stack, Typography } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import * as att from '../../services/attendanceService';
 
 type Props = {
@@ -16,7 +16,7 @@ type Props = {
   showEmployee?: boolean;
 };
 
-function requestAccent(type: att.WorkRequest['requestType'], theme: ReturnType<typeof useTheme>) {
+function requestAccent(type: att.WorkRequest['requestType'], theme: Theme) {
   if (type === 'EXPLANATION') return theme.palette.info.main;
   if (type === 'LEAVE') return theme.palette.secondary.main;
   if (type === 'UNPAID_LEAVE') return theme.palette.error.dark;
@@ -123,7 +123,7 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
               {request.requestType === 'UPDATE' && request.updateKind && (
                 <Chip
                   size="small"
-                  label={att.updateKindLabel(request.updateKind)}
+                  label={att.updateKindLabel(request.updateKind, request.continuousShift)}
                   sx={{ height: 22, bgcolor: alpha(accent, 0.08), '& .MuiChip-label': { px: 0.85, fontSize: '0.68rem' } }}
                 />
               )}

@@ -21,4 +21,5 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     long countByRole(UserRole role);
 
     List<UserAccount> findByRoleIn(Collection<UserRole> roles);
+    List<UserAccount> findByDirectorApprovalEnabledTrueAndEnabledTrue();
 }

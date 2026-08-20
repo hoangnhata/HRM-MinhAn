@@ -52,10 +52,13 @@ export function ProbationConversionListCard({ conversion, onClick }: Props) {
             <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="body2" fontWeight={800} noWrap>
-                  Chính thức · {conversion.employeeName}
+                  {conversion.formTypeLabel
+                    ? `${conversion.formTypeLabel} · ${conversion.employeeName}`
+                    : `Chính thức · ${conversion.employeeName}`}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block" noWrap sx={{ mt: 0.25 }}>
-                  {conversion.employeeCode || '—'} · {conversion.departmentName || '—'} · Người lập:{' '}
+                  {conversion.employeeCode || '—'} · {conversion.departmentName || '—'}
+                  {conversion.gradeLabel ? ` · ${conversion.gradeLabel}` : ''} · Người lập:{' '}
                   {conversion.requestedByUsername || '—'}
                 </Typography>
               </Box>

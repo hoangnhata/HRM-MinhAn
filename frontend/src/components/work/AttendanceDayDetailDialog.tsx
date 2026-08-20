@@ -1,9 +1,13 @@
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import LoginIcon from "@mui/icons-material/Login";
+import LogoutIcon from "@mui/icons-material/Logout";
 import NightsStayIcon from "@mui/icons-material/NightsStay";
+import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import TimelineIcon from "@mui/icons-material/Timeline";
 import WbTwilightIcon from "@mui/icons-material/WbTwilight";
 import {
   Box,
+  Button,
   Chip,
   Dialog,
   DialogContent,
@@ -15,8 +19,10 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
+import { useEffect, useMemo, useState } from "react";
 import * as attSvc from "../../services/attendanceService";
 import type { AttendanceRow } from "./AttendanceRowActions";
+import { rowCanExplain } from "./AttendanceRowActions";
 import {
   continuousShiftHours,
   continuousShiftRange,
@@ -29,6 +35,7 @@ import {
   displayHoursFromUnits,
   type ShiftScheduleInfo,
 } from "../../utils/shiftSchedule";
+import { AttendanceNoteBlock } from "./AttendanceNoteBlock";
 
 type Props = {
   open: boolean;
@@ -39,6 +46,8 @@ type Props = {
   monthSummary?: attSvc.MonthSummary | null;
   schedule?: ShiftScheduleInfo;
   continuousShift?: boolean;
+  employeeId?: number | null;
+  onExplain?: (date: string, selectedKeys?: attSvc.ExplanationSlotKey[]) => void;
 };
 
 function DetailRow({
@@ -126,11 +135,40 @@ export function AttendanceDayDetailDialog({
   monthSummary,
   schedule: scheduleProp,
   continuousShift,
+  employeeId,
+  onExplain,
 }: Props) {
   const theme = useTheme();
+  const [daySchedule, setDaySchedule] = useState<ShiftScheduleInfo | null>(
+    scheduleProp ?? null,
+  );
+  const [pickedSlots, setPickedSlots] = useState<
+    Partial<Record<attSvc.ExplanationSlotKey, boolean>>
+  >({});
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    if (employeeId != null) {
+      attSvc
+        .fetchShiftSchedule(workDate, employeeId)
+        .then((s) => {
+          if (!cancelled) setDaySchedule(s);
+        })
+        .catch(() => {
+          if (!cancelled) setDaySchedule(scheduleProp ?? scheduleForDate(workDate));
+        });
+    } else {
+      setDaySchedule(scheduleProp ?? scheduleForDate(workDate));
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [open, workDate, employeeId, scheduleProp]);
+
   const parsed = parseLocalDate(workDate);
-  const sch = scheduleProp ?? scheduleForDate(workDate);
-  const continuous = continuousShift ?? sch.continuousShift;
+  const sch = daySchedule ?? scheduleProp ?? scheduleForDate(workDate);
+  const continuous = continuousShift ?? Boolean(sch.continuousShift);
   const dateLabel = parsed
     ? parsed.toLocaleDateString("vi-VN", {
         weekday: "long",
@@ -139,6 +177,23 @@ export function AttendanceDayDetailDialog({
         year: "numeric",
       })
     : workDate || "—";
+
+  const penaltySlots = useMemo(
+    () =>
+      attSvc.detectExplanationPenaltySlots(
+        row as Record<string, unknown> | null,
+        workDate,
+        continuous,
+        sch,
+      ),
+    [row, workDate, continuous, sch],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    // Mặc định bỏ tích — NV tự chọn khung cần giải trình
+    setPickedSlots({});
+  }, [open, workDate, penaltySlots.length]);
 
   const morningUnits = row ? Number(row.morningWorkUnits ?? 0) : 0;
   const afternoonUnits = row ? Number(row.afternoonWorkUnits ?? 0) : 0;
@@ -182,6 +237,20 @@ export function AttendanceDayDetailDialog({
     ? (row.punchTimes as string[])
     : [];
   const isDeployment = attSvc.isDeploymentRow(row);
+  const canExplain = rowCanExplain(row) && Boolean(onExplain);
+
+  function togglePick(key: attSvc.ExplanationSlotKey) {
+    setPickedSlots((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function handleExplain() {
+    if (!onExplain) return;
+    const keys = penaltySlots
+      .filter((s) => pickedSlots[s.key])
+      .map((s) => s.key);
+    onExplain(workDate, keys.length ? keys : undefined);
+    onClose();
+  }
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -247,6 +316,8 @@ export function AttendanceDayDetailDialog({
                           ? "default"
                           : status === "BUSINESS_TRIP"
                             ? "warning"
+                            : status === "SEMINAR"
+                              ? "info"
                             : status === "DEPLOYMENT"
                               ? "info"
                               : "default"
@@ -361,9 +432,130 @@ export function AttendanceDayDetailDialog({
                 display="block"
                 sx={{ mt: 1.25 }}
               >
-                Giờ ca sáng/chiều được suy ra từ các lần quẹt trên theo lịch ca
-                và cửa sổ chấm công.
+                {continuous
+                  ? 'Giờ vào/ra ca thông tầm được suy ra từ các lần quẹt trên theo khung ca và cửa sổ chấm công.'
+                  : 'Giờ ca sáng/chiều được suy ra từ các lần quẹt trên theo lịch ca và cửa sổ chấm công.'}
               </Typography>
+            </Paper>
+          )}
+
+          {!lateExempt && penaltySlots.length > 0 && (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                borderRadius: 2.5,
+                borderColor: alpha(theme.palette.warning.main, 0.35),
+                bgcolor: alpha(theme.palette.warning.main, 0.04),
+              }}
+            >
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+                Khung giờ bị trừ tiền
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+                sx={{ mb: 1.25 }}
+              >
+                {canExplain
+                  ? "Tích khung cần giải trình (có thể chỉ chọn một phần), rồi gửi đơn."
+                  : "Các mốc đang bị tính muộn / về sớm theo lịch ca của bạn."}
+              </Typography>
+              <Stack spacing={1}>
+                {penaltySlots.map((s) => {
+                  const picked = Boolean(pickedSlots[s.key]);
+                  const accent =
+                    s.kind === "LATE"
+                      ? theme.palette.warning.dark
+                      : theme.palette.error.main;
+                  return (
+                    <Box
+                      key={s.key}
+                      component={canExplain ? "button" : "div"}
+                      type={canExplain ? "button" : undefined}
+                      onClick={
+                        canExplain ? () => togglePick(s.key) : undefined
+                      }
+                      sx={{
+                        width: "100%",
+                        border: `1px solid ${
+                          picked
+                            ? alpha(accent, 0.45)
+                            : alpha(theme.palette.divider, 0.9)
+                        }`,
+                        borderRadius: 2,
+                        bgcolor: picked
+                          ? alpha(accent, 0.08)
+                          : theme.palette.background.paper,
+                        p: 1.25,
+                        display: "flex",
+                        gap: 1.25,
+                        alignItems: "center",
+                        textAlign: "left",
+                        cursor: canExplain ? "pointer" : "default",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 1.5,
+                          display: "grid",
+                          placeItems: "center",
+                          bgcolor: alpha(accent, 0.12),
+                          color: accent,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {s.kind === "LATE" ? (
+                          <LoginIcon fontSize="small" />
+                        ) : (
+                          <LogoutIcon fontSize="small" />
+                        )}
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={700}>
+                          {s.kindLabel} · {s.label}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Máy chấm {s.current} · lịch {s.expected} · {s.minutes}{" "}
+                          phút
+                        </Typography>
+                      </Box>
+                      {canExplain && (
+                        <Box
+                          sx={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            border: `2px solid ${
+                              picked ? accent : theme.palette.grey[400]
+                            }`,
+                            bgcolor: picked ? accent : "transparent",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                    </Box>
+                  );
+                })}
+              </Stack>
+              {canExplain && (
+                <Button
+                  fullWidth
+                  variant="contained"
+                  color="warning"
+                  startIcon={<SendOutlinedIcon />}
+                  onClick={handleExplain}
+                  sx={{ mt: 1.5, borderRadius: 2, fontWeight: 700 }}
+                >
+                  {Object.values(pickedSlots).some(Boolean)
+                    ? "Giải trình khung đã chọn"
+                    : "Giải trình muộn / về sớm"}
+                </Button>
+              )}
             </Paper>
           )}
 
@@ -430,9 +622,7 @@ export function AttendanceDayDetailDialog({
                 value={String(row.forgotShifts)}
               />
             ) : null}
-            {row?.note ? (
-              <DetailRow label="Ghi chú" value={String(row.note)} />
-            ) : null}
+            {row?.note ? <AttendanceNoteBlock note={String(row.note)} /> : null}
             {!row && (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 Chưa có bản ghi chấm công cho ngày này.

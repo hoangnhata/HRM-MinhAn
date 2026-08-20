@@ -23,7 +23,7 @@ export function ChangePasswordRequiredPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (user && !user.mustChangePassword) {
+    if (user && !user.mustChangePassword && !user.mustSetSignature) {
       navigate('/', { replace: true });
     }
   }, [user, navigate]);
@@ -43,7 +43,7 @@ export function ChangePasswordRequiredPage() {
     try {
       await accountService.changeAccountPassword({ oldPassword, newPassword });
       await refreshUser();
-      navigate('/', { replace: true });
+      navigate('/signature-required', { replace: true });
     } catch {
       setErr('Đổi mật khẩu thất bại. Kiểm tra mật khẩu hiện tại (mặc định: 123).');
     } finally {
@@ -69,7 +69,7 @@ export function ChangePasswordRequiredPage() {
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
             Xin chào <strong>{user?.fullName ?? user?.username}</strong>. Vì lý do bảo mật, bạn cần đổi mật
-            khẩu trước khi sử dụng hệ thống. Mật khẩu mặc định là <strong>123</strong>.
+            khẩu trước khi sử dụng hệ thống.
           </Typography>
           {err && (
             <Alert severity="error" sx={{ mb: 2 }}>

@@ -30,6 +30,7 @@ import { useAuth } from '../context/AuthContext';
 import { isSessionFailure } from '../utils/sessionFailure';
 import { DashboardCharts } from '../components/dashboard/DashboardCharts';
 import { DashboardEmployeeListDialog } from '../components/dashboard/DashboardEmployeeListDialog';
+import { NursingDashboard } from '../components/dashboard/NursingDashboard';
 import type { DeptRow, HireRow, StatusBreakdown } from '../components/dashboard/DashboardCharts';
 import * as employeeService from '../services/employeeService';
 
@@ -204,19 +205,24 @@ export default function DashboardPage() {
   const theme = useTheme();
   const { user } = useAuth();
   const [stats, setStats] = useState<employeeService.DashboardStats | null>(null);
+  const [nursingStats, setNursingStats] = useState<employeeService.NursingDashboardStats | null>(null);
   const [me, setMe] = useState<employeeService.EmployeeDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [drillDown, setDrillDown] = useState<DrillDownState | null>(null);
   const [drillEmployees, setDrillEmployees] = useState<employeeService.EmployeeSummary[]>([]);
   const [drillLoading, setDrillLoading] = useState(false);
 
-  const isAdmin = user?.role === 'ADMIN';
+  const isHrOrAdmin = user?.role === 'ADMIN' || user?.role === 'HR';
+  const isNursingHead = user?.role === 'HEAD_NURSING';
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        if (isAdmin) {
+        if (isNursingHead) {
+          const data = await employeeService.fetchNursingDashboardStats();
+          if (!cancelled) setNursingStats(data);
+        } else if (isHrOrAdmin) {
           const data = await employeeService.fetchDashboardStats();
           if (!cancelled) setStats(data);
         }
@@ -233,7 +239,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, isAdmin]);
+  }, [user, isHrOrAdmin, isNursingHead]);
 
   const chartStatus = useMemo(() => normalizeStatusBreakdown(stats), [stats]);
   const chartDept = useMemo(() => normalizeDept(stats), [stats]);
@@ -337,6 +343,41 @@ export default function DashboardPage() {
     year: 'numeric',
   });
 
+  if (isNursingHead) {
+    return (
+      <Box sx={{ width: '100%' }}>
+        {err && (
+          <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setErr(null)}>
+            {err}
+          </Alert>
+        )}
+        {nursingStats ? (
+          <NursingDashboard
+            stats={nursingStats}
+            userName={me?.fullName || user?.fullName}
+            profile={
+              me
+                ? {
+                    id: me.id,
+                    fullName: me.fullName,
+                    departmentName: me.departmentName,
+                    positionTitle: me.positionTitle,
+                    employeeCode: me.employeeCode,
+                  }
+                : null
+            }
+          />
+        ) : (
+          !err && (
+            <Typography color="text.secondary" sx={{ py: 4 }}>
+              Đang tải tổng quan khối Điều dưỡng…
+            </Typography>
+          )
+        )}
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ width: '100%' }}>
       <Paper
@@ -364,9 +405,9 @@ export default function DashboardPage() {
               Bảng điều khiển
             </Typography>
             <Typography variant="h4" component="h1" sx={{ fontWeight: 700, letterSpacing: '-0.03em', mb: 1 }}>
-              {isAdmin ? 'Tổng quan nhân sự' : 'Trang chủ'}
+              {isHrOrAdmin ? 'Tổng quan nhân sự' : 'Trang chủ'}
             </Typography>
-            {isAdmin ? (
+            {isHrOrAdmin ? (
               <List dense disablePadding sx={{ maxWidth: 560 }}>
                 <ListItem alignItems="flex-start" sx={{ px: 0, py: 0.35 }}>
                   <ListItemIcon sx={{ minWidth: 38, color: 'primary.main', mt: 0.2 }}>
@@ -447,7 +488,7 @@ export default function DashboardPage() {
         </Box>
       )}
 
-      {isAdmin && stats && (
+      {isHrOrAdmin && stats && (
         <Box sx={{ mb: 1 }}>
           <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, letterSpacing: '-0.02em' }}>
             Phân tích trực quan
@@ -474,7 +515,7 @@ export default function DashboardPage() {
         </Box>
       )}
 
-      {isAdmin && !user?.employeeId && (
+      {isHrOrAdmin && !user?.employeeId && (
         <Card
           sx={{
             mb: 3,
@@ -488,7 +529,7 @@ export default function DashboardPage() {
               Tài khoản quản trị
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.65 }}>
-              Tài khoản ADMIN không gắn hồ sơ nhân viên. Dùng menu <strong>Nhân viên</strong> để quản lý toàn bệnh
+              Tài khoản quản trị không gắn hồ sơ nhân viên. Dùng menu <strong>Nhân viên</strong> để quản lý toàn bệnh
               viện.
             </Typography>
           </CardContent>

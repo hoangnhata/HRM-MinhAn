@@ -8,7 +8,7 @@ import { theme } from './theme';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || undefined}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <AuthProvider>

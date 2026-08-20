@@ -35,6 +35,7 @@ type Props = {
   attendanceRow?: Record<string, unknown> | null;
   /** 0 = trực, 1 = QT, 2 = công hộ */
   initialTab?: 0 | 1 | 2;
+  showCongHo?: boolean;
 };
 
 const ACCENT = '#5b4bb4';
@@ -49,6 +50,7 @@ export function WorkSupplementDialog({
   existingDuty,
   attendanceRow,
   initialTab,
+  showCongHo = false,
 }: Props) {
   const hasQuangTrung = att.isQuangTrungRow(attendanceRow);
   const hasCongHo = att.isCongHoRow(attendanceRow);
@@ -122,7 +124,7 @@ export function WorkSupplementDialog({
               Bổ sung công
             </Typography>
             <Typography variant="h6" fontWeight={800} lineHeight={1.25}>
-              Công trực · Quang Trung · Công hộ
+              {showCongHo ? 'Công trực · Quang Trung · Công hộ' : 'Công trực · Quang Trung'}
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.25 }}>
               <Chip
@@ -175,11 +177,13 @@ export function WorkSupplementDialog({
             iconPosition="start"
             label={hasQuangTrung ? 'Công Quang Trung (sửa)' : 'Công Quang Trung'}
           />
-          <Tab
-            icon={<HowToRegOutlinedIcon sx={{ fontSize: 18 }} />}
-            iconPosition="start"
-            label={hasCongHo ? 'Công hộ (sửa)' : 'Công hộ'}
-          />
+          {showCongHo && (
+            <Tab
+              icon={<HowToRegOutlinedIcon sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+              label={hasCongHo ? 'Công hộ (sửa)' : 'Công hộ'}
+            />
+          )}
         </Tabs>
       </Box>
 
@@ -204,7 +208,7 @@ export function WorkSupplementDialog({
             onClose={onClose}
             onSaved={handleSaved}
           />
-        ) : (
+        ) : showCongHo ? (
           <CongHoSupplementForm
             open={open}
             employeeId={employeeId}
@@ -213,7 +217,7 @@ export function WorkSupplementDialog({
             onClose={onClose}
             onSaved={handleSaved}
           />
-        )}
+        ) : null}
       </DialogContent>
     </Dialog>
   );

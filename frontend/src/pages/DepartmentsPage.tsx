@@ -1,3 +1,4 @@
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import AddIcon from '@mui/icons-material/Add';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -21,6 +22,10 @@ import {
   Grid,
   IconButton,
   InputAdornment,
+  List,
+  ListItem,
+  ListItemSecondaryAction,
+  ListItemText,
   Paper,
   Snackbar,
   Stack,
@@ -103,9 +108,10 @@ function StatCard({
 export default function DepartmentsPage() {
   const theme = useTheme();
   const { user } = useAuth();
-  const canEdit = user?.role === 'ADMIN';
+  const canEdit = user?.role === 'ADMIN' || user?.role === 'HR';
   const [rows, setRows] = useState<departmentService.DepartmentRow[]>([]);
   const [employeeCounts, setEmployeeCounts] = useState<Map<number, DeptEmployeeStats>>(new Map());
+  const [workUnitCounts, setWorkUnitCounts] = useState<Map<number, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [qInput, setQInput] = useState('');
   const [q, setQ] = useState('');
@@ -125,6 +131,16 @@ export default function DepartmentsPage() {
     severity: 'success',
   });
 
+  const [unitsDept, setUnitsDept] = useState<departmentService.DepartmentRow | null>(null);
+  const [workUnits, setWorkUnits] = useState<departmentService.WorkUnitRow[]>([]);
+  const [unitsLoading, setUnitsLoading] = useState(false);
+  const [unitDialogOpen, setUnitDialogOpen] = useState(false);
+  const [unitEditId, setUnitEditId] = useState<number | null>(null);
+  const [unitName, setUnitName] = useState('');
+  const [unitDescription, setUnitDescription] = useState('');
+  const [unitSaving, setUnitSaving] = useState(false);
+  const [unitDeleteId, setUnitDeleteId] = useState<number | null>(null);
+
   useEffect(() => {
     const t = setTimeout(() => {
       setQ(qInput);
@@ -137,7 +153,7 @@ export default function DepartmentsPage() {
     setLoading(true);
     try {
       const statsPromise =
-        user?.role === 'ADMIN'
+        user?.role === 'ADMIN' || user?.role === 'HR'
           ? employeeService.fetchDashboardStats().catch(() => null)
           : Promise.resolve(null);
       const [data, stats] = await Promise.all([departmentService.fetchDepartments(), statsPromise]);
@@ -157,10 +173,24 @@ export default function DepartmentsPage() {
       } else {
         setEmployeeCounts(new Map());
       }
+
+      const unitCountMap = new Map<number, number>();
+      await Promise.all(
+        data.map(async (d) => {
+          try {
+            const units = await departmentService.fetchWorkUnits(d.id);
+            unitCountMap.set(d.id, units.length);
+          } catch {
+            unitCountMap.set(d.id, 0);
+          }
+        }),
+      );
+      setWorkUnitCounts(unitCountMap);
     } catch {
       setSnackbar({ open: true, message: 'Không tải được danh sách phòng ban.', severity: 'error' });
       setRows([]);
       setEmployeeCounts(new Map());
+      setWorkUnitCounts(new Map());
     } finally {
       setLoading(false);
     }
@@ -192,8 +222,12 @@ export default function DepartmentsPage() {
     employeeCounts.forEach((v) => {
       totalEmployees += v.total;
     });
-    return { total: rows.length, withDescription, totalEmployees };
-  }, [rows, employeeCounts]);
+    let totalUnits = 0;
+    workUnitCounts.forEach((v) => {
+      totalUnits += v;
+    });
+    return { total: rows.length, withDescription, totalEmployees, totalUnits };
+  }, [rows, employeeCounts, workUnitCounts]);
 
   const openCreate = () => {
     setDialogMode('create');
@@ -266,6 +300,82 @@ export default function DepartmentsPage() {
     }
   };
 
+  async function openWorkUnits(dept: departmentService.DepartmentRow) {
+    setUnitsDept(dept);
+    setUnitsLoading(true);
+    try {
+      const list = await departmentService.fetchWorkUnits(dept.id);
+      setWorkUnits(list);
+    } catch {
+      setWorkUnits([]);
+      setSnackbar({ open: true, message: 'Không tải được danh sách bộ phận.', severity: 'error' });
+    } finally {
+      setUnitsLoading(false);
+    }
+  }
+
+  function openCreateUnit() {
+    setUnitEditId(null);
+    setUnitName('');
+    setUnitDescription('');
+    setUnitDialogOpen(true);
+  }
+
+  function openEditUnit(u: departmentService.WorkUnitRow) {
+    setUnitEditId(u.id);
+    setUnitName(u.name);
+    setUnitDescription(u.description ?? '');
+    setUnitDialogOpen(true);
+  }
+
+  async function submitUnit() {
+    if (!unitsDept || !unitName.trim()) return;
+    setUnitSaving(true);
+    try {
+      const payload = { name: unitName.trim(), description: unitDescription.trim() || null };
+      if (unitEditId == null) {
+        await departmentService.createWorkUnit(unitsDept.id, payload);
+        setSnackbar({ open: true, message: 'Đã thêm bộ phận.', severity: 'success' });
+      } else {
+        await departmentService.updateWorkUnit(unitsDept.id, unitEditId, payload);
+        setSnackbar({ open: true, message: 'Đã cập nhật bộ phận.', severity: 'success' });
+      }
+      setUnitDialogOpen(false);
+      const list = await departmentService.fetchWorkUnits(unitsDept.id);
+      setWorkUnits(list);
+      setWorkUnitCounts((prev) => new Map(prev).set(unitsDept.id, list.length));
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined;
+      setSnackbar({ open: true, message: msg || 'Không lưu được bộ phận.', severity: 'error' });
+    } finally {
+      setUnitSaving(false);
+    }
+  }
+
+  async function confirmDeleteUnit() {
+    if (!unitsDept || unitDeleteId == null) return;
+    setUnitSaving(true);
+    try {
+      await departmentService.deleteWorkUnit(unitsDept.id, unitDeleteId);
+      setUnitDeleteId(null);
+      setSnackbar({ open: true, message: 'Đã xóa bộ phận.', severity: 'success' });
+      const list = await departmentService.fetchWorkUnits(unitsDept.id);
+      setWorkUnits(list);
+      setWorkUnitCounts((prev) => new Map(prev).set(unitsDept.id, list.length));
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined;
+      setSnackbar({ open: true, message: msg || 'Không xóa được bộ phận.', severity: 'error' });
+    } finally {
+      setUnitSaving(false);
+    }
+  }
+
   return (
     <Box sx={{ width: '100%' }}>
       <PageHeader
@@ -273,8 +383,8 @@ export default function DepartmentsPage() {
         title="Phòng ban"
         description={
           canEdit
-            ? 'Quản lý danh mục đơn vị / khoa phòng — dùng khi gán nhân viên, thống kê và phân quyền. Mã nội bộ do hệ thống tự tạo.'
-            : 'Danh mục đơn vị / khoa phòng (chỉ xem). Thêm / sửa / xóa do quản trị viên hệ thống.'
+            ? 'Quản lý phòng ban và bộ phận bên trong — 1 phòng ban có nhiều bộ phận. Import Excel tự tạo bộ phận theo cột «Bộ phận».'
+            : 'Danh mục phòng ban / bộ phận (chỉ xem).'
         }
         actions={
           canEdit ? (
@@ -286,29 +396,17 @@ export default function DepartmentsPage() {
       />
 
       <Grid container spacing={2} sx={{ mb: 2.5 }}>
-        <Grid item xs={12} sm={4}>
-          <StatCard
-            label="Tổng phòng ban"
-            value={statsSummary.total}
-            icon={<DomainIcon />}
-            tone="primary"
-          />
+        <Grid item xs={12} sm={3}>
+          <StatCard label="Tổng phòng ban" value={statsSummary.total} icon={<DomainIcon />} tone="primary" />
         </Grid>
-        <Grid item xs={12} sm={4}>
-          <StatCard
-            label="Đã có mô tả"
-            value={statsSummary.withDescription}
-            icon={<DescriptionOutlinedIcon />}
-            tone="neutral"
-          />
+        <Grid item xs={12} sm={3}>
+          <StatCard label="Tổng bộ phận" value={statsSummary.totalUnits} icon={<AccountTreeOutlinedIcon />} tone="success" />
         </Grid>
-        <Grid item xs={12} sm={4}>
-          <StatCard
-            label="Nhân viên đang gán"
-            value={statsSummary.totalEmployees}
-            icon={<GroupsIcon />}
-            tone="success"
-          />
+        <Grid item xs={12} sm={3}>
+          <StatCard label="Đã có mô tả" value={statsSummary.withDescription} icon={<DescriptionOutlinedIcon />} tone="neutral" />
+        </Grid>
+        <Grid item xs={12} sm={3}>
+          <StatCard label="Nhân viên đang gán" value={statsSummary.totalEmployees} icon={<GroupsIcon />} tone="success" />
         </Grid>
       </Grid>
 
@@ -360,11 +458,14 @@ export default function DepartmentsPage() {
                   <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper', width: 100 }}>Mã</TableCell>
                   <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Tên phòng ban</TableCell>
                   <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>Mô tả</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper', width: 120 }} align="center">
+                    Bộ phận
+                  </TableCell>
                   <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper', width: 140 }} align="center">
                     Nhân viên
                   </TableCell>
                   {canEdit && (
-                    <TableCell align="right" sx={{ fontWeight: 700, bgcolor: 'background.paper', width: 110 }}>
+                    <TableCell align="right" sx={{ fontWeight: 700, bgcolor: 'background.paper', width: 140 }}>
                       Thao tác
                     </TableCell>
                   )}
@@ -373,7 +474,7 @@ export default function DepartmentsPage() {
               <TableBody>
                 {paged.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canEdit ? 5 : 4}>
+                    <TableCell colSpan={canEdit ? 6 : 5}>
                       <Stack alignItems="center" spacing={1.5} sx={{ py: 5 }}>
                         <ApartmentIcon sx={{ fontSize: 48, color: alpha(theme.palette.primary.main, 0.35) }} />
                         <Typography variant="body1" fontWeight={600}>
@@ -397,6 +498,7 @@ export default function DepartmentsPage() {
                 ) : (
                   paged.map((r) => {
                     const counts = employeeCounts.get(r.id);
+                    const unitCount = workUnitCounts.get(r.id) ?? 0;
                     return (
                       <TableRow
                         key={r.id}
@@ -455,6 +557,17 @@ export default function DepartmentsPage() {
                           </Typography>
                         </TableCell>
                         <TableCell align="center">
+                          <Chip
+                            size="small"
+                            icon={<AccountTreeOutlinedIcon sx={{ fontSize: '16px !important' }} />}
+                            label={unitCount}
+                            color={unitCount > 0 ? 'success' : 'default'}
+                            variant={unitCount > 0 ? 'filled' : 'outlined'}
+                            onClick={() => void openWorkUnits(r)}
+                            sx={{ cursor: 'pointer', minWidth: 64 }}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
                           {counts ? (
                             <Tooltip
                               title={`Chính thức: ${counts.official} · Thử việc/TT: ${counts.trial}`}
@@ -481,6 +594,11 @@ export default function DepartmentsPage() {
                         </TableCell>
                         {canEdit && (
                           <TableCell align="right">
+                            <Tooltip title="Quản lý bộ phận">
+                              <IconButton size="small" onClick={() => void openWorkUnits(r)} aria-label="Bộ phận">
+                                <ApartmentIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                             <Tooltip title="Sửa">
                               <IconButton size="small" onClick={() => openEdit(r)} aria-label="Sửa">
                                 <EditIcon fontSize="small" />
@@ -594,7 +712,7 @@ export default function DepartmentsPage() {
           {deleteTarget && (
             <Typography variant="body2" color="text.secondary">
               Xóa <strong>{deleteTarget.name}</strong> (mã <strong>{deleteTarget.code}</strong>)? Chỉ xóa được khi
-              không còn nhân viên thuộc phòng ban này.
+              không còn nhân viên thuộc phòng ban này. Các bộ phận thuộc phòng ban cũng sẽ bị xóa.
             </Typography>
           )}
         </DialogContent>
@@ -604,6 +722,124 @@ export default function DepartmentsPage() {
           </Button>
           <Button color="error" variant="contained" onClick={() => void confirmDelete()} disabled={deleting}>
             {deleting ? <CircularProgress size={22} /> : 'Xóa'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(unitsDept)}
+        onClose={() => !unitSaving && setUnitsDept(null)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2.5 } }}
+      >
+        <DialogTitle>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+            <Box>
+              <Typography variant="h6" fontWeight={700}>
+                Bộ phận — {unitsDept?.name}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                1 phòng ban có nhiều bộ phận (VD: Khoa CĐHA → Phòng Siêu âm, Phòng Xquang)
+              </Typography>
+            </Box>
+            {canEdit && (
+              <Button size="small" startIcon={<AddIcon />} variant="contained" onClick={openCreateUnit}>
+                Thêm
+              </Button>
+            )}
+          </Stack>
+        </DialogTitle>
+        <DialogContent dividers>
+          {unitsLoading ? (
+            <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : workUnits.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+              Chưa có bộ phận. Import Excel hoặc thêm thủ công.
+            </Typography>
+          ) : (
+            <List dense>
+              {workUnits.map((u) => (
+                <ListItem key={u.id} divider>
+                  <ListItemText
+                    primary={u.name}
+                    secondary={u.description || undefined}
+                    primaryTypographyProps={{ fontWeight: 600 }}
+                  />
+                  {canEdit && (
+                    <ListItemSecondaryAction>
+                      <IconButton edge="end" size="small" onClick={() => openEditUnit(u)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton edge="end" size="small" color="error" onClick={() => setUnitDeleteId(u.id)}>
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </ListItemSecondaryAction>
+                  )}
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUnitsDept(null)}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={unitDialogOpen}
+        onClose={() => !unitSaving && setUnitDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2.5 } }}
+      >
+        <DialogTitle>{unitEditId == null ? 'Thêm bộ phận' : 'Sửa bộ phận'}</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <TextField
+            label="Tên bộ phận"
+            value={unitName}
+            onChange={(e) => setUnitName(e.target.value)}
+            required
+            size="small"
+            fullWidth
+            placeholder="VD: PHÒNG SIÊU ÂM"
+            autoFocus
+          />
+          <TextField
+            label="Mô tả"
+            value={unitDescription}
+            onChange={(e) => setUnitDescription(e.target.value)}
+            size="small"
+            fullWidth
+            multiline
+            minRows={2}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUnitDialogOpen(false)} disabled={unitSaving}>
+            Hủy
+          </Button>
+          <Button variant="contained" disabled={unitSaving || !unitName.trim()} onClick={() => void submitUnit()}>
+            {unitSaving ? <CircularProgress size={22} /> : 'Lưu'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={unitDeleteId != null} onClose={() => !unitSaving && setUnitDeleteId(null)} PaperProps={{ sx: { borderRadius: 2.5 } }}>
+        <DialogTitle>Xóa bộ phận?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            Xóa bộ phận này khỏi phòng ban? Nhân viên vẫn giữ tên bộ phận trên hồ sơ, chỉ bỏ khỏi danh mục.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUnitDeleteId(null)} disabled={unitSaving}>
+            Hủy
+          </Button>
+          <Button color="error" variant="contained" disabled={unitSaving} onClick={() => void confirmDeleteUnit()}>
+            Xóa
           </Button>
         </DialogActions>
       </Dialog>

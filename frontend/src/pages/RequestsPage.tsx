@@ -1,7 +1,6 @@
 import AddIcon from '@mui/icons-material/Add';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 import BeachAccessOutlinedIcon from '@mui/icons-material/BeachAccessOutlined';
-import BusinessCenterOutlinedIcon from '@mui/icons-material/BusinessCenterOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import EditCalendarOutlinedIcon from '@mui/icons-material/EditCalendarOutlined';
 import EventAvailableOutlinedIcon from '@mui/icons-material/EventAvailableOutlined';
@@ -11,6 +10,10 @@ import MoneyOffOutlinedIcon from '@mui/icons-material/MoneyOffOutlined';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import HowToRegIcon from '@mui/icons-material/HowToReg';
 import ChildCareIcon from '@mui/icons-material/ChildCare';
+import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
+import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
+import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import NightsStayIcon from '@mui/icons-material/NightsStay';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import {
   Alert,
@@ -32,24 +35,54 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AttendancePendingPanel } from '../components/AttendancePendingPanel';
-import { BusinessTripRequestDialog } from '../components/BusinessTripRequestDialog';
 import { DepartmentTransferPendingPanel } from '../components/DepartmentTransferPendingPanel';
 import { LeaveRequestDialog } from '../components/LeaveRequestDialog';
 import { ProbationConversionPendingPanel } from '../components/ProbationConversionPendingPanel';
+import { SeminarProposalPendingPanel } from '../components/SeminarProposalPendingPanel';
+import { MainDutyAuthorizationPendingPanel } from '../components/MainDutyAuthorizationPendingPanel';
+import { EmployeeRelatedRequestsPanel } from '../components/EmployeeRelatedRequestsPanel';
+import { EMPLOYEE_RELATED_TABS, employeeTabIndexForKey } from '../components/employeeRelatedRequestsMeta';
+import { TrainingProposalPendingPanel } from '../components/TrainingProposalPendingPanel';
 import { YoungChildRequestPendingPanel } from '../components/YoungChildRequestPendingPanel';
+import { ShiftConfigChangePendingPanel } from '../components/ShiftConfigChangePendingPanel';
+import { SeminarProposalDialog } from '../components/SeminarProposalDialog';
 import { UnpaidLeaveRequestDialog } from '../components/UnpaidLeaveRequestDialog';
 import { PageHeader } from '../components/layout/PageHeader';
+import {
+  applyRequestListFilters,
+  EMPTY_REQUEST_FILTERS,
+  RequestListFilters,
+  type RequestListFilterState,
+} from '../components/requests/RequestListFilters';
+import { RequestListTable, formatRequestSubject, type RequestListRow } from '../components/requests/RequestListTable';
 import { WorkRequestDetailDialog } from '../components/work/WorkRequestDetailDialog';
-import { WorkRequestListCard } from '../components/work/WorkRequestListCard';
 import { useAuth } from '../context/AuthContext';
+import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
 import * as att from '../services/attendanceService';
 
-type FilterKey = 'all' | 'leave' | 'unpaid' | 'trip' | 'work' | 'pending' | 'done';
+function workRequestSummary(r: att.WorkRequest): string {
+  const isRanged =
+    r.requestType === 'LEAVE' ||
+    r.requestType === 'UNPAID_LEAVE' ||
+    r.requestType === 'BUSINESS_TRIP';
+  if (r.requestType === 'UPDATE') return att.formatRequestedTimes(r);
+  if (r.requestType === 'DEPLOYMENT' && r.requestedStart && r.requestedEnd) {
+    return `${r.requestedStart.slice(0, 5)}–${r.requestedEnd.slice(0, 5)}${
+      r.location ? ` · ${r.location}` : ''
+    }`;
+  }
+  if (isRanged) {
+    const days = r.requestType === 'BUSINESS_TRIP' ? r.tripDays : r.leaveDays;
+    return `${att.formatLeaveRange(r)}${days != null ? ` · ${days} ngày` : ''}`;
+  }
+  return att.formatExplanationTimes(r);
+}
+
+type FilterKey = 'all' | 'leave' | 'unpaid' | 'work' | 'pending' | 'done';
 
 const WORK_REQUEST_TYPES = new Set<att.WorkRequest['requestType']>([
   'UPDATE',
   'EXPLANATION',
-  'DEPLOYMENT',
 ]);
 
 function BalanceStat({
@@ -116,46 +149,110 @@ function BalanceStat({
 
 export default function RequestsPage() {
   const theme = useTheme();
-  const { user } = useAuth();
-  const isHead =
-    user?.role === 'ADMIN' || user?.role === 'HEAD_DEPARTMENT' || user?.role === 'HEAD_NURSING';
-  const isHrOrAdmin = user?.role === 'ADMIN' || user?.role === 'HR';
-  const canApprove = isHead || isHrOrAdmin;
-  const canViewTransfers =
-    user?.role === 'ADMIN' || user?.role === 'DIRECTOR' || user?.role === 'HR';
-  const canViewConversions =
+  const { user, refreshUser } = useAuth();
+  const isDeptHead = user?.role === 'ADMIN' || isHeadDepartmentRole(user?.role);
+  const isNursingHead = user?.role === 'ADMIN' || user?.role === 'HEAD_NURSING';
+  const isHead = isDeptHead; // for leave/work approve — nursing head excluded
+  const isHrOrAdmin = user?.role === 'ADMIN' || isHr2Role(user?.role);
+  const isDirector =
     user?.role === 'ADMIN'
-    || user?.role === 'HR'
     || user?.role === 'DIRECTOR'
-    || user?.role === 'HEAD_DEPARTMENT'
+    || user?.directorApprovalEnabled === true;
+  const canApprove = isHead || isHrOrAdmin;
+  const canApproveLeave = canApprove || isDirector;
+  const canApproveWorkRequests = canApprove || isDirector;
+  const canViewDeployments = isDeptHead || isNursingHead || isHrOrAdmin || isDirector;
+  const canViewTransfers = isDirector || user?.role === 'HR';
+  const canViewConversions =
+    isDirector
+    || isHr2Role(user?.role)
+    || isHeadDepartmentRole(user?.role)
     || user?.role === 'HEAD_NURSING';
   const canViewYoungChild =
-    user?.role === 'ADMIN'
-    || user?.role === 'HR'
-    || user?.role === 'HEAD_DEPARTMENT'
+    user?.role === 'ADMIN' || isHr2Role(user?.role) || isHeadDepartmentRole(user?.role);
+  const canViewShiftConfigChange =
+    user?.role === 'ADMIN' || isHr2Role(user?.role) || isHeadDepartmentRole(user?.role);
+  const canViewTrainingProposals =
+    isDirector || isHr2Role(user?.role) || isHeadDepartmentRole(user?.role) || isNursingHead;
+  const canViewSeminarProposals = canViewTrainingProposals;
+  const canViewMainDuty =
+    isDirector
+    || isHr2Role(user?.role)
+    || isHeadDepartmentRole(user?.role)
     || user?.role === 'HEAD_NURSING';
 
+  // Giám đốc khi tắt quyền duyệt dùng giao diện Nhân viên. Khi bật quyền,
+  // chỉ hiển thị các hàng chờ thuộc bước Giám đốc, tránh panel/tab rỗng.
+  const isEmployee =
+    user?.role === 'EMPLOYEE'
+    || (user?.role === 'DIRECTOR' && user?.directorApprovalEnabled !== true);
+  // Trưởng khoa / Trưởng phòng ĐD vẫn xem đơn liên quan bản thân — nhưng không tách tab
+  // trùng với tab duyệt cùng loại (Điều động / Chuyển chính thức / Trực chính / …).
+  const showEmployeeRelatedTabs =
+    isEmployee
+    || ((user?.role === 'HEAD_NURSING' || isHeadDepartmentRole(user?.role))
+      && Boolean(user?.employeeId));
+  const showMyDeploymentTab = showEmployeeRelatedTabs && !canViewDeployments;
+  const showMySeminarTab = showEmployeeRelatedTabs && !canViewSeminarProposals;
+  const showMyTrainingTab = showEmployeeRelatedTabs && !canViewTrainingProposals;
+  const showMyMainDutyTab = showEmployeeRelatedTabs && !canViewMainDuty;
+  const showMyConversionTab = showEmployeeRelatedTabs && !canViewConversions;
+  const showMyTransferTab = showEmployeeRelatedTabs && !canViewTransfers;
+  const showMyYoungChildTab = showEmployeeRelatedTabs && !canViewYoungChild;
+  const showMyShiftConfigTab = showEmployeeRelatedTabs && !canViewShiftConfigChange;
+
   let nextTab = 1;
-  const leaveTabIndex = canApprove ? nextTab++ : -1;
-  const tripTabIndex = canApprove ? nextTab++ : -1;
-  const workTabIndex = canApprove ? nextTab++ : -1;
+  const employeeDeploymentTab = showMyDeploymentTab ? nextTab++ : -1;
+  const employeeSeminarTab = showMySeminarTab ? nextTab++ : -1;
+  const employeeTrainingTab = showMyTrainingTab ? nextTab++ : -1;
+  const employeeMainDutyTab = showMyMainDutyTab ? nextTab++ : -1;
+  const employeeConversionTab = showMyConversionTab ? nextTab++ : -1;
+  const employeeTransferTab = showMyTransferTab ? nextTab++ : -1;
+  const employeeYoungChildTab = showMyYoungChildTab ? nextTab++ : -1;
+  const employeeShiftConfigTab = showMyShiftConfigTab ? nextTab++ : -1;
+  const employeeTabIndices =
+    showMySeminarTab
+    || showMyTrainingTab
+    || showMyMainDutyTab
+    || showMyConversionTab
+    || showMyTransferTab
+    || showMyYoungChildTab
+    || showMyShiftConfigTab
+      ? {
+          seminar: employeeSeminarTab,
+          training: employeeTrainingTab,
+          'main-duty': employeeMainDutyTab,
+          probation: employeeConversionTab,
+          transfer: employeeTransferTab,
+          'young-child': employeeYoungChildTab,
+          'shift-config': employeeShiftConfigTab,
+        }
+      : null;
+
+  const leaveTabIndex = canApproveLeave ? nextTab++ : -1;
+  const workTabIndex = canApproveWorkRequests ? nextTab++ : -1;
+  const deploymentTabIndex = canViewDeployments ? nextTab++ : -1;
   const transfersTabIndex = canViewTransfers ? nextTab++ : -1;
   const conversionsTabIndex = canViewConversions ? nextTab++ : -1;
   const youngChildTabIndex = canViewYoungChild ? nextTab++ : -1;
+  const shiftConfigTabIndex = canViewShiftConfigChange ? nextTab++ : -1;
+  const trainingTabIndex = canViewTrainingProposals ? nextTab++ : -1;
+  const seminarTabIndex = canViewSeminarProposals ? nextTab++ : -1;
+  const mainDutyTabIndex = !isEmployee && canViewMainDuty ? nextTab++ : -1;
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState(0);
   const [myRequests, setMyRequests] = useState<att.WorkRequest[]>([]);
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [listFilters, setListFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
   const [detail, setDetail] = useState<att.WorkRequest | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [unpaidLeaveOpen, setUnpaidLeaveOpen] = useState(false);
-  const [tripOpen, setTripOpen] = useState(false);
   const [createMenuEl, setCreateMenuEl] = useState<null | HTMLElement>(null);
+  const [seminarOpen, setSeminarOpen] = useState(false);
   const [balance, setBalance] = useState<att.LeaveBalance | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [msgSeverity, setMsgSeverity] = useState<'success' | 'error'>('success');
-  const [withdrawLoading, setWithdrawLoading] = useState(false);
 
   const paperSx = {
     borderRadius: 3,
@@ -166,14 +263,45 @@ export default function RequestsPage() {
   };
 
   const reload = useCallback(() => {
-    if (user?.employeeId) {
+    const loadBalance = () =>
+      att
+        .fetchMyLeaveBalance()
+        .then(setBalance)
+        .catch(async () => {
+          if (user?.employeeId) {
+            try {
+              const bal = await att.fetchEmployeeLeaveBalance(user.employeeId);
+              setBalance(bal);
+              return;
+            } catch {
+              /* ignore */
+            }
+          }
+          setBalance(null);
+        });
+
+    const loadMine = () => {
       att.fetchMyWorkRequests().then(setMyRequests).catch(() => setMyRequests([]));
-      att.fetchMyLeaveBalance().then(setBalance).catch(() => setBalance(null));
-    } else {
-      setMyRequests([]);
-      setBalance(null);
+    };
+
+    // Mọi role (có hồ sơ NV liên kết) đều xem hạn mức phép trên trang Đơn
+    loadBalance();
+
+    if (user?.employeeId) {
+      loadMine();
+      return;
     }
-  }, [user?.employeeId]);
+
+    // Session chưa có employeeId — gắn lại từ /account/me rồi tải đơn của tôi
+    void refreshUser()
+      .then(() => {
+        loadMine();
+        loadBalance();
+      })
+      .catch(() => {
+        setMyRequests([]);
+      });
+  }, [user?.employeeId, user?.role, refreshUser]);
 
   useEffect(() => {
     reload();
@@ -181,86 +309,231 @@ export default function RequestsPage() {
 
   useEffect(() => {
     const raw = searchParams.get('tab');
+    const kind = searchParams.get('kind');
+    const id = searchParams.get('id');
+
+    const pickEmployeeTab = (tabKey: string) => {
+      if (!employeeTabIndices) return false;
+      const idx = employeeTabIndexForKey(tabKey, employeeTabIndices);
+      if (idx >= 0) {
+        setTab(idx);
+        return true;
+      }
+      return false;
+    };
+
+    if (isEmployee) {
+      if (kind && pickEmployeeTab(kind)) return;
+      if (raw && pickEmployeeTab(raw)) return;
+      if (raw === 'deployments') {
+        setTab(employeeDeploymentTab);
+        return;
+      }
+      if (raw === 'mine' || raw === '0' || (raw === 'seminar-proposals' && id)) {
+        if (raw === 'seminar-proposals' || kind === 'seminar') pickEmployeeTab('seminar');
+        else if (kind) pickEmployeeTab(kind);
+        else setTab(0);
+        return;
+      }
+    } else if (showEmployeeRelatedTabs) {
+      if (kind && pickEmployeeTab(kind)) return;
+      if (raw && pickEmployeeTab(raw)) return;
+    }
+
     if (raw === 'young-child' && canViewYoungChild) {
       setTab(youngChildTabIndex);
+    } else if ((raw === 'shift-config' || raw === 'shift-config-change') && canViewShiftConfigChange) {
+      setTab(shiftConfigTabIndex);
+    } else if (raw === 'training-proposals' && canViewTrainingProposals) {
+      setTab(trainingTabIndex);
+    } else if (raw === 'training-proposals' && showEmployeeRelatedTabs) {
+      pickEmployeeTab('training');
+    } else if (raw === 'training' && showEmployeeRelatedTabs) {
+      pickEmployeeTab('training');
+    } else if (raw === 'seminar-proposals' && canViewSeminarProposals) {
+      setTab(seminarTabIndex);
+    } else if (raw === 'seminar-proposals' && showEmployeeRelatedTabs) {
+      pickEmployeeTab('seminar');
+    } else if (raw === 'seminar' && showEmployeeRelatedTabs) {
+      pickEmployeeTab('seminar');
+    } else if (raw === 'main-duty' && showEmployeeRelatedTabs && !canViewMainDuty) {
+      pickEmployeeTab('main-duty');
+    } else if (raw === 'main-duty' && canViewMainDuty) {
+      setTab(mainDutyTabIndex);
     } else if (raw === 'probation-conversions' && canViewConversions) {
       setTab(conversionsTabIndex);
+    } else if (raw === 'probation-conversions' && showEmployeeRelatedTabs) {
+      pickEmployeeTab('probation');
+    } else if (raw === 'probation' && showEmployeeRelatedTabs && !canViewConversions) {
+      pickEmployeeTab('probation');
     } else if (raw === 'transfers' && canViewTransfers) {
       setTab(transfersTabIndex);
+    } else if (raw === 'transfers' && showEmployeeRelatedTabs) {
+      pickEmployeeTab('transfer');
+    } else if (raw === 'transfer' && showEmployeeRelatedTabs) {
+      pickEmployeeTab('transfer');
     } else if (raw === 'leave' && canApprove) {
       setTab(leaveTabIndex);
-    } else if (raw === 'trip' && canApprove) {
-      setTab(tripTabIndex);
-    } else if ((raw === 'work' || raw === 'approve' || raw === 'pending') && canApprove) {
+    } else if (raw === 'deployments' && canViewDeployments) {
+      setTab(deploymentTabIndex);
+    } else if ((raw === 'work' || raw === 'approve' || raw === 'pending') && canApproveWorkRequests) {
       setTab(workTabIndex);
     } else if (raw === 'mine' || raw === '0') {
       setTab(0);
+    } else if (!raw && user?.role === 'DIRECTOR' && canApproveWorkRequests) {
+      setTab(workTabIndex);
     } else if (!raw && user?.role === 'DIRECTOR' && canViewTransfers) {
       setTab(transfersTabIndex);
     }
   }, [
     searchParams,
+    isEmployee,
+    showEmployeeRelatedTabs,
+    employeeTabIndices,
+    employeeDeploymentTab,
     canApprove,
+    canApproveWorkRequests,
+    canViewDeployments,
     canViewTransfers,
     canViewConversions,
     canViewYoungChild,
+    canViewShiftConfigChange,
+    canViewTrainingProposals,
+    canViewSeminarProposals,
+    canViewMainDuty,
     leaveTabIndex,
-    tripTabIndex,
     workTabIndex,
+    deploymentTabIndex,
     transfersTabIndex,
     conversionsTabIndex,
     youngChildTabIndex,
+    shiftConfigTabIndex,
+    trainingTabIndex,
+    seminarTabIndex,
+    mainDutyTabIndex,
     user?.role,
   ]);
 
+  useEffect(() => {
+    if (!showMyDeploymentTab || tab !== employeeDeploymentTab) return;
+    const requestedId = Number(searchParams.get('id'));
+    if (!Number.isFinite(requestedId) || requestedId <= 0) return;
+    const requested = myRequests.find(
+      (request) => request.id === requestedId && request.requestType === 'DEPLOYMENT',
+    );
+    if (requested) setDetail(requested);
+  }, [showMyDeploymentTab, tab, employeeDeploymentTab, searchParams, myRequests]);
+
   const counts = useMemo(() => {
-    const leave = myRequests.filter((r) => r.requestType === 'LEAVE').length;
-    const unpaid = myRequests.filter((r) => r.requestType === 'UNPAID_LEAVE').length;
-    const trip = myRequests.filter((r) => r.requestType === 'BUSINESS_TRIP').length;
-    const work = myRequests.filter((r) => WORK_REQUEST_TYPES.has(r.requestType)).length;
-    const pending = myRequests.filter((r) => att.isRequestPending(r.status)).length;
-    const done = myRequests.filter((r) => !att.isRequestPending(r.status)).length;
-    return { all: myRequests.length, leave, unpaid, trip, work, pending, done };
+    const requestsInMine = myRequests.filter((r) => r.requestType !== 'DEPLOYMENT');
+    const leave = requestsInMine.filter((r) => r.requestType === 'LEAVE').length;
+    const unpaid = requestsInMine.filter((r) => r.requestType === 'UNPAID_LEAVE').length;
+    const work = requestsInMine.filter((r) => WORK_REQUEST_TYPES.has(r.requestType)).length;
+    const pending = requestsInMine.filter((r) => att.isRequestPending(r.status)).length;
+    const done = requestsInMine.filter((r) => !att.isRequestPending(r.status)).length;
+    return { all: requestsInMine.length, leave, unpaid, work, pending, done };
   }, [myRequests]);
 
-  const filtered = useMemo(() => {
-    if (filter === 'leave') return myRequests.filter((r) => r.requestType === 'LEAVE');
-    if (filter === 'unpaid') return myRequests.filter((r) => r.requestType === 'UNPAID_LEAVE');
-    if (filter === 'trip') return myRequests.filter((r) => r.requestType === 'BUSINESS_TRIP');
-    if (filter === 'work') return myRequests.filter((r) => WORK_REQUEST_TYPES.has(r.requestType));
-    if (filter === 'pending') return myRequests.filter((r) => att.isRequestPending(r.status));
-    if (filter === 'done') return myRequests.filter((r) => !att.isRequestPending(r.status));
-    return myRequests;
+  const filteredByType = useMemo(() => {
+    const requestsInMine = myRequests.filter((r) => r.requestType !== 'DEPLOYMENT');
+    if (filter === 'leave') return requestsInMine.filter((r) => r.requestType === 'LEAVE');
+    if (filter === 'unpaid') return requestsInMine.filter((r) => r.requestType === 'UNPAID_LEAVE');
+    if (filter === 'work') return requestsInMine.filter((r) => WORK_REQUEST_TYPES.has(r.requestType));
+    if (filter === 'pending') return requestsInMine.filter((r) => att.isRequestPending(r.status));
+    if (filter === 'done') return requestsInMine.filter((r) => !att.isRequestPending(r.status));
+    return requestsInMine;
   }, [myRequests, filter]);
+
+  useEffect(() => {
+    setListFilters(EMPTY_REQUEST_FILTERS);
+  }, [filter]);
+
+  const filtered = useMemo(
+    () =>
+      applyRequestListFilters(filteredByType, listFilters, {
+        searchText: (r) =>
+          [r.employeeName, r.department, r.reason, att.requestTypeLabel(r.requestType), r.status].join(
+            ' ',
+          ),
+        dateValue: (r) => r.createdAt,
+        statusValue: (r) => r.status,
+        departmentValue: (r) => r.department,
+      }),
+    [filteredByType, listFilters],
+  );
+
+  const myStatusOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of filteredByType) {
+      if (!map.has(r.status)) {
+        map.set(r.status, att.requestStatusLabel(r.status, r.requestType));
+      }
+    }
+    return [...map.entries()].map(([value, label]) => ({ value, label }));
+  }, [filteredByType]);
+
+  const myRows: RequestListRow[] = filtered.map((r) => ({
+    id: r.id,
+    typeLabel: att.requestTypeLabel(r.requestType),
+    subject: formatRequestSubject(r.employeeName || 'Tôi', r.positionTitle),
+    department: r.department,
+    summary: workRequestSummary(r),
+    meta: r.reason?.trim() || undefined,
+    statusLabel: att.requestStatusLabel(r.status, r.requestType),
+    statusColor: att.requestStatusColor(r.status),
+    dateLabel: att.formatWorkDate(r.workDate),
+    submittedAtLabel: r.createdAt ? att.formatWorkDate(String(r.createdAt).slice(0, 10)) : undefined,
+    pending: att.isRequestPending(r.status),
+  }));
+
+  const myById = useMemo(() => new Map(filtered.map((r) => [r.id, r])), [filtered]);
 
   function changeTab(next: number) {
     setTab(next);
     const params = new URLSearchParams(searchParams);
+    params.delete('kind');
+    params.delete('id');
     let tabKey = 'mine';
-    if (next === leaveTabIndex) tabKey = 'leave';
-    else if (next === tripTabIndex) tabKey = 'trip';
+    if (next === employeeDeploymentTab) tabKey = 'deployments';
+    else if (next === employeeSeminarTab) tabKey = 'seminar';
+    else if (next === employeeTrainingTab) tabKey = 'training';
+    else if (next === employeeMainDutyTab) tabKey = 'main-duty';
+    else if (next === employeeConversionTab) tabKey = 'probation';
+    else if (next === employeeTransferTab) tabKey = 'transfer';
+    else if (next === employeeYoungChildTab) tabKey = 'young-child';
+    else if (next === employeeShiftConfigTab) tabKey = 'shift-config';
+    else if (next === leaveTabIndex) tabKey = 'leave';
     else if (next === workTabIndex) tabKey = 'work';
+    else if (next === deploymentTabIndex) tabKey = 'deployments';
     else if (next === transfersTabIndex) tabKey = 'transfers';
     else if (next === conversionsTabIndex) tabKey = 'probation-conversions';
     else if (next === youngChildTabIndex) tabKey = 'young-child';
+    else if (next === shiftConfigTabIndex) tabKey = 'shift-config';
+    else if (next === trainingTabIndex) tabKey = 'training-proposals';
+    else if (next === seminarTabIndex) tabKey = 'seminar-proposals';
+    else if (next === mainDutyTabIndex) tabKey = 'main-duty';
     params.set('tab', tabKey);
     setSearchParams(params, { replace: true });
   }
 
-  async function handleWithdraw() {
-    if (!detail) return;
-    setWithdrawLoading(true);
-    try {
-      await att.withdrawWorkRequest(detail.id);
-      setMsg('Đã thu hồi đơn thành công.');
-      setMsgSeverity('success');
-      setDetail(null);
-      reload();
-    } catch {
-      setMsg('Không thể thu hồi đơn. Đơn có thể đã được duyệt.');
-      setMsgSeverity('error');
-    } finally {
-      setWithdrawLoading(false);
+  function employeeRelatedTabIcon(tabKey: string) {
+    switch (tabKey) {
+      case 'seminar':
+        return <GroupsOutlinedIcon />;
+      case 'training':
+        return <SchoolOutlinedIcon />;
+      case 'main-duty':
+        return <NightsStayIcon />;
+      case 'probation':
+        return <HowToRegIcon />;
+      case 'transfer':
+        return <SwapHorizIcon />;
+      case 'young-child':
+        return <ChildCareIcon />;
+      case 'shift-config':
+        return <WbSunnyOutlinedIcon />;
+      default:
+        return <InboxOutlinedIcon />;
     }
   }
 
@@ -268,7 +541,6 @@ export default function RequestsPage() {
     { key: 'all', label: 'Tất cả', count: counts.all },
     { key: 'leave', label: 'Nghỉ phép', count: counts.leave },
     { key: 'unpaid', label: 'Không lương', count: counts.unpaid },
-    { key: 'trip', label: 'Công tác', count: counts.trip },
     { key: 'work', label: 'Đơn công', count: counts.work },
     { key: 'pending', label: 'Chờ duyệt', count: counts.pending },
     { key: 'done', label: 'Đã xử lý', count: counts.done },
@@ -281,8 +553,8 @@ export default function RequestsPage() {
     <Box>
       <PageHeader
         overline="Đơn từ"
-        title="Đơn nghỉ phép & công tác"
-        description="Gửi đơn nghỉ phép, nghỉ không lương hoặc công tác; theo dõi trạng thái duyệt và hạn mức phép năm. Lãnh đạo / HCNS duyệt theo quy trình hiện hành."
+        title="Đơn nghỉ phép"
+        description="Gửi đơn nghỉ phép hoặc nghỉ không lương; theo dõi trạng thái duyệt và hạn mức phép năm. Nhu cầu đi công tác sử dụng đơn Hội thảo."
         actions={
           <>
             <Button
@@ -350,23 +622,25 @@ export default function RequestsPage() {
                   secondaryTypographyProps={{ fontSize: '0.72rem' }}
                 />
               </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setCreateMenuEl(null);
-                  setTripOpen(true);
-                }}
-                sx={{ py: 1.25, borderRadius: 1.5, mx: 0.5 }}
-              >
-                <ListItemIcon>
-                  <BusinessCenterOutlinedIcon fontSize="small" sx={{ color: 'warning.dark' }} />
-                </ListItemIcon>
-                <ListItemText
-                  primary="Xin công tác"
-                  secondary="Ngày · địa điểm · lý do"
-                  primaryTypographyProps={{ fontWeight: 700, fontSize: '0.9rem' }}
-                  secondaryTypographyProps={{ fontSize: '0.72rem' }}
-                />
-              </MenuItem>
+              {isNursingHead && user?.employeeId && (
+                <MenuItem
+                  onClick={() => {
+                    setCreateMenuEl(null);
+                    setSeminarOpen(true);
+                  }}
+                  sx={{ py: 1.25, borderRadius: 1.5, mx: 0.5 }}
+                >
+                  <ListItemIcon>
+                    <GroupsOutlinedIcon fontSize="small" color="primary" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary="Đề xuất hội thảo / công tác"
+                    secondary="Gửi Giám đốc duyệt"
+                    primaryTypographyProps={{ fontWeight: 700, fontSize: '0.9rem' }}
+                    secondaryTypographyProps={{ fontSize: '0.72rem' }}
+                  />
+                </MenuItem>
+              )}
             </Menu>
           </>
         }
@@ -399,7 +673,11 @@ export default function RequestsPage() {
                 icon={<EventAvailableOutlinedIcon fontSize="small" />}
                 label="Hạn mức năm"
                 value={balance.entitlementDays}
-                hint="12 ngày + 1 mỗi 5 năm"
+                hint={
+                  balance.yearsOfService > 0
+                    ? '12 ngày + 1 mỗi 5 năm'
+                    : '12 ngày (mặc định khi chưa có thâm niên)'
+                }
                 accent={theme.palette.primary.main}
               />
             </Grid>
@@ -417,7 +695,7 @@ export default function RequestsPage() {
                 icon={<HourglassEmptyOutlinedIcon fontSize="small" />}
                 label="Chờ duyệt"
                 value={balance.pendingDays}
-                hint="Đang chờ lãnh đạo / HCNS"
+                hint="Đang chờ Lãnh đạo / HCNS / Giám đốc"
                 accent={theme.palette.warning.main}
               />
             </Grid>
@@ -458,20 +736,51 @@ export default function RequestsPage() {
           <Tabs
             value={tab}
             onChange={(_, v) => changeTab(v)}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
             sx={{
               minHeight: 52,
-              '& .MuiTab-root': { fontWeight: 600, minHeight: 52, textTransform: 'none' },
+              '& .MuiTabs-scrollButtons': {
+                '&.Mui-disabled': { opacity: 0.25 },
+              },
+              '& .MuiTab-root': {
+                fontWeight: 600,
+                minHeight: 52,
+                textTransform: 'none',
+                flexShrink: 0,
+              },
             }}
           >
             <Tab icon={<AssignmentOutlinedIcon />} iconPosition="start" label="Đơn của tôi" />
-            {canApprove && (
+            {showMyDeploymentTab && (
+              <Tab icon={<SwapHorizIcon />} iconPosition="start" label="Điều động" />
+            )}
+            {EMPLOYEE_RELATED_TABS.filter((t) => {
+              if (t.tabKey === 'seminar') return showMySeminarTab;
+              if (t.tabKey === 'training') return showMyTrainingTab;
+              if (t.tabKey === 'main-duty') return showMyMainDutyTab;
+              if (t.tabKey === 'probation') return showMyConversionTab;
+              if (t.tabKey === 'transfer') return showMyTransferTab;
+              if (t.tabKey === 'young-child') return showMyYoungChildTab;
+              if (t.tabKey === 'shift-config') return showMyShiftConfigTab;
+              return false;
+            }).map((t) => (
+              <Tab
+                key={t.tabKey}
+                icon={employeeRelatedTabIcon(t.tabKey)}
+                iconPosition="start"
+                label={t.label}
+              />
+            ))}
+            {canApproveLeave && (
               <Tab icon={<BeachAccessOutlinedIcon />} iconPosition="start" label="Nghỉ phép" />
             )}
-            {canApprove && (
-              <Tab icon={<BusinessCenterOutlinedIcon />} iconPosition="start" label="Công tác" />
-            )}
-            {canApprove && (
+            {canApproveWorkRequests && (
               <Tab icon={<EditCalendarOutlinedIcon />} iconPosition="start" label="Đơn công" />
+            )}
+            {canViewDeployments && (
+              <Tab icon={<SwapHorizIcon />} iconPosition="start" label="Điều động" />
             )}
             {canViewTransfers && (
               <Tab icon={<SwapHorizIcon />} iconPosition="start" label="Luân chuyển" />
@@ -481,6 +790,18 @@ export default function RequestsPage() {
             )}
             {canViewYoungChild && (
               <Tab icon={<ChildCareIcon />} iconPosition="start" label="Nuôi con nhỏ" />
+            )}
+            {canViewShiftConfigChange && (
+              <Tab icon={<WbSunnyOutlinedIcon />} iconPosition="start" label="Chỉnh ca sáng/chiều" />
+            )}
+            {canViewTrainingProposals && (
+              <Tab icon={<SchoolOutlinedIcon />} iconPosition="start" label="Đào tạo" />
+            )}
+            {canViewSeminarProposals && (
+              <Tab icon={<GroupsOutlinedIcon />} iconPosition="start" label="Hội thảo" />
+            )}
+            {canViewMainDuty && !isEmployee && (
+              <Tab icon={<NightsStayIcon />} iconPosition="start" label="Trực chính" />
             )}
           </Tabs>
         </Box>
@@ -552,129 +873,113 @@ export default function RequestsPage() {
                     );
                   })}
                 </Box>
-
-                <Typography variant="caption" color="text.secondary" fontWeight={600}>
-                  {filtered.length} đơn hiển thị
-                </Typography>
               </Stack>
 
-              {filtered.length === 0 ? (
-                <Box
-                  sx={{
-                    py: { xs: 5, sm: 7 },
-                    px: 2,
-                    textAlign: 'center',
-                    borderRadius: 3,
-                    border: `1px dashed ${alpha(theme.palette.primary.main, 0.22)}`,
-                    bgcolor: alpha(theme.palette.primary.main, 0.025),
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 64,
-                      height: 64,
-                      mx: 'auto',
-                      mb: 2,
-                      borderRadius: 3,
-                      display: 'grid',
-                      placeItems: 'center',
-                      bgcolor: alpha(theme.palette.primary.main, 0.08),
-                      color: theme.palette.primary.main,
-                    }}
-                  >
-                    <InboxOutlinedIcon sx={{ fontSize: 32 }} />
-                  </Box>
-                  <Typography variant="h6" fontWeight={800} sx={{ mb: 0.75 }}>
-                    {filter === 'all' ? 'Chưa có đơn nào' : 'Không có đơn phù hợp bộ lọc'}
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ maxWidth: 420, mx: 'auto', mb: 2.5, lineHeight: 1.65 }}
-                  >
-                    {filter === 'all'
-                      ? 'Bắt đầu bằng đơn nghỉ phép, nghỉ không lương hoặc công tác — chọn khoảng ngày và lý do, rồi gửi lãnh đạo duyệt.'
-                      : filter === 'trip'
-                        ? 'Chưa có đơn công tác. Tạo đơn với khoảng ngày, địa điểm và lý do.'
-                        : filter === 'unpaid'
-                          ? 'Chưa có đơn nghỉ không lương. Ngày được duyệt ghi 0 công, không trừ phép năm.'
-                          : filter === 'work'
-                            ? 'Chưa có đơn cập nhật công, giải trình hoặc điều động. Tạo từ trang Công.'
-                            : 'Thử đổi bộ lọc hoặc tạo đơn mới.'}
-                  </Typography>
-                  {(filter === 'all' || filter === 'leave') && (
-                    <Button
-                      variant="contained"
-                      startIcon={<BeachAccessOutlinedIcon />}
-                      onClick={() => setLeaveOpen(true)}
-                      sx={{ borderRadius: 2.5, px: 2.5, fontWeight: 700, mr: 1, mb: 1 }}
-                    >
-                      Tạo đơn nghỉ phép
-                    </Button>
-                  )}
-                  {(filter === 'all' || filter === 'unpaid') && (
-                    <Button
-                      variant={filter === 'unpaid' ? 'contained' : 'outlined'}
-                      color="error"
-                      startIcon={<MoneyOffOutlinedIcon />}
-                      onClick={() => setUnpaidLeaveOpen(true)}
-                      sx={{ borderRadius: 2.5, px: 2.5, fontWeight: 700, mr: 1, mb: 1 }}
-                    >
-                      Tạo đơn nghỉ không lương
-                    </Button>
-                  )}
-                  {(filter === 'all' || filter === 'trip') && (
-                    <Button
-                      variant={filter === 'trip' ? 'contained' : 'outlined'}
-                      startIcon={<BusinessCenterOutlinedIcon />}
-                      onClick={() => setTripOpen(true)}
-                      sx={{
-                        borderRadius: 2.5,
-                        px: 2.5,
-                        fontWeight: 700,
-                        ...(filter === 'trip'
-                          ? {
-                              bgcolor: theme.palette.warning.dark,
-                              '&:hover': { bgcolor: theme.palette.warning.dark, filter: 'brightness(0.92)' },
-                            }
-                          : {}),
-                      }}
-                    >
-                      Tạo đơn công tác
-                    </Button>
-                  )}
-                </Box>
-              ) : (
-                <Grid container spacing={1.75}>
-                  {filtered.map((r) => (
-                    <Grid item xs={12} md={6} key={r.id}>
-                      <WorkRequestListCard request={r} onClick={() => setDetail(r)} />
-                    </Grid>
-                  ))}
-                </Grid>
-              )}
+              <RequestListTable
+                rows={myRows}
+                emptyTitle={
+                  filter === 'all' ? 'Chưa có đơn nào' : 'Không có đơn phù hợp bộ lọc'
+                }
+                emptyHint={
+                  filter === 'all'
+                    ? 'Bắt đầu bằng đơn nghỉ phép hoặc nghỉ không lương — chọn khoảng ngày và lý do, rồi gửi lãnh đạo duyệt.'
+                    : filter === 'unpaid'
+                      ? 'Chưa có đơn nghỉ không lương. Ngày được duyệt ghi 0 công, không trừ phép năm.'
+                      : filter === 'work'
+                        ? 'Chưa có đơn cập nhật công hoặc giải trình. Tạo từ trang Công.'
+                        : 'Thử đổi bộ lọc hoặc tạo đơn mới.'
+                }
+                toolbar={
+                  <RequestListFilters
+                    value={listFilters}
+                    onChange={setListFilters}
+                    statusOptions={myStatusOptions}
+                    resultCount={filtered.length}
+                  />
+                }
+                onView={(row) => {
+                  const r = myById.get(Number(row.id));
+                  if (r) setDetail(r);
+                }}
+              />
+
             </Stack>
           )}
 
-          {tab === leaveTabIndex && canApprove && (
+          {showMySeminarTab && user?.employeeId && tab === employeeSeminarTab && (
+            <EmployeeRelatedRequestsPanel kind="seminar" employeeId={user.employeeId} />
+          )}
+          {showMyDeploymentTab && tab === employeeDeploymentTab && (
+            <Stack spacing={2}>
+              <Typography variant="body2" color="text.secondary">
+                Các đơn điều động được Trưởng khoa/Điều dưỡng trưởng lập cho bạn và trạng thái duyệt hiện tại.
+              </Typography>
+              <RequestListTable
+                rows={myRequests
+                  .filter((request) => request.requestType === 'DEPLOYMENT')
+                  .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+                  .map((r) => ({
+                    id: r.id,
+                    typeLabel: att.requestTypeLabel(r.requestType),
+                    subject: formatRequestSubject(r.employeeName || 'Tôi', r.positionTitle),
+                    department: r.department,
+                    summary: workRequestSummary(r),
+                    meta: r.reason?.trim() || undefined,
+                    statusLabel: att.requestStatusLabel(r.status, r.requestType),
+                    statusColor: att.requestStatusColor(r.status),
+                    dateLabel: att.formatWorkDate(r.workDate),
+                    submittedAtLabel: r.createdAt
+                      ? att.formatWorkDate(String(r.createdAt).slice(0, 10))
+                      : undefined,
+                    pending: att.isRequestPending(r.status),
+                  }))}
+                emptyTitle="Bạn chưa có đơn điều động nào"
+                emptyHint="Khi có đơn điều động liên quan đến bạn, chúng sẽ hiện tại đây."
+                onView={(row) => {
+                  const r = myRequests.find((x) => x.id === Number(row.id));
+                  if (r) setDetail(r);
+                }}
+              />
+            </Stack>
+          )}
+          {showMyTrainingTab && user?.employeeId && tab === employeeTrainingTab && (
+            <EmployeeRelatedRequestsPanel kind="training" employeeId={user.employeeId} />
+          )}
+          {showMyMainDutyTab && user?.employeeId && tab === employeeMainDutyTab && (
+            <EmployeeRelatedRequestsPanel kind="main-duty" employeeId={user.employeeId} />
+          )}
+          {showMyConversionTab && user?.employeeId && tab === employeeConversionTab && (
+            <EmployeeRelatedRequestsPanel kind="probation" employeeId={user.employeeId} />
+          )}
+          {showMyTransferTab && user?.employeeId && tab === employeeTransferTab && (
+            <EmployeeRelatedRequestsPanel kind="transfer" employeeId={user.employeeId} />
+          )}
+          {showMyYoungChildTab && user?.employeeId && tab === employeeYoungChildTab && (
+            <EmployeeRelatedRequestsPanel kind="young-child" employeeId={user.employeeId} />
+          )}
+          {showMyShiftConfigTab && user?.employeeId && tab === employeeShiftConfigTab && (
+            <EmployeeRelatedRequestsPanel kind="shift-config" employeeId={user.employeeId} />
+          )}
+
+          {tab === leaveTabIndex && canApproveLeave && (
             <AttendancePendingPanel
               onChanged={reload}
               types={['LEAVE', 'UNPAID_LEAVE']}
-              description="Đơn nghỉ phép / nghỉ không lương chờ lãnh đạo / HCNS duyệt. Bấm thẻ để xem chi tiết và xử lý."
+              description="Nghỉ phép và nghỉ không lương: Lãnh đạo → HCNS → Giám đốc. Dùng bảng danh sách để xem, lọc và duyệt."
             />
           )}
-          {tab === tripTabIndex && canApprove && (
+          {tab === workTabIndex && canApproveWorkRequests && (
             <AttendancePendingPanel
               onChanged={reload}
-              types={['BUSINESS_TRIP']}
-              description="Đơn công tác chờ lãnh đạo / HCNS duyệt. Bấm thẻ để xem chi tiết và xử lý."
+              types={['UPDATE', 'EXPLANATION']}
+              description="Cập nhật công / giải trình: Lãnh đạo → HCNS → Giám đốc. Duyệt trên bảng hoặc mở chi tiết."
             />
           )}
-          {tab === workTabIndex && canApprove && (
+          {tab === deploymentTabIndex && canViewDeployments && (
             <AttendancePendingPanel
               onChanged={reload}
-              types={['UPDATE', 'EXPLANATION', 'DEPLOYMENT']}
-              description="Đơn cập nhật công, giải trình công và điều động. Bấm thẻ để xem chi tiết và duyệt."
+              types={['DEPLOYMENT']}
+              description="Điều động: Trưởng khoa/Điều dưỡng trưởng lập → Trưởng phòng Điều dưỡng (khối ĐD) → HCNS → Giám đốc. Lọc theo ngày/tên để tìm đơn nhanh."
             />
           )}
           {tab === transfersTabIndex && canViewTransfers && (
@@ -697,6 +1002,38 @@ export default function RequestsPage() {
             <YoungChildRequestPendingPanel
               onChanged={() => {
                 setMsg('Đã cập nhật đề xuất nuôi con nhỏ.');
+                setMsgSeverity('success');
+              }}
+            />
+          )}
+          {tab === shiftConfigTabIndex && canViewShiftConfigChange && (
+            <ShiftConfigChangePendingPanel
+              onChanged={() => {
+                setMsg('Đã cập nhật đề xuất chỉnh ca sáng/chiều.');
+                setMsgSeverity('success');
+              }}
+            />
+          )}
+          {tab === trainingTabIndex && canViewTrainingProposals && (
+            <TrainingProposalPendingPanel
+              onChanged={() => {
+                setMsg('Đã cập nhật phiếu đề xuất đào tạo.');
+                setMsgSeverity('success');
+              }}
+            />
+          )}
+          {tab === seminarTabIndex && canViewSeminarProposals && (
+            <SeminarProposalPendingPanel
+              onChanged={() => {
+                setMsg('Đã cập nhật phiếu đề xuất hội thảo.');
+                setMsgSeverity('success');
+              }}
+            />
+          )}
+          {tab === mainDutyTabIndex && canViewMainDuty && (
+            <MainDutyAuthorizationPendingPanel
+              onChanged={() => {
+                setMsg('Đã cập nhật đơn trực chính.');
                 setMsgSeverity('success');
               }}
             />
@@ -724,23 +1061,29 @@ export default function RequestsPage() {
         }}
       />
 
-      <BusinessTripRequestDialog
-        open={tripOpen}
-        onClose={() => setTripOpen(false)}
-        onSubmitted={() => {
-          setMsg('Đã gửi đơn công tác thành công.');
-          setMsgSeverity('success');
-          reload();
-        }}
-      />
+      {isNursingHead && user?.employeeId && (
+        <SeminarProposalDialog
+          open={seminarOpen}
+          onClose={() => setSeminarOpen(false)}
+          employee={{
+            id: user.employeeId,
+            fullName: user.fullName ?? '',
+            departmentName: user.departmentName ?? undefined,
+            positionTitle: user.positionTitle ?? undefined,
+          }}
+          onSubmitted={() => {
+            setMsg('Đã gửi phiếu đề xuất hội thảo — chờ Giám đốc duyệt.');
+            setMsgSeverity('success');
+          }}
+        />
+      )}
 
       <WorkRequestDetailDialog
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
         request={detail}
         mode="mine"
-        onWithdraw={handleWithdraw}
-        withdrawLoading={withdrawLoading}
+        onChanged={reload}
       />
     </Box>
   );

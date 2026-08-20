@@ -1,4 +1,8 @@
 spring:
+  config:
+    # Local/dev: nạp bí mật từ backend/.env (đã bị Git bỏ qua).
+    # Khi chạy từ thư mục gốc dự án, vị trí thứ hai sẽ được sử dụng.
+    import: "optional:file:.env[.properties],optional:file:backend/.env[.properties]"
   application:
     name: minhan-hrm-api
   datasource:
@@ -32,7 +36,7 @@ server:
 minhan:
   hrm:
     cors:
-      allowed-origins: "http://localhost:5173,http://localhost:3000"
+      allowed-origins: "http://localhost:5173,http://localhost:3000,https://erp.benhvienminhan.com"
     jwt:
       secret: ${JWT_SECRET:change-me-in-production-use-long-random-secret-key-min-256-bits}
       # 8 giờ — khớp JWT ERP; hết hạn → 401 → đăng nhập lại
@@ -41,22 +45,46 @@ minhan:
       dir: ${UPLOAD_DIR:./data/uploads}
     import:
       default-employee-password: ${IMPORT_DEFAULT_PASSWORD:123}
+    auth:
+      # Một lần nếu admin cũ từ ERP không đăng nhập được: true → đặt lại Admin@123 rồi tắt lại
+      reset-admin-password: ${RESET_ADMIN_PASSWORD:false}
+    salary-access:
+      password: ${SALARY_ACCESS_PASSWORD:luongMA@123}
+      expiration-ms: ${SALARY_ACCESS_EXPIRATION_MS:1800000}
+    assistant:
+      enabled: ${HR_ASSISTANT_ENABLED:false}
+      # OpenAI-compatible base URL. Gemini AI Studio dùng .../v1beta/openai.
+      base-url: ${AI_BASE_URL:${OPENAI_BASE_URL:https://api.openai.com/v1}}
+      # Chỉ cấu hình ở biến môi trường backend, tuyệt đối không đưa sang VITE_*.
+      api-key: ${GROQ_API_KEY:${GEMINI_API_KEY:${OPENAI_API_KEY:}}}
+      model: ${HR_ASSISTANT_MODEL:${OPENAI_HR_ASSISTANT_MODEL:gpt-5.6-terra}}
+      fallback-model: ${HR_ASSISTANT_FALLBACK_MODEL:}
+      reasoning-effort: ${OPENAI_HR_ASSISTANT_REASONING_EFFORT:low}
+      max-tool-calls: ${HR_ASSISTANT_MAX_TOOL_CALLS:4}
+      max-rounds: ${HR_ASSISTANT_MAX_ROUNDS:5}
+      rate-limit-per-minute: ${HR_ASSISTANT_RATE_LIMIT_PER_MINUTE:15}
+      connect-timeout-seconds: ${HR_ASSISTANT_CONNECT_TIMEOUT_SECONDS:10}
+      read-timeout-seconds: ${HR_ASSISTANT_READ_TIMEOUT_SECONDS:45}
+    push:
+      enabled: ${FCM_PUSH_ENABLED:false}
+      credentials-path: ${FCM_CREDENTIALS_PATH:}
     erp-auth:
       base-url: ${ERP_AUTH_BASE_URL:https://erp.benhvienminhan.com}
       asset-base-url: ${ERP_ASSET_BASE_URL:http://192.168.8.16:3000}
       login-path: ${ERP_AUTH_LOGIN_PATH:/api/auth/login}
       profile-path: ${ERP_AUTH_PROFILE_PATH:/api/auth/profile}
+      trust-insecure-ssl: ${ERP_TRUST_INSECURE_SSL:true}
     chamcong:
       enabled: ${CHAMCONG_ENABLED:true}
       url: jdbc:sqlserver://${DB_SERVER:192.168.31.101}:${DB_PORT:1433};databaseName=${CHAMCONG_DATABASE:chamcong};encrypt=optional;trustServerCertificate=true
       username: ${DB_USER:sa}
-      password: ${DB_PASSWORD:323321@Vn}
+      password: ${DB_PASSWORD:345321@Vn}
       table: dbo.CheckInOut
       lookback-days: ${CHAMCONG_LOOKBACK_DAYS:7}
       auto-lookback-days: ${CHAMCONG_AUTO_LOOKBACK_DAYS:2}
       sync-cron: ${CHAMCONG_SYNC_CRON:0 * * * * *}
     sso:
-      enabled: ${SSO_ENABLED:true}
+      enabled: ${SSO_ENABLED:false}
       url: jdbc:sqlserver://${SSO_DB_SERVER:192.168.8.16}:${SSO_DB_PORT:1433};databaseName=${SSO_DATABASE:sso_db};encrypt=optional;trustServerCertificate=true
       username: ${SSO_DB_USER:sa}
       password: ${SSO_DB_PASSWORD:123@lrco}

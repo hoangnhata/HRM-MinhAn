@@ -15,14 +15,28 @@ import {
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useState } from 'react';
-import type { DepartmentOption, EmployeeSummary } from '../services/employeeService';
+import type { DepartmentOption, EmployeeStatusGroup, EmployeeSummary } from '../services/employeeService';
 
 export const EMPLOYEE_STATUS_OPTIONS = [
   { value: '', label: 'Tất cả trạng thái' },
-  { value: 'ACTIVE', label: 'Đang làm việc' },
+  { value: 'WORKING', label: 'Đang làm việc' },
+  { value: 'TRIAL', label: 'Thử việc / thực tập' },
+  { value: 'ACTIVE', label: 'Chính thức' },
   { value: 'ON_LEAVE', label: 'Nghỉ phép' },
   { value: 'TERMINATED', label: 'Đã nghỉ việc' },
 ] as const;
+
+/** Map giá trị dropdown → tham số API list employees. */
+export function employeeStatusQuery(filterStatus: string): {
+  status?: string;
+  statusGroup?: EmployeeStatusGroup;
+} {
+  if (!filterStatus) return {};
+  if (filterStatus === 'WORKING' || filterStatus === 'TRIAL' || filterStatus === 'OFFICIAL') {
+    return { statusGroup: filterStatus };
+  }
+  return { status: filterStatus };
+}
 
 export function formatEmployeeLabel(e: EmployeeSummary): string {
   return `${e.employeeCode ? `[${e.employeeCode}] ` : ''}${e.fullName}`;
@@ -40,6 +54,8 @@ type Props = {
   selected: number | '';
   onSelectedChange: (id: number) => void;
   defaultOpen?: boolean;
+  /** Trưởng khoa/ĐDT: khóa lọc phòng ban theo khoa mình */
+  deptFilterLocked?: boolean;
 };
 
 export function EmployeeFilterPanel({
@@ -54,6 +70,7 @@ export function EmployeeFilterPanel({
   selected,
   onSelectedChange,
   defaultOpen = true,
+  deptFilterLocked = false,
 }: Props) {
   const theme = useTheme();
   const [open, setOpen] = useState(defaultOpen);
@@ -140,8 +157,10 @@ export function EmployeeFilterPanel({
                 label="Phòng ban"
                 value={filterDept}
                 onChange={(e) => onFilterDeptChange(e.target.value === '' ? '' : Number(e.target.value))}
+                disabled={deptFilterLocked}
+                helperText={deptFilterLocked ? 'Chỉ khoa của bạn' : undefined}
               >
-                <MenuItem value="">Tất cả</MenuItem>
+                {!deptFilterLocked && <MenuItem value="">Tất cả</MenuItem>}
                 {departments.map((d) => (
                   <MenuItem key={d.id} value={d.id}>
                     {d.name}

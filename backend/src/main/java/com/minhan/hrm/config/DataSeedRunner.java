@@ -14,8 +14,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Seed 5 tài khoản hệ thống khi DB trống / thiếu admin (profile khác prod).
- * Nhân viên còn lại tạo qua import Excel — role theo khoa/chức vụ.
+ * Chỉ seed tài khoản quản trị trong môi trường không phải production.
+ * Mọi vai trò nghiệp vụ được ADMIN phân thủ công.
  */
 @Slf4j
 @Component
@@ -32,13 +32,9 @@ public class DataSeedRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         boolean createdAny = false;
         createdAny |= ensureAccount("admin", "Admin@123", "admin@minhan.vn", UserRole.ADMIN);
-        createdAny |= ensureAccount("hcns", "Hcns@123", "hcns@minhan.vn", UserRole.HR);
-        createdAny |= ensureAccount("truongkhoa", "Tk@12345", "truongkhoa@minhan.vn", UserRole.HEAD_DEPARTMENT);
-        createdAny |= ensureAccount("dieuduongtruong", "Ddt@12345", "ddt@minhan.vn", UserRole.HEAD_NURSING);
-        createdAny |= ensureAccount("giamdoc", "Giamdoc@123", "giamdoc@minhan.vn", UserRole.DIRECTOR);
 
         if (createdAny) {
-            log.info("Data seed accounts ready: admin / hcns / truongkhoa / dieuduongtruong / giamdoc");
+            log.info("Data seed account ready: admin");
         } else {
             log.info("Skip data seed — system accounts already exist");
         }
@@ -54,8 +50,9 @@ public class DataSeedRunner implements ApplicationRunner {
                 .passwordHash(passwordEncoder.encode(rawPassword))
                 .email(email)
                 .role(role)
+                .directorApprovalEnabled(role == UserRole.ADMIN || "giamdoc".equals(username))
                 .enabled(true)
-                .mustChangePassword(false)
+                .mustChangePassword(true)
                 .build());
         return true;
     }

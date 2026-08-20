@@ -3,11 +3,14 @@ package com.minhan.hrm.service;
 import com.minhan.hrm.attendance.AttendancePunchWindows;
 import com.minhan.hrm.attendance.AttendanceShiftSchedule;
 import com.minhan.hrm.dto.attendance.AttendanceShiftConfigUpdateRequest;
+import com.minhan.hrm.dto.attendance.ContinuousShiftDayAssignment;
 import com.minhan.hrm.entity.AttendanceShiftConfig;
 import com.minhan.hrm.entity.AttendanceShiftSeason;
 import com.minhan.hrm.entity.Employee;
 import com.minhan.hrm.entity.EmployeeAttendanceShiftConfig;
+import com.minhan.hrm.entity.EmployeeContinuousShiftDay;
 import com.minhan.hrm.entity.EmployeeStatus;
+import com.minhan.hrm.entity.UserRole;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.AttendanceShiftConfigRepository;
@@ -28,6 +31,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -67,6 +71,49 @@ public class AttendanceShiftScheduleService {
                 : employeeConfigRepository.findByEmployee_IdAndSeason(employeeId, season)
                         .map(cfg -> toSchedule(cfg, season == AttendanceShiftSeason.SUMMER))
                         .orElseGet(() -> toSchedule(requireConfig(season), season == AttendanceShiftSeason.SUMMER));
+        if (employeeId != null) {
+            Optional<EmployeeContinuousShiftDay> day = continuousShiftService.findDay(employeeId, date);
+            if (day.isPresent()) {
+                EmployeeContinuousShiftDay row = day.get();
+                var type = continuousShiftService.findType(row.getShiftTypeId()).orElse(null);
+                if (type != null && type.isSplit()
+                        && type.getMorningStart() != null && type.getMorningEnd() != null
+                        && type.getAfternoonStart() != null && type.getAfternoonEnd() != null) {
+                    AttendancePunchWindows current = base.punchWindows();
+                    AttendancePunchWindows windows = new AttendancePunchWindows(
+                            type.getCheckInBeforeMin(),
+                            type.getCheckInAfterMin(),
+                            type.getMorningOutBeforeMin() != null ? type.getMorningOutBeforeMin() : current.morningOutBeforeMin(),
+                            type.getMorningOutAfterMin() != null ? type.getMorningOutAfterMin() : current.morningOutAfterMin(),
+                            type.getAfternoonInBeforeMin() != null ? type.getAfternoonInBeforeMin() : current.afternoonInBeforeMin(),
+                            type.getAfternoonInAfterMin() != null ? type.getAfternoonInAfterMin() : current.afternoonInAfterMin(),
+                            type.getCheckOutBeforeMin(),
+                            type.getCheckOutAfterMin());
+                    base = base.withSplitTimes(
+                            type.getMorningStart(),
+                            type.getMorningEnd(),
+                            type.getAfternoonStart(),
+                            type.getAfternoonEnd(),
+                            windows);
+                } else {
+                    LocalTime start = row.getContinuousStart();
+                    LocalTime end = row.getContinuousEnd();
+                    if (start != null && end != null) {
+                        if (type != null) {
+                            base = base.withContinuousTimesAndPunchWindows(
+                                    start,
+                                    end,
+                                    type.getCheckInBeforeMin(),
+                                    type.getCheckInAfterMin(),
+                                    type.getCheckOutBeforeMin(),
+                                    type.getCheckOutAfterMin());
+                        } else {
+                            base = base.withContinuousTimes(start, end);
+                        }
+                    }
+                }
+            }
+        }
         if (employeeId != null && youngChildHoursService.isYoungChild(employeeId, date)) {
             return YoungChildHoursService.applyReduction(base);
         }
@@ -88,6 +135,12 @@ public class AttendanceShiftScheduleService {
             youngChild = youngChildHoursService.isYoungChild(employeeId, date);
             info.put("continuousShift", continuous);
             info.put("youngChild", youngChild);
+            continuousShiftService.findDay(employeeId, date).ifPresent(day -> {
+                continuousShiftService.findType(day.getShiftTypeId()).ifPresent(type -> {
+                    info.put("dayShiftKind", type.isSplit() ? "SPLIT" : "CONTINUOUS");
+                    info.put("dayShiftTypeName", type.getName());
+                });
+            });
             if (continuous) {
                 double continuousHours = schedule.continuousHours();
                 info.put("continuousLabel", youngChild
@@ -99,6 +152,9 @@ public class AttendanceShiftScheduleService {
                 info.put("effectiveDayHours", schedule.totalHours());
                 if (youngChild) {
                     info.put("youngChildLabel", "Nuôi con nhỏ · giảm 1 giờ/ngày (tối thiểu 7h = 1 công)");
+                }
+                if (Boolean.FALSE.equals(continuous) && continuousShiftService.hasDayAssignment(employeeId, date)) {
+                    info.put("splitDayLabel", "Ca sáng–chiều theo ngày (đi sớm về sớm, đủ công)");
                 }
             }
         } else {
@@ -165,6 +221,33 @@ public class AttendanceShiftScheduleService {
     public Map<String, Object> updateEmployeeSeasonConfig(
             Long employeeId, AttendanceShiftSeason season, AttendanceShiftConfigUpdateRequest req) {
         validateConfig(req);
+        applyEmployeeSeasonConfigInternal(employeeId, season, req);
+        return getEmployeeConfigAdminView(employeeId);
+    }
+
+    /**
+     * Ghi đè ca sáng/chiều theo đơn đã duyệt (HR2 gọi qua service đơn — không qua PreAuthorize ADMIN/HR).
+     * Giữ continuous + punch windows từ cấu hình NV hiện tại hoặc global.
+     */
+    @Transactional
+    public void applyMorningAfternoonFromApprovedRequest(
+            Long employeeId,
+            AttendanceShiftSeason season,
+            LocalTime morningStart,
+            LocalTime morningEnd,
+            LocalTime afternoonStart,
+            LocalTime afternoonEnd,
+            BigDecimal morningUnits,
+            BigDecimal afternoonUnits) {
+        AttendanceShiftConfigUpdateRequest req = buildUpdateKeepingContinuousAndPunch(
+                employeeId, season, morningStart, morningEnd, afternoonStart, afternoonEnd,
+                morningUnits, afternoonUnits);
+        validateConfig(req);
+        applyEmployeeSeasonConfigInternal(employeeId, season, req);
+    }
+
+    private void applyEmployeeSeasonConfigInternal(
+            Long employeeId, AttendanceShiftSeason season, AttendanceShiftConfigUpdateRequest req) {
         Employee employee = employeeService.requireEmployeeEntity(employeeId);
         EmployeeAttendanceShiftConfig cfg = employeeConfigRepository
                 .findByEmployee_IdAndSeason(employeeId, season)
@@ -174,7 +257,54 @@ public class AttendanceShiftScheduleService {
                         .build());
         applyRequest(cfg, req);
         employeeConfigRepository.save(cfg);
-        return getEmployeeConfigAdminView(employeeId);
+    }
+
+    private AttendanceShiftConfigUpdateRequest buildUpdateKeepingContinuousAndPunch(
+            Long employeeId,
+            AttendanceShiftSeason season,
+            LocalTime morningStart,
+            LocalTime morningEnd,
+            LocalTime afternoonStart,
+            LocalTime afternoonEnd,
+            BigDecimal morningUnits,
+            BigDecimal afternoonUnits) {
+        Optional<EmployeeAttendanceShiftConfig> existing =
+                employeeConfigRepository.findByEmployee_IdAndSeason(employeeId, season);
+        AttendanceShiftConfig global = requireConfig(season);
+
+        LocalTime continuousStart = existing.map(EmployeeAttendanceShiftConfig::getContinuousStart)
+                .orElseGet(() -> global.getContinuousStart() != null
+                        ? global.getContinuousStart() : global.getMorningStart());
+        LocalTime continuousEnd = existing.map(EmployeeAttendanceShiftConfig::getContinuousEnd)
+                .orElseGet(() -> global.getContinuousEnd() != null
+                        ? global.getContinuousEnd() : global.getAfternoonEnd());
+
+        AttendanceShiftConfigUpdateRequest req = new AttendanceShiftConfigUpdateRequest();
+        req.setMorningStart(morningStart);
+        req.setMorningEnd(morningEnd);
+        req.setAfternoonStart(afternoonStart);
+        req.setAfternoonEnd(afternoonEnd);
+        req.setContinuousStart(continuousStart);
+        req.setContinuousEnd(continuousEnd);
+        req.setMorningUnits(morningUnits);
+        req.setAfternoonUnits(afternoonUnits);
+        req.setMorningInBeforeMin(existing.map(EmployeeAttendanceShiftConfig::getMorningInBeforeMin)
+                .orElse(global.getMorningInBeforeMin()));
+        req.setMorningInAfterMin(existing.map(EmployeeAttendanceShiftConfig::getMorningInAfterMin)
+                .orElse(global.getMorningInAfterMin()));
+        req.setMorningOutBeforeMin(existing.map(EmployeeAttendanceShiftConfig::getMorningOutBeforeMin)
+                .orElse(global.getMorningOutBeforeMin()));
+        req.setMorningOutAfterMin(existing.map(EmployeeAttendanceShiftConfig::getMorningOutAfterMin)
+                .orElse(global.getMorningOutAfterMin()));
+        req.setAfternoonInBeforeMin(existing.map(EmployeeAttendanceShiftConfig::getAfternoonInBeforeMin)
+                .orElse(global.getAfternoonInBeforeMin()));
+        req.setAfternoonInAfterMin(existing.map(EmployeeAttendanceShiftConfig::getAfternoonInAfterMin)
+                .orElse(global.getAfternoonInAfterMin()));
+        req.setAfternoonOutBeforeMin(existing.map(EmployeeAttendanceShiftConfig::getAfternoonOutBeforeMin)
+                .orElse(global.getAfternoonOutBeforeMin()));
+        req.setAfternoonOutAfterMin(existing.map(EmployeeAttendanceShiftConfig::getAfternoonOutAfterMin)
+                .orElse(global.getAfternoonOutAfterMin()));
+        return req;
     }
 
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
@@ -200,29 +330,55 @@ public class AttendanceShiftScheduleService {
         return Map.of("updatedEmployees", updated, "season", season.name());
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     @Transactional
     public Map<String, Object> setEmployeeContinuousShift(
-            Long employeeId, int year, int month, Boolean continuousShift, List<LocalDate> dates) {
-        employeeService.requireEmployeeEntity(employeeId);
+            Long employeeId,
+            int year,
+            int month,
+            Boolean continuousShift,
+            List<LocalDate> dates,
+            List<ContinuousShiftDayAssignment> days) {
+        var employee = employeeService.requireEmployeeEntity(employeeId);
+        var current = employeeService.currentUser();
+        if (!EmployeeService.isHr2Role(current)) {
+            employeeService.assertCanAccessEmployee(employee);
+        }
         if (month < 1 || month > 12) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Tháng không hợp lệ");
         }
-        List<LocalDate> saved;
-        if (dates != null) {
-            saved = continuousShiftService.replaceMonthDates(employeeId, year, month, dates);
+        List<EmployeeContinuousShiftDay> savedRows;
+        if (days != null) {
+            savedRows = continuousShiftService.replaceMonthAssignments(employeeId, year, month, days);
+        } else if (dates != null) {
+            continuousShiftService.replaceMonthDates(employeeId, year, month, dates);
+            savedRows = continuousShiftService.daysInMonth(employeeId, year, month);
         } else if (continuousShift != null) {
             continuousShiftService.setContinuousShiftMonth(employeeId, year, month, continuousShift);
-            saved = continuousShiftService.datesInMonth(employeeId, year, month);
+            savedRows = continuousShiftService.daysInMonth(employeeId, year, month);
         } else {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cần gửi danh sách ngày hoặc cờ continuousShift");
         }
+        List<LocalDate> saved = savedRows.stream()
+                .map(EmployeeContinuousShiftDay::getWorkDate)
+                .sorted()
+                .toList();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("employeeId", employeeId);
         result.put("periodYear", year);
         result.put("periodMonth", month);
         result.put("dates", saved.stream().map(LocalDate::toString).toList());
-        result.put("continuousShift", !saved.isEmpty());
+        List<Map<String, Object>> dayMaps = continuousShiftService.dayMapsInMonth(employeeId, year, month);
+        result.put("days", dayMaps);
+        result.put("continuousShift", dayMaps.stream().anyMatch(d -> !"SPLIT".equals(d.get("kind"))));
+        result.put("continuousDates", dayMaps.stream()
+                .filter(d -> !"SPLIT".equals(d.get("kind")))
+                .map(d -> (String) d.get("date"))
+                .toList());
+        result.put("splitDates", dayMaps.stream()
+                .filter(d -> "SPLIT".equals(d.get("kind")))
+                .map(d -> (String) d.get("date"))
+                .toList());
         result.put("dayCount", saved.size());
         return result;
     }
@@ -230,17 +386,28 @@ public class AttendanceShiftScheduleService {
     @PreAuthorize("isAuthenticated()")
     @Transactional(readOnly = true)
     public Map<String, Object> getEmployeeContinuousShiftDays(Long employeeId, int year, int month) {
-        employeeService.requireEmployeeEntity(employeeId);
+        var employee = employeeService.requireEmployeeEntity(employeeId);
+        employeeService.assertCanAccessEmployee(employee);
         if (month < 1 || month > 12) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Tháng không hợp lệ");
         }
-        List<LocalDate> dates = continuousShiftService.datesInMonth(employeeId, year, month);
+        List<Map<String, Object>> days = continuousShiftService.dayMapsInMonth(employeeId, year, month);
+        List<String> dates = days.stream().map(d -> (String) d.get("date")).toList();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("employeeId", employeeId);
         result.put("periodYear", year);
         result.put("periodMonth", month);
-        result.put("dates", dates.stream().map(LocalDate::toString).toList());
-        result.put("continuousShift", !dates.isEmpty());
+        result.put("dates", dates);
+        result.put("days", days);
+        result.put("continuousShift", days.stream().anyMatch(d -> !"SPLIT".equals(d.get("kind"))));
+        result.put("continuousDates", days.stream()
+                .filter(d -> !"SPLIT".equals(d.get("kind")))
+                .map(d -> (String) d.get("date"))
+                .toList());
+        result.put("splitDates", days.stream()
+                .filter(d -> "SPLIT".equals(d.get("kind")))
+                .map(d -> (String) d.get("date"))
+                .toList());
         result.put("dayCount", dates.size());
         return result;
     }
@@ -248,16 +415,13 @@ public class AttendanceShiftScheduleService {
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
     public Map<String, Object> setEmployeeYoungChild(
-            Long employeeId, int year, int month, boolean youngChild) {
+            Long employeeId, LocalDate effectiveDate, boolean youngChild) {
         employeeService.requireEmployeeEntity(employeeId);
-        if (month < 1 || month > 12) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Tháng không hợp lệ");
-        }
-        youngChildHoursService.setYoungChildMonth(employeeId, year, month, youngChild);
+        LocalDate appliedDate = effectiveDate != null ? effectiveDate : LocalDate.now();
+        youngChildHoursService.setYoungChildOpenEnded(employeeId, appliedDate, youngChild);
         return Map.of(
                 "employeeId", employeeId,
-                "periodYear", year,
-                "periodMonth", month,
+                "effectiveDate", appliedDate.toString(),
                 "youngChild", youngChild);
     }
 

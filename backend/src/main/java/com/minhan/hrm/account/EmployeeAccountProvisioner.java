@@ -68,45 +68,15 @@ public class EmployeeAccountProvisioner {
     }
 
     /**
-     * Gán role theo khoa/chức vụ khi import. Không đổi role ADMIN hoặc các tài khoản hệ thống.
+     * Import nhân sự không tự phân quyền. Vai trò HCNS, trưởng khoa/phòng,
+     * điều dưỡng trưởng và giám đốc chỉ được gán thủ công sau khi có tài khoản.
      */
     public void applyImportRole(UserAccount user, Department department, Position position) {
-        if (user == null || user.getRole() == UserRole.ADMIN) {
-            return;
-        }
-        String u = user.getUsername() != null ? user.getUsername().toLowerCase(Locale.ROOT) : "";
-        if (u.equals("admin") || u.equals("giamdoc") || u.equals("hcns")
-                || u.equals("truongkhoa") || u.equals("dieuduongtruong")) {
-            return;
-        }
-        user.setRole(resolveImportRole(department, position));
+        // Cố ý không làm gì để không ghi đè vai trò do ADMIN đã phân.
     }
 
     public UserRole resolveImportRole(Department department, Position position) {
-        String dept = fold(department != null ? department.getName() : null);
-        String deptCode = department != null && department.getCode() != null
-                ? department.getCode().trim().toUpperCase(Locale.ROOT) : "";
-        String title = fold(position != null ? position.getTitle() : null);
-
-        // Chức vụ ưu tiên trước khoa
-        if (matchesDirector(title) || matchesDirector(dept)) {
-            return UserRole.DIRECTOR;
-        }
-        if (title.contains("dieu duong truong") || title.contains("ddt")) {
-            return UserRole.HEAD_NURSING;
-        }
-        if (title.contains("truong khoa")
-                || title.contains("truong phong")
-                || title.contains("truong bo phan")
-                || title.contains("truong don vi")) {
-            return UserRole.HEAD_DEPARTMENT;
-        }
-        if ("HCNS".equals(deptCode)
-                || dept.contains("hanh chinh") && (dept.contains("nhan su") || dept.contains("hcns"))
-                || dept.contains("phong hcns")
-                || dept.equals("hcns")) {
-            return UserRole.HR;
-        }
+        // Tài khoản mới luôn bắt đầu là nhân viên; ADMIN sẽ phân quyền khi cần.
         return UserRole.EMPLOYEE;
     }
 
@@ -119,6 +89,23 @@ public class EmployeeAccountProvisioner {
             return false;
         }
         return folded.contains("giam doc") || folded.equals("gd");
+    }
+
+    public static boolean isNursingHead(UserAccount user) {
+        if (user == null) {
+            return false;
+        }
+        if (user.getEmployee() != null && user.getEmployee().getPosition() != null
+                && isNursingHeadTitle(fold(user.getEmployee().getPosition().getTitle()))) {
+            return true;
+        }
+        // Tài khoản seed không gắn hồ sơ nhân viên.
+        return "dieuduongtruong".equalsIgnoreCase(user.getUsername());
+    }
+
+    public static boolean isNursingHeadTitle(String title) {
+        String normalized = fold(title);
+        return normalized.contains("dieu duong") || normalized.contains("ddt");
     }
 
     private static String fold(String s) {

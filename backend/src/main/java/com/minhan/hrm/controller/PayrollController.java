@@ -24,21 +24,21 @@ public class PayrollController {
     private final PayrollService payrollService;
 
     @GetMapping("/employees/{employeeId}")
-    @Operation(summary = "Bảng lương theo nhân viên (ADMIN hoặc chính NV)")
+    @Operation(summary = "Bảng lương theo nhân viên (ADMIN/HCNS 1 hoặc chính NV)")
     public List<Map<String, Object>> forEmployee(@PathVariable Long employeeId) {
         return payrollService.listForEmployee(employeeId);
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Toàn bộ bảng lương (ADMIN)")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Toàn bộ bảng lương (ADMIN/HCNS 1)")
     public List<Map<String, Object>> all() {
         return payrollService.listAll();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Operation(summary = "Tạo / cập nhật kỳ lương")
     public Map<String, Object> upsert(@Valid @RequestBody PayrollRequest request) {
         return payrollService.upsert(request);
@@ -46,7 +46,7 @@ public class PayrollController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     public void delete(@PathVariable Long id) {
         payrollService.delete(id);
     }

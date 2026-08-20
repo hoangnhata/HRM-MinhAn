@@ -74,6 +74,33 @@ public class FileStorageService {
         return resolved;
     }
 
+    /** Lưu ảnh PNG/JPEG chữ ký — trả về đường dẫn tương đối. */
+    public String storeImageBytes(byte[] data, String contentType, String subdirectory, String filePrefix) {
+        if (data == null || data.length == 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Ảnh rỗng");
+        }
+        if (data.length > 2 * 1024 * 1024) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Ảnh chữ ký tối đa 2MB");
+        }
+        String ct = contentType != null ? contentType.toLowerCase(Locale.ROOT) : "image/png";
+        String ext = ct.contains("jpeg") || ct.contains("jpg") ? ".jpg" : ".png";
+        try {
+            Path base = Paths.get(hrmProperties.getUpload().getDir()).toAbsolutePath().normalize();
+            Path dir = base.resolve(subdirectory).normalize();
+            if (!dir.startsWith(base)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Đường dẫn không hợp lệ");
+            }
+            Files.createDirectories(dir);
+            String storedName = (filePrefix != null ? filePrefix : UUID.randomUUID().toString()) + ext;
+            Path target = dir.resolve(storedName);
+            Files.write(target, data);
+            return base.relativize(target).toString().replace('\\', '/');
+        } catch (IOException e) {
+            log.error("Lưu ảnh chữ ký thất bại", e);
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể lưu chữ ký");
+        }
+    }
+
     private static String sanitize(String name) {
         return name.replaceAll("[^a-zA-Z0-9._-]", "_");
     }

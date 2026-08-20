@@ -9,10 +9,13 @@ import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import PaymentsIcon from '@mui/icons-material/Payments';
+import PriceCheckOutlinedIcon from '@mui/icons-material/PriceCheckOutlined';
 import PeopleIcon from '@mui/icons-material/People';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
+import DrawIcon from '@mui/icons-material/Draw';
 import DashboardIcon from '@mui/icons-material/SpaceDashboard';
 import TableChartIcon from '@mui/icons-material/TableChart';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
 import {
   AppBar,
@@ -39,20 +42,26 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { NotificationPopover } from '../components/layout/NotificationPopover';
+import { HrAssistantWidget } from '../components/assistant/HrAssistantWidget';
 import { APP_CONTENT_MAX_WIDTH_PX } from '../constants/layout';
 import { useAuth } from '../context/AuthContext';
 import * as notificationService from '../services/notificationService';
 import { getRoleLabel } from '../utils/roleLabels';
+import { LOGO_SRC } from '../utils/publicAsset';
 
 const drawerWidth = 256;
-const LOGO_SRC = '/logo.png';
 
 /** Khớp chiều cao Toolbar — Drawer bắt đầu ngay dưới AppBar, không cắt nội dung */
 const toolbarOffset = { xs: '56px', sm: '64px' };
 
-const ALL_STAFF = ['ADMIN', 'EMPLOYEE', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING', 'DIRECTOR'] as const;
-const ADMIN_HR = ['ADMIN', 'HR'] as const;
+const ALL_STAFF = ['ADMIN', 'EMPLOYEE', 'HR', 'HR2', 'HEAD_DEPARTMENT', 'HEAD_HR', 'HEAD_NURSING', 'DIRECTOR'] as const;
 const ADMIN_HR_HEADS = ['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
+/** Quản lý bảng công nhiều NV — menu «Công» */
+const WORK_MANAGERS = ['ADMIN', 'HR', 'HR2', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
+/** Xem công cá nhân — menu «Công của tôi» */
+const WORK_SELF_ROLES = ['EMPLOYEE', 'DIRECTOR', 'ADMIN', 'HR', 'HR2', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
+const SALARY_MANAGERS = ['ADMIN', 'HR'] as const;
+const REPORT_VIEWERS = ['ADMIN', 'HR', 'HR2', 'DIRECTOR', 'REPORT_VIEWER'] as const;
 
 const EMPLOYEE_CATEGORY_PATHS = ['/employees/official', '/employees/trial', '/employees/terminated'] as const;
 
@@ -101,7 +110,7 @@ const NAV_ENTRIES: NavEntry[] = [
           to: '/departments',
           label: 'Phòng ban',
           icon: <ApartmentIcon fontSize="small" />,
-          roles: ['ADMIN', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const,
+          roles: ['ADMIN', 'HR'] as const,
         },
         {
           kind: 'submenu',
@@ -121,18 +130,23 @@ const NAV_ENTRIES: NavEntry[] = [
   {
     kind: 'group',
     group: {
-      id: 'work',
-      label: 'Công & đơn',
-      icon: <WorkOutlineIcon fontSize="small" />,
+      id: 'reports',
+      label: 'Báo cáo',
+      icon: <AssessmentIcon fontSize="small" />,
       children: [
-        { kind: 'link', to: '/work', label: 'Công', icon: <EventNoteIcon fontSize="small" />, roles: ALL_STAFF },
-        { kind: 'link', to: '/requests', label: 'Đơn', icon: <DescriptionIcon fontSize="small" />, roles: ALL_STAFF },
         {
           kind: 'link',
-          to: '/evaluations',
-          label: 'Đánh giá & xếp loại',
-          icon: <AssessmentIcon fontSize="small" />,
-          roles: ALL_STAFF,
+          to: '/reports/hospital-workforce',
+          label: 'Nhân lực toàn viện',
+          icon: <GroupsIcon fontSize="small" />,
+          roles: REPORT_VIEWERS,
+        },
+        {
+          kind: 'link',
+          to: '/reports/daily-workforce',
+          label: 'Nhân lực đi làm hằng ngày',
+          icon: <EventNoteIcon fontSize="small" />,
+          roles: REPORT_VIEWERS,
         },
       ],
     },
@@ -144,12 +158,65 @@ const NAV_ENTRIES: NavEntry[] = [
       label: 'Lương',
       icon: <PaymentsIcon fontSize="small" />,
       children: [
-        { kind: 'link', to: '/salary', label: 'Bảng lương', icon: <PaymentsIcon fontSize="small" />, roles: ALL_STAFF },
+        {
+          kind: 'link',
+          to: '/salary',
+          label: 'Thông tin lương',
+          icon: <PaymentsIcon fontSize="small" />,
+          roles: SALARY_MANAGERS,
+        },
+        {
+          kind: 'link',
+          to: '/salary/me',
+          label: 'Thông tin lương của tôi',
+          icon: <PersonOutlineIcon fontSize="small" />,
+          roles: ALL_STAFF,
+        },
         {
           kind: 'link',
           to: '/salary-scales',
           label: 'Thang bảng lương',
           icon: <TableChartIcon fontSize="small" />,
+          roles: SALARY_MANAGERS,
+        },
+        {
+          kind: 'link',
+          to: '/salary-grade-reviews',
+          label: 'Nâng bậc lương',
+          icon: <TrendingUpIcon fontSize="small" />,
+          roles: SALARY_MANAGERS,
+        },
+        {
+          kind: 'link',
+          to: '/salary-scales/me',
+          label: 'Thang bảng lương của tôi',
+          icon: <PriceCheckOutlinedIcon fontSize="small" />,
+          roles: ALL_STAFF,
+        },
+      ],
+    },
+  },
+  {
+    kind: 'group',
+    group: {
+      id: 'work',
+      label: 'Công & đơn',
+      icon: <WorkOutlineIcon fontSize="small" />,
+      children: [
+        { kind: 'link', to: '/work', label: 'Công', icon: <EventNoteIcon fontSize="small" />, roles: WORK_MANAGERS },
+        {
+          kind: 'link',
+          to: '/work/me',
+          label: 'Công của tôi',
+          icon: <PersonOutlineIcon fontSize="small" />,
+          roles: WORK_SELF_ROLES,
+        },
+        { kind: 'link', to: '/requests', label: 'Đơn', icon: <DescriptionIcon fontSize="small" />, roles: ALL_STAFF },
+        {
+          kind: 'link',
+          to: '/evaluations',
+          label: 'Đánh giá & xếp loại',
+          icon: <AssessmentIcon fontSize="small" />,
           roles: ALL_STAFF,
         },
       ],
@@ -183,6 +250,13 @@ function headerAvatar(name: string, imageUrl?: string | null) {
 
 function pathActive(pathname: string, path: string): boolean {
   if (path === '/') return pathname === '/';
+  // /work và /work/me là hai mục riêng
+  if (path === '/work' || path === '/work/me'
+      || path === '/salary' || path === '/salary/me'
+      || path === '/salary-scales' || path === '/salary-scales/me'
+      || path === '/salary-grade-reviews') {
+    return pathname === path;
+  }
   if ((EMPLOYEE_CATEGORY_PATHS as readonly string[]).includes(path)) {
     return pathname === path;
   }
@@ -238,19 +312,31 @@ export function MainLayout() {
 
   const visibleEntries = useMemo(() => {
     if (!user) return [];
+    const role = String(user.role || '').toUpperCase();
+    const effectiveRoles = new Set<string>([role]);
+    if (role === 'HEAD_HR') {
+      effectiveRoles.add('HEAD_DEPARTMENT');
+      effectiveRoles.add('HR2');
+    }
+    if (user.reportViewEnabled) effectiveRoles.add('REPORT_VIEWER');
+    const roleMatch = (roles: readonly string[]) => roles.some((r) => effectiveRoles.has(r));
+    const canViewSalaryMenu = user.canViewSalary !== false;
     return NAV_ENTRIES.map((entry) => {
       if (entry.kind === 'link') {
-        return (entry.item.roles as readonly string[]).includes(user.role) ? entry : null;
+        return roleMatch(entry.item.roles) ? entry : null;
       }
       const children = entry.group.children
         .map((child) => {
           if (child.kind === 'link') {
-            return (child.roles as readonly string[]).includes(user.role) ? child : null;
+            if (!canViewSalaryMenu && entry.group.id === 'salary') {
+              return null;
+            }
+            return roleMatch(child.roles) ? child : null;
           }
-          if (!(child.roles as readonly string[]).includes(user.role)) {
+          if (!roleMatch(child.roles)) {
             return null;
           }
-          const subs = child.children.filter((c) => (c.roles as readonly string[]).includes(user.role));
+          const subs = child.children.filter((c) => roleMatch(c.roles));
           if (subs.length === 0) return null;
           return { ...child, children: subs };
         })
@@ -688,7 +774,8 @@ export function MainLayout() {
                               fontWeight: active ? navLabel.fontWeightActive : navLabel.fontWeight,
                               fontSize: navLabel.fontSize,
                               letterSpacing: navLabel.letterSpacing,
-                              noWrap: true,
+                              noWrap: child.to !== '/salary-scales/me',
+                              lineHeight: child.to === '/salary-scales/me' ? 1.35 : undefined,
                             }}
                           />
                         </ListItemButton>
@@ -914,7 +1001,7 @@ export function MainLayout() {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {getRoleLabel(user?.role)}
+                    {getRoleLabel(user?.role, user?.positionTitle)}
                   </Typography>
                 </Box>
                 <KeyboardArrowDownRoundedIcon
@@ -944,6 +1031,12 @@ export function MainLayout() {
                   <PersonOutlineIcon fontSize="small" />
                 </ListItemIcon>
                 Trang cá nhân
+              </MenuItem>
+              <MenuItem component={Link} to="/signature" onClick={() => setUserMenuAnchor(null)}>
+                <ListItemIcon>
+                  <DrawIcon fontSize="small" />
+                </ListItemIcon>
+                Chữ ký số
               </MenuItem>
               {user?.role === 'ADMIN' && (
                 <MenuItem
@@ -1026,6 +1119,7 @@ export function MainLayout() {
           <Outlet />
         </Box>
       </Box>
+      <HrAssistantWidget />
     </Box>
   );
 }

@@ -1,0 +1,3 @@
+-- HR hiện tại được giữ lại và hiển thị là HCNS 1.
+-- HR2 là HCNS 2, chuyên xử lý các bước duyệt đơn của phòng HCNS.
+-- Cột role dùng VARCHAR nên không cần thay đổi cấu trúc bảng.

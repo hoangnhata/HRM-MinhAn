@@ -1,6 +1,7 @@
 package com.minhan.hrm.repository;
 
 import com.minhan.hrm.entity.Notification;
+import com.minhan.hrm.entity.NotificationCategory;
 import com.minhan.hrm.entity.UserAccount;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -22,4 +23,6 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     void clearRelatedEmployee(@Param("employeeId") Long employeeId);
 
     void deleteByUser_Id(Long userId);
+
+    void deleteByCategoryAndRelatedRequestId(NotificationCategory category, Long relatedRequestId);
 }

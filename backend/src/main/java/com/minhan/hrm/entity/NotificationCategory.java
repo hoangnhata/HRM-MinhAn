@@ -16,5 +16,15 @@ public enum NotificationCategory {
     /** Chuyển thử việc / thực tập lên chính thức */
     PROBATION_CONVERSION,
     /** Đề xuất chế độ nuôi con nhỏ — chờ HCNS duyệt */
-    YOUNG_CHILD
+    YOUNG_CHILD,
+    /** Phiếu đề xuất cử CBNV đào tạo / bồi dưỡng */
+    TRAINING_PROPOSAL,
+    /** Phiếu đề xuất cử CBNV tham gia hội thảo */
+    SEMINAR_PROPOSAL,
+    /** Đơn đề nghị chuyển từ trực kèm lên trực chính */
+    MAIN_DUTY_AUTHORIZATION,
+    /** Đề xuất chỉnh cấu hình ca sáng/chiều — chờ HCNS duyệt */
+    SHIFT_CONFIG_CHANGE,
+    /** Đánh giá NV khối ĐD — chờ HCNS / Giám đốc duyệt */
+    NURSING_EVALUATION
 }

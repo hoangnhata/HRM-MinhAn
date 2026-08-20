@@ -21,6 +21,8 @@ public class EmployeeSummaryDto {
     String positionTitle;
     UserRole role;
     EmployeeStatus status;
+    /** FULL_TIME / PART_TIME */
+    String employmentType;
     LocalDate hireDate;
     /** Ngày bắt đầu thử việc / thực tập (nếu có). */
     LocalDate probationStartDate;
@@ -32,4 +34,8 @@ public class EmployeeSummaryDto {
     String insuranceParticipation;
     /** Đang nghỉ thai sản (theo cột tham gia BHXH). */
     Boolean maternityLeave;
+    /** Đang đi đào tạo / bồi dưỡng. */
+    Boolean onTraining;
+    /** Đã được duyệt đơn trực chính. */
+    Boolean mainDutyAuthorized;
 }

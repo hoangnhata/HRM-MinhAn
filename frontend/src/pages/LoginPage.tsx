@@ -12,8 +12,8 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-
-const LOGO_SRC = '/logo.png';
+import { getStoredUser } from '../utils/storage';
+import { LOGO_SRC } from '../utils/publicAsset';
 
 export default function LoginPage() {
   const theme = useTheme();
@@ -33,11 +33,18 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username, password);
-      nav(from, { replace: true });
+      const u = getStoredUser();
+      if (u?.mustChangePassword) {
+        nav('/change-password-required', { replace: true });
+      } else if (u?.mustSetSignature) {
+        nav('/signature-required', { replace: true });
+      } else {
+        nav(from, { replace: true });
+      }
     } catch (e: unknown) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Đăng nhập thất bại. Kiểm tra số điện thoại hoặc mật khẩu.';
+        'Đăng nhập thất bại. Kiểm tra tên đăng nhập hoặc mật khẩu.';
       setErr(msg);
     } finally {
       setLoading(false);
@@ -64,11 +71,11 @@ export default function LoginPage() {
           src={LOGO_SRC}
           alt="Bệnh viện Minh An"
           sx={{
-            width: 56,
-            height: 56,
+            width: 72,
+            height: 72,
             borderRadius: '50%',
             bgcolor: 'white',
-            p: 0.75,
+            p: 0.5,
             objectFit: 'contain',
             boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
           }}
@@ -115,13 +122,13 @@ export default function LoginPage() {
               src={LOGO_SRC}
               alt="Bệnh viện Minh An"
               sx={{
-                width: 140,
-                height: 140,
+                width: 200,
+                height: 200,
                 mx: 'auto',
-                mb: 3,
+                mb: 3.5,
                 borderRadius: '50%',
                 bgcolor: 'white',
-                p: 1.5,
+                p: 0.75,
                 objectFit: 'contain',
                 boxShadow: `0 12px 40px ${alpha('#000', 0.25)}`,
               }}
@@ -172,7 +179,7 @@ export default function LoginPage() {
                   Đăng nhập
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
-                  Dùng tài khoản nội bộ được cấp bởi phòng nhân sự.
+                  Đăng nhập bằng tài khoản HRM (username hoặc số điện thoại). Lần đầu sẽ yêu cầu đổi mật khẩu và tạo chữ ký số.
                 </Typography>
                 {err && (
                   <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
@@ -181,8 +188,8 @@ export default function LoginPage() {
                 )}
                 <Box component="form" onSubmit={onSubmit}>
                   <TextField
-                    label="Số điện thoại"
-                    placeholder="VD: 849xxxxxxxx"
+                    label="Tên đăng nhập hoặc SĐT"
+                    placeholder="VD: admin hoặc 09xxxxxxxx"
                     fullWidth
                     margin="normal"
                     value={username}

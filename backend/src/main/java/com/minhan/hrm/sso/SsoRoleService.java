@@ -87,9 +87,9 @@ public class SsoRoleService {
         Map<String, String> seed = Map.of(
                 "ADMIN", "Quản trị hệ thống",
                 "EMPLOYEE", "Nhân viên",
-                "HR", "Hành chính nhân sự",
-                "HEAD_DEPARTMENT", "Trưởng khoa / phòng",
-                "HEAD_NURSING", "Điều dưỡng trưởng",
+                "HR", "HCNS 1",
+                "HR2", "HCNS 2",
+                "HEAD_DEPARTMENT", "Trưởng khoa / Điều dưỡng trưởng",
                 "DIRECTOR", "Giám đốc");
         for (var e : seed.entrySet()) {
             Integer existing = jdbc.query(
@@ -109,6 +109,39 @@ public class SsoRoleService {
                         e.getValue(), existing);
             }
         }
+        // Hợp nhất dữ liệu SSO cũ: tránh trùng trước khi chuyển toàn bộ gán quyền.
+        jdbc.update("""
+                DELETE old_uar
+                FROM dbo.UserAppRoles old_uar
+                INNER JOIN dbo.Roles old_role ON old_role.RoleId = old_uar.RoleId
+                WHERE old_role.AppCode = ?
+                  AND old_role.RoleCode = N'HEAD_NURSING'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM dbo.UserAppRoles new_uar
+                      INNER JOIN dbo.Roles new_role ON new_role.RoleId = new_uar.RoleId
+                      WHERE new_uar.AccountId = old_uar.AccountId
+                        AND new_uar.AppCode = old_uar.AppCode
+                        AND new_role.AppCode = ?
+                        AND new_role.RoleCode = N'HEAD_DEPARTMENT'
+                  )
+                """, app, app);
+        jdbc.update("""
+                UPDATE uar
+                SET RoleId = new_role.RoleId
+                FROM dbo.UserAppRoles uar
+                INNER JOIN dbo.Roles old_role ON old_role.RoleId = uar.RoleId
+                CROSS JOIN dbo.Roles new_role
+                WHERE old_role.AppCode = ?
+                  AND old_role.RoleCode = N'HEAD_NURSING'
+                  AND new_role.AppCode = ?
+                  AND new_role.RoleCode = N'HEAD_DEPARTMENT'
+                """, app, app);
+        jdbc.update("""
+                UPDATE dbo.Roles
+                SET IsActive = 0
+                WHERE AppCode = ? AND RoleCode = N'HEAD_NURSING'
+                """, app);
         log.info("SSO schema ready — {} roles for AppCode={}", seed.size(), app);
     }
 
@@ -162,7 +195,7 @@ public class SsoRoleService {
                 """
                 SELECT RoleId, AppCode, RoleCode, RoleName, IsActive
                 FROM dbo.Roles
-                WHERE AppCode = ?
+                WHERE AppCode = ? AND IsActive = 1
                 ORDER BY RoleCode
                 """,
                 (rs, i) -> SsoRoleCatalogDto.builder()
@@ -187,6 +220,8 @@ public class SsoRoleService {
                     ua.AccountId,
                     ua.LoginPhone,
                     ua.UserEnrollNumber,
+                    ua.RoleId,
+                    ua.roleId_ts,
                     r.RoleCode,
                     r.RoleName,
                     uar.AppCode
@@ -212,6 +247,8 @@ public class SsoRoleService {
                         .loginPhone(rs.getString("LoginPhone"))
                         .userEnrollNumber(rs.getObject("UserEnrollNumber") != null
                                 ? rs.getInt("UserEnrollNumber") : null)
+                        .roleId(rs.getObject("RoleId") != null ? rs.getInt("RoleId") : null)
+                        .roleIdTs(rs.getObject("roleId_ts") != null ? rs.getInt("roleId_ts") : null)
                         .roleCode(rs.getString("RoleCode"))
                         .roleName(rs.getString("RoleName"))
                         .appCode(rs.getString("AppCode") != null ? rs.getString("AppCode") : app)
@@ -316,6 +353,79 @@ public class SsoRoleService {
         }
         return findHrmRoleByAccountId(accountId)
                 .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Gán role thất bại"));
+    }
+
+    private static final java.util.Set<Integer> VALID_ERP_ROLE_IDS = java.util.Set.of(1, 2, 3);
+    private static final java.util.Set<Integer> VALID_ASSET_ROLE_IDS = java.util.Set.of(1, 2, 3, 4);
+
+    /** Cập nhật vai trò ERP (UserAccounts.RoleId). */
+    @Transactional
+    public SsoHrmRoleDto assignErpRole(long accountId, int roleId) {
+        if (!VALID_ERP_ROLE_IDS.contains(roleId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Vai trò ERP không hợp lệ");
+        }
+        ensureAccountExists(accountId);
+        jdbc.update("UPDATE dbo.UserAccounts SET RoleId = ? WHERE AccountId = ?", roleId, accountId);
+        return findAccountRolesById(accountId)
+                .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Cập nhật vai trò ERP thất bại"));
+    }
+
+    /** Cập nhật vai trò Tài sản (UserAccounts.roleId_ts). */
+    @Transactional
+    public SsoHrmRoleDto assignAssetRole(long accountId, int roleIdTs) {
+        if (!VALID_ASSET_ROLE_IDS.contains(roleIdTs)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Vai trò Tài sản không hợp lệ");
+        }
+        ensureAccountExists(accountId);
+        ensureAccountProvisioningColumns();
+        jdbc.update("UPDATE dbo.UserAccounts SET roleId_ts = ? WHERE AccountId = ?", roleIdTs, accountId);
+        return findAccountRolesById(accountId)
+                .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Cập nhật vai trò Tài sản thất bại"));
+    }
+
+    private void ensureAccountExists(long accountId) {
+        Integer exists = jdbc.query(
+                "SELECT TOP 1 1 FROM dbo.UserAccounts WHERE AccountId = ?",
+                rs -> rs.next() ? 1 : null,
+                accountId);
+        if (exists == null) {
+            throw new ResourceNotFoundException("Không tìm thấy AccountId=" + accountId);
+        }
+    }
+
+    /** Tài khoản + role HRM/ERP/Tài sản (LEFT JOIN HRM role — vẫn trả về nếu chưa gán HRM). */
+    public Optional<SsoHrmRoleDto> findAccountRolesById(long accountId) {
+        String app = appCode();
+        List<SsoHrmRoleDto> rows = jdbc.query(
+                """
+                SELECT TOP 1
+                    ua.AccountId,
+                    ua.LoginPhone,
+                    ua.UserEnrollNumber,
+                    ua.RoleId,
+                    ua.roleId_ts,
+                    r.RoleCode,
+                    r.RoleName,
+                    uar.AppCode
+                FROM dbo.UserAccounts ua
+                LEFT JOIN dbo.UserAppRoles uar
+                    ON uar.AccountId = ua.AccountId AND uar.AppCode = ?
+                LEFT JOIN dbo.Roles r ON r.RoleId = uar.RoleId
+                WHERE ua.AccountId = ?
+                """,
+                (rs, i) -> SsoHrmRoleDto.builder()
+                        .accountId(rs.getLong("AccountId"))
+                        .loginPhone(rs.getString("LoginPhone"))
+                        .userEnrollNumber(rs.getObject("UserEnrollNumber") != null
+                                ? rs.getInt("UserEnrollNumber") : null)
+                        .roleId(rs.getObject("RoleId") != null ? rs.getInt("RoleId") : null)
+                        .roleIdTs(rs.getObject("roleId_ts") != null ? rs.getInt("roleId_ts") : null)
+                        .roleCode(rs.getString("RoleCode"))
+                        .roleName(rs.getString("RoleName"))
+                        .appCode(rs.getString("AppCode") != null ? rs.getString("AppCode") : app)
+                        .build(),
+                app, accountId);
+        return rows.stream().findFirst();
     }
 
     /**

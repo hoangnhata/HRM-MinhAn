@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from "react";
 import * as att from "../services/attendanceService";
 import { formatWorkUnits } from "../utils/shiftSchedule";
+import { AttendanceNoteCompact } from "./work/AttendanceNoteBlock";
 
 type Props = {
   open: boolean;
@@ -93,7 +94,13 @@ export function AttendanceMonthDetailDialog({
                         )}
                       </TableCell>
                       <TableCell>
-                        {d.forgotShifts ? `Thiếu: ${d.forgotShifts}` : d.note}
+                        {d.forgotShifts ? (
+                          `Thiếu: ${d.forgotShifts}`
+                        ) : d.note ? (
+                          <AttendanceNoteCompact note={d.note} />
+                        ) : (
+                          "—"
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

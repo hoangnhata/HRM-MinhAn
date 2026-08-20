@@ -33,16 +33,18 @@ public class EmployeeController {
     private final EmployeeService employeeService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
-    @Operation(summary = "Danh sách nhân viên (phân trang, lọc theo tên/mã/username, phòng ban, trạng thái hoặc nhóm tab)")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','DIRECTOR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @Operation(summary = "Danh sách nhân viên (phân trang, lọc theo tên/mã/username, phòng ban, bộ phận, trạng thái hoặc nhóm tab)")
     public Page<EmployeeSummaryDto> list(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Long departmentId,
+            @RequestParam(required = false) String workUnit,
             @RequestParam(required = false) EmployeeStatus status,
             @RequestParam(required = false) EmployeeStatusGroup statusGroup,
             @RequestParam(required = false) OfficialWorkFilter officialWorkFilter) {
-        return employeeService.listForCaller(pageable, q, departmentId, status, statusGroup, officialWorkFilter);
+        return employeeService.listForCaller(
+                pageable, q, departmentId, workUnit, status, statusGroup, officialWorkFilter);
     }
 
     @GetMapping("/me")
@@ -52,8 +54,8 @@ public class EmployeeController {
     }
 
     @GetMapping("/evaluation-roster")
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
-    @Operation(summary = "Danh sách NV để chấm điểm theo tháng (toàn viện, NV đang ACTIVE)")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @Operation(summary = "Danh sách NV khối ĐD để chấm điểm theo tháng")
     public List<EmployeeSummaryDto> evaluationRoster() {
         return employeeService.listEvaluationRoster();
     }
@@ -66,14 +68,14 @@ public class EmployeeController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Operation(summary = "Tạo tài khoản + hồ sơ nhân viên")
     public EmployeeDetailDto create(@Valid @RequestBody EmployeeCreateRequest request) {
         return employeeService.create(request);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Operation(summary = "Cập nhật hồ sơ, tài khoản và lương")
     public EmployeeDetailDto update(@PathVariable Long id, @Valid @RequestBody EmployeeUpdateRequest request) {
         return employeeService.update(id, request);
@@ -90,7 +92,7 @@ public class EmployeeController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Operation(summary = "Nghỉ việc — vô hiệu hóa tài khoản")
     public void delete(@PathVariable Long id) {
         employeeService.delete(id);

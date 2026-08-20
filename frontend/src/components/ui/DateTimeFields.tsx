@@ -17,7 +17,8 @@ import {
 import type { TextFieldProps } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import type { Theme } from '@mui/material/styles';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { formatDateVi as formatDateViUtil } from '../../utils/dateFormat';
 import { ClockTimePickerPanel } from './ClockTimePickerPanel';
 
 const MONTHS_VI = [
@@ -106,10 +107,20 @@ function timePopoverPaperSx(theme: Theme) {
 }
 
 function formatDateVi(iso: string): string {
-  if (!iso) return 'Chọn ngày';
-  const [y, m, d] = iso.split('-').map(Number);
-  if (!y || !m || !d) return iso;
-  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+  return formatDateViUtil(iso, '');
+}
+
+function parseTypedDate(value: string): string | null {
+  const match = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return toIsoDate(year, month, day);
 }
 
 function formatTimeDisplay(value: string): string {
@@ -145,6 +156,9 @@ type PickerShellProps = {
   helperText?: string;
   error?: boolean;
   sx?: TextFieldProps['sx'];
+  editable?: boolean;
+  onDisplayChange?: (value: string) => void;
+  onDisplayBlur?: () => void;
 };
 
 function PickerShell({
@@ -163,6 +177,9 @@ function PickerShell({
   helperText,
   error,
   sx,
+  editable = false,
+  onDisplayChange,
+  onDisplayBlur,
 }: PickerShellProps) {
   const theme = useTheme();
   return (
@@ -176,18 +193,20 @@ function PickerShell({
         error={error}
         helperText={helperText}
         value={display}
+        onChange={(e) => onDisplayChange?.(e.target.value)}
+        onBlur={onDisplayBlur}
         onClick={(e) => {
           if (!disabled) onOpen(e.currentTarget);
         }}
         InputProps={{
-          readOnly: true,
+          readOnly: !editable,
           startAdornment: <InputAdornment position="start">{icon}</InputAdornment>,
         }}
         sx={{
           ...dateTimeFieldSx,
           ...sx,
           cursor: disabled ? 'default' : 'pointer',
-          '& .MuiOutlinedInput-input': { cursor: disabled ? 'default' : 'pointer' },
+          '& .MuiOutlinedInput-input': { cursor: disabled ? 'default' : editable ? 'text' : 'pointer' },
         }}
       />
       <Popover
@@ -380,6 +399,7 @@ export function DatePickerField({
   const theme = useTheme();
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const open = Boolean(anchorEl);
+  const [typedValue, setTypedValue] = useState(formatDateVi(value));
   const selected = parseIsoDate(value);
   const today = new Date();
   const todayIso = toIsoDate(today.getFullYear(), today.getMonth() + 1, today.getDate());
@@ -388,6 +408,10 @@ export function DatePickerField({
   const [viewMonth, setViewMonth] = useState(selected?.month ?? today.getMonth() + 1);
 
   const cells = useMemo(() => buildMonthGrid(viewYear, viewMonth), [viewYear, viewMonth]);
+
+  useEffect(() => {
+    setTypedValue(formatDateVi(value));
+  }, [value]);
 
   function openPicker(el: HTMLElement) {
     const cur = parseIsoDate(value);
@@ -404,13 +428,24 @@ export function DatePickerField({
 
   function pickDay(iso: string) {
     onChange(iso);
+    setTypedValue(formatDateVi(iso));
     setAnchorEl(null);
+  }
+
+  function handleTypedDate(text: string) {
+    setTypedValue(text);
+    if (!text.trim()) {
+      onChange('');
+      return;
+    }
+    const iso = parseTypedDate(text);
+    if (iso) onChange(iso);
   }
 
   return (
     <PickerShell
       label={label}
-      display={formatDateVi(value)}
+      display={typedValue}
       icon={<CalendarTodayOutlinedIcon fontSize="small" color="primary" />}
       open={open}
       anchorEl={anchorEl}
@@ -423,6 +458,9 @@ export function DatePickerField({
       fullWidth={fullWidth}
       size={size}
       error={error}
+      editable
+      onDisplayChange={handleTypedDate}
+      onDisplayBlur={() => setTypedValue(formatDateVi(value))}
     >
       <Box
         sx={{

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App mark: nền teal + monogram MA trắng (đồng bộ SVG / favicon). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="112dp"
+    android:height="112dp"
+    android:viewportWidth="256"
+    android:viewportHeight="256">
+    <path
+        android:fillColor="#087A75"
+        android:pathData="M56,0h144c30.9,0 56,25.1 56,56v144c0,30.9 -25.1,56 -56,56h-144c-30.9,0 -56,-25.1 -56,-56v-144c0,-30.9 25.1,-56 56,-56z" />
+    <path
+        android:fillColor="#14FFFFFF"
+        android:pathData="M128,30c54.1,0 98,43.9 98,98s-43.9,98 -98,98 -98,-43.9 -98,-98 43.9,-98 98,-98z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="2.5"
+        android:pathData="M128,48c44.2,0 80,35.8 80,80s-35.8,80 -80,80 -80,-35.8 -80,-80 35.8,-80 80,-80z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,172 L54,88 L76,88 L100,140 L124,88 L146,88 L146,172 L126,172 L126,122 L108,164 L96,164 L78,122 L78,172 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M156,172 L180,88 L204,88 L228,172 L206,172 L201.5,156 L174.5,156 L170,172 Z" />
+    <path
+        android:fillColor="#087A75"
+        android:pathData="M183,138 L201,138 L192,106 Z" />
+    <path
+        android:fillColor="#B98716"
+        android:pathData="M98,190h60a2.5,2.5 0,0 1,0,5h-60a2.5,2.5 0,0 1,0,-5z" />
+</vector>

@@ -17,16 +17,21 @@ import java.io.IOException;
 import java.util.Set;
 
 /**
- * Chặn mọi API (trừ đổi mật khẩu / xem hồ sơ) khi tài khoản bắt buộc đổi MK lần đầu.
+ * Lần đăng nhập đầu: bắt buộc đổi mật khẩu, rồi tạo chữ ký số trước khi dùng hệ thống.
  */
 @Component
 @RequiredArgsConstructor
 public class MustChangePasswordFilter extends OncePerRequestFilter {
 
-    private static final Set<String> ALLOWED_PATHS = Set.of(
+    private static final Set<String> ALLOWED_WHILE_CHANGE_PASSWORD = Set.of(
             "/j1-api/v1/account/me",
             "/j1-api/v1/account/me/avatar",
             "/j1-api/v1/account/change-password");
+
+    private static final Set<String> ALLOWED_WHILE_SET_SIGNATURE = Set.of(
+            "/j1-api/v1/account/me",
+            "/j1-api/v1/account/me/avatar",
+            "/j1-api/v1/account/me/signature");
 
     private final UserAccountRepository userAccountRepository;
 
@@ -37,18 +42,30 @@ public class MustChangePasswordFilter extends OncePerRequestFilter {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.isAuthenticated() && auth.getName() != null) {
             UserAccount user = userAccountRepository.findByUsername(auth.getName()).orElse(null);
-            if (user != null && user.isMustChangePassword()) {
+            if (user != null) {
                 String path = request.getRequestURI();
-                if (!ALLOWED_PATHS.contains(path)) {
-                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                    response.setContentType("application/json;charset=UTF-8");
-                    response.getWriter().write(
-                            "{\"message\":\"Bạn cần đổi mật khẩu trước khi tiếp tục\",\"code\":\"MUST_CHANGE_PASSWORD\"}");
-                    return;
+                if (user.isMustChangePassword()) {
+                    if (!ALLOWED_WHILE_CHANGE_PASSWORD.contains(path)) {
+                        writeForbidden(response, "Bạn cần đổi mật khẩu trước khi tiếp tục", "MUST_CHANGE_PASSWORD");
+                        return;
+                    }
+                } else if (user.getSignaturePath() == null || user.getSignaturePath().isBlank()) {
+                    if (!ALLOWED_WHILE_SET_SIGNATURE.contains(path)) {
+                        writeForbidden(response, "Bạn cần tạo chữ ký số trước khi tiếp tục", "MUST_SET_SIGNATURE");
+                        return;
+                    }
                 }
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    private static void writeForbidden(HttpServletResponse response, String message, String code)
+            throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(
+                "{\"message\":\"" + message + "\",\"code\":\"" + code + "\"}");
     }
 
     @Override

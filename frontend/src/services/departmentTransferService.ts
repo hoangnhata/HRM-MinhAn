@@ -1,3 +1,4 @@
+import { formatDateTimeVi, formatDateVi } from '../utils/dateFormat';
 import api from './api';
 
 export type DepartmentTransfer = {
@@ -5,6 +6,7 @@ export type DepartmentTransfer = {
   employeeId: number;
   employeeCode?: string | null;
   employeeName: string;
+  positionTitle?: string | null;
   fromDepartmentId: number;
   fromDepartmentName: string;
   toDepartmentId: number;
@@ -18,6 +20,7 @@ export type DepartmentTransfer = {
   directorReviewerUsername?: string | null;
   directorComment?: string | null;
   directorReviewedAt?: string | null;
+  directorSignatureUrl?: string | null;
   appliedAt?: string | null;
   createdAt?: string | null;
 };
@@ -41,21 +44,11 @@ export function transferStatusColor(
 }
 
 export function formatTransferDate(iso?: string | null) {
-  if (!iso) return '—';
-  const d = iso.slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
-    return d.split('-').reverse().join('/');
-  }
-  return iso;
+  return formatDateVi(iso);
 }
 
 export function formatTransferDateTime(iso?: string | null) {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString('vi-VN');
-  } catch {
-    return iso;
-  }
+  return formatDateTimeVi(iso);
 }
 
 export async function createTransfer(body: {
@@ -79,6 +72,11 @@ export async function fetchTransferHistory() {
   return data;
 }
 
+export async function fetchRelatedTransfers() {
+  const { data } = await api.get<DepartmentTransfer[]>('/v1/department-transfers/related-to-me');
+  return data;
+}
+
 export async function fetchTransferDetail(id: number) {
   const { data } = await api.get<DepartmentTransfer>(`/v1/department-transfers/${id}`);
   return data;
@@ -89,6 +87,17 @@ export async function directorReviewTransfer(id: number, approved: boolean, comm
     approved,
     comment: comment || undefined,
   });
+  return data;
+}
+
+export async function updateTransfer(id: number, body: {
+  employeeId: number;
+  toDepartmentId: number;
+  toPositionId?: number;
+  effectiveDate: string;
+  reason: string;
+}) {
+  const { data } = await api.put<DepartmentTransfer>(`/v1/department-transfers/${id}`, body);
   return data;
 }
 

@@ -32,14 +32,16 @@ public class SsoAccountAdminService {
     private final SsoRoleSyncService ssoRoleSyncService;
 
     @Transactional(readOnly = true)
-    public List<SsoAccountAdminRowDto> listAccounts(String q, Long departmentId) {
+    public List<SsoAccountAdminRowDto> listAccounts(String q, Long departmentId, String workUnit) {
         List<SsoHrmRoleDto> rows = ssoRoleService.listHrmAccounts(null);
         Map<String, Employee> byPhoneTail = indexEmployeesByPhoneTail();
         Map<String, Employee> byEnroll = indexEmployeesByEnroll();
         Map<String, String> displayByPhoneTail = indexDisplayNamesByPhoneTail();
         Map<Long, String> ssoDisplayNames = ssoRoleService.loadAccountDisplayNames();
+        Map<Long, String> workUnitByEmployeeId = indexWorkUnitsByEmployeeId();
 
         String qLower = q != null ? q.trim().toLowerCase(Locale.ROOT) : "";
+        String workUnitFilter = workUnit != null ? workUnit.trim() : "";
 
         return rows.stream()
                 .flatMap(r -> {
@@ -47,6 +49,12 @@ public class SsoAccountAdminService {
                     if (departmentId != null) {
                         if (emp == null || emp.getDepartment() == null
                                 || !departmentId.equals(emp.getDepartment().getId())) {
+                            return java.util.stream.Stream.empty();
+                        }
+                    }
+                    String unit = emp != null ? workUnitByEmployeeId.get(emp.getId()) : null;
+                    if (!workUnitFilter.isEmpty()) {
+                        if (unit == null || !unit.equalsIgnoreCase(workUnitFilter)) {
                             return java.util.stream.Stream.empty();
                         }
                     }
@@ -58,9 +66,12 @@ public class SsoAccountAdminService {
                             .userEnrollNumber(r.getUserEnrollNumber())
                             .roleCode(r.getRoleCode())
                             .roleName(roleName)
+                            .roleId(r.getRoleId())
+                            .roleIdTs(r.getRoleIdTs())
                             .fullName(fullName)
                             .departmentName(emp != null && emp.getDepartment() != null
                                     ? emp.getDepartment().getName() : null)
+                            .workUnitDetail(unit)
                             .hrmEmployeeId(emp != null ? emp.getId() : null)
                             .build();
                     return java.util.stream.Stream.of(row);
@@ -71,10 +82,22 @@ public class SsoAccountAdminService {
                     }
                     return contains(row.getFullName(), qLower)
                             || matchesPhone(row.getLoginPhone(), qLower)
+                            || contains(row.getWorkUnitDetail(), qLower)
                             || (row.getUserEnrollNumber() != null
                             && String.valueOf(row.getUserEnrollNumber()).contains(qLower));
                 })
                 .toList();
+    }
+
+    private Map<Long, String> indexWorkUnitsByEmployeeId() {
+        Map<Long, String> map = new HashMap<>();
+        for (EmployeeWorkforceDetails w : workforceDetailsRepository.findAll()) {
+            if (w.getEmployee() == null || w.getWorkUnitDetail() == null || w.getWorkUnitDetail().isBlank()) {
+                continue;
+            }
+            map.put(w.getEmployeeId(), w.getWorkUnitDetail().trim());
+        }
+        return map;
     }
 
     @Transactional
@@ -88,6 +111,16 @@ public class SsoAccountAdminService {
             }
         }
         return assigned;
+    }
+
+    @Transactional
+    public SsoHrmRoleDto assignErpRole(long accountId, int roleId) {
+        return ssoRoleService.assignErpRole(accountId, roleId);
+    }
+
+    @Transactional
+    public SsoHrmRoleDto assignAssetRole(long accountId, int roleIdTs) {
+        return ssoRoleService.assignAssetRole(accountId, roleIdTs);
     }
 
     private static String resolveFullName(
@@ -384,8 +417,9 @@ public class SsoAccountAdminService {
             case "ADMIN" -> "Quản trị hệ thống";
             case "EMPLOYEE" -> "Nhân viên";
             case "HR" -> "Hành chính nhân sự";
-            case "HEAD_DEPARTMENT" -> "Trưởng khoa / phòng";
-            case "HEAD_NURSING" -> "Điều dưỡng trưởng";
+            case "HR2" -> "Hành chính nhân sự 2";
+            case "HEAD_DEPARTMENT" -> "Trưởng khoa / Điều dưỡng trưởng";
+            case "HEAD_NURSING" -> "Trưởng phòng Điều dưỡng";
             case "DIRECTOR" -> "Giám đốc";
             default -> code;
         };

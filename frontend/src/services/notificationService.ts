@@ -33,6 +33,10 @@ export async function markRead(id: number) {
   await api.patch(`/v1/notifications/${id}/read`);
 }
 
+export async function markAllRead() {
+  await api.patch('/v1/notifications/read-all');
+}
+
 const CATEGORY_META: Record<
   string,
   { icon: SvgIconComponent; accent: string; label: string }
@@ -47,6 +51,11 @@ const CATEGORY_META: Record<
   DEPARTMENT_TRANSFER: { icon: DescriptionOutlinedIcon, accent: '#0d9488', label: 'Luân chuyển' },
   PROBATION_CONVERSION: { icon: DescriptionOutlinedIcon, accent: '#15803d', label: 'Chuyển chính thức' },
   YOUNG_CHILD: { icon: DescriptionOutlinedIcon, accent: '#c026d3', label: 'Nuôi con nhỏ' },
+  SHIFT_CONFIG_CHANGE: { icon: ScheduleOutlinedIcon, accent: '#0369a1', label: 'Chỉnh ca sáng/chiều' },
+  TRAINING_PROPOSAL: { icon: DescriptionOutlinedIcon, accent: '#0369a1', label: 'Đào tạo' },
+  SEMINAR_PROPOSAL: { icon: DescriptionOutlinedIcon, accent: '#0e7490', label: 'Hội thảo' },
+  MAIN_DUTY_AUTHORIZATION: { icon: DescriptionOutlinedIcon, accent: '#5b4bb4', label: 'Trực chính' },
+  NURSING_EVALUATION: { icon: DescriptionOutlinedIcon, accent: '#0f766e', label: 'Đánh giá ĐD' },
 };
 
 export function notificationMeta(category: string) {
@@ -67,14 +76,24 @@ export function resolveNotificationPath(n: AppNotification): string {
     case 'ANNOUNCEMENT':
       return '/';
     case 'DEPARTMENT_TRANSFER':
-      return n.title.includes('chờ') ? '/requests?tab=transfers' : '/employees/official';
+      return n.title.includes('chờ') ? '/requests?tab=transfers' : '/requests?tab=transfer';
     case 'PROBATION_CONVERSION':
       if (n.title.includes('Đã lên') || n.title.includes('Áp dụng')) {
         return '/employees/official';
       }
-      return '/requests?tab=probation-conversions';
+      return '/requests?tab=probation';
     case 'YOUNG_CHILD':
       return '/requests?tab=young-child';
+    case 'SHIFT_CONFIG_CHANGE':
+      return '/requests?tab=shift-config';
+    case 'TRAINING_PROPOSAL':
+      return '/requests?tab=training';
+    case 'SEMINAR_PROPOSAL':
+      return '/requests?tab=seminar';
+    case 'MAIN_DUTY_AUTHORIZATION':
+      return '/requests?tab=main-duty';
+    case 'NURSING_EVALUATION':
+      return '/evaluations';
     case 'ATTENDANCE':
       return n.title.includes('chờ duyệt') ? '/requests?tab=approve' : '/requests?tab=mine';
     case 'PAYROLL':

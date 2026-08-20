@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.Map;
 
 @Data
@@ -22,10 +23,19 @@ public class NursingEvaluationSubmitRequest {
     private String templateCode;
 
     /**
-     * Theo từng tiêu chí: truongKhoa, ddt (điểm); truongKhoaNote, ddtNote (ghi chú từng dòng, tùy chọn).
+     * Điểm theo id tiêu chí trong template (một cột «Điểm đạt»).
      */
     @NotNull
-    private Map<String, Map<String, Object>> scores;
+    private Map<String, BigDecimal> scores;
+
+    /** Ghi chú theo tiêu chí (tùy chọn). */
+    private Map<String, String> notes;
 
     private String comments;
+
+    /**
+     * true = gửi HCNS duyệt (ký trưởng khoa); false = lưu nháp.
+     */
+    @NotNull
+    private Boolean submitForReview;
 }

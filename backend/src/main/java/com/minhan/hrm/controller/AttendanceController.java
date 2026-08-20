@@ -14,6 +14,7 @@ import com.minhan.hrm.dto.attendance.QuangTrungSupplementBulkRequest;
 import com.minhan.hrm.dto.attendance.QuangTrungSupplementRequest;
 import com.minhan.hrm.dto.attendance.HolidayWorkDaysUpdateRequest;
 import com.minhan.hrm.dto.attendance.EmployeeContinuousShiftRequest;
+import com.minhan.hrm.dto.attendance.ContinuousShiftTypeRequest;
 import com.minhan.hrm.entity.AttendanceShiftSeason;
 import com.minhan.hrm.service.ForgotPenaltyConfigService;
 import com.minhan.hrm.service.HolidayWorkDayService;
@@ -23,6 +24,7 @@ import com.minhan.hrm.service.AttendanceService;
 import com.minhan.hrm.service.AttendanceShiftScheduleService;
 import com.minhan.hrm.service.AttendanceSummaryService;
 import com.minhan.hrm.service.AttendanceWorkRequestService;
+import com.minhan.hrm.service.ContinuousShiftTypeService;
 import com.minhan.hrm.service.DutyShiftService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -59,6 +61,7 @@ public class AttendanceController {
     private final AttendanceReportExcelService reportExcelService;
     private final AttendanceWorkRequestService workRequestService;
     private final AttendanceShiftScheduleService shiftScheduleService;
+    private final ContinuousShiftTypeService continuousShiftTypeService;
     private final ForgotPenaltyConfigService forgotPenaltyConfigService;
     private final LatePenaltyConfigService latePenaltyConfigService;
     private final DutyShiftService dutyShiftService;
@@ -157,6 +160,38 @@ public class AttendanceController {
         return shiftScheduleService.applySeasonConfigToAll(season, body);
     }
 
+    @GetMapping("/continuous-shift-types")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Danh sách ca thông tầm (khung giờ)")
+    public List<Map<String, Object>> listContinuousShiftTypes(
+            @RequestParam(defaultValue = "true") boolean activeOnly) {
+        return continuousShiftTypeService.list(activeOnly);
+    }
+
+    @PostMapping("/continuous-shift-types")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Tạo ca thông tầm mới")
+    public Map<String, Object> createContinuousShiftType(@Valid @RequestBody ContinuousShiftTypeRequest body) {
+        return continuousShiftTypeService.create(body);
+    }
+
+    @PutMapping("/continuous-shift-types/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Cập nhật ca thông tầm")
+    public Map<String, Object> updateContinuousShiftType(
+            @PathVariable Long id,
+            @Valid @RequestBody ContinuousShiftTypeRequest body) {
+        return continuousShiftTypeService.update(id, body);
+    }
+
+    @DeleteMapping("/continuous-shift-types/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Xóa khung ca theo ngày")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteContinuousShiftType(@PathVariable Long id) {
+        continuousShiftTypeService.delete(id);
+    }
+
     @GetMapping("/employees/{employeeId}/continuous-shift")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Danh sách ngày ca thông tầm của nhân viên trong tháng")
@@ -168,13 +203,18 @@ public class AttendanceController {
     }
 
     @PutMapping("/employees/{employeeId}/continuous-shift")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "Cấu hình ngày ca thông tầm trong tháng (thay thế danh sách ngày)")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
+    @Operation(summary = "ADMIN hoặc Trưởng khoa/Điều dưỡng trưởng xếp ca thông tầm theo ngày")
     public Map<String, Object> setContinuousShift(
             @PathVariable Long employeeId,
             @Valid @RequestBody EmployeeContinuousShiftRequest body) {
         Map<String, Object> result = new LinkedHashMap<>(shiftScheduleService.setEmployeeContinuousShift(
-                employeeId, body.getYear(), body.getMonth(), body.getContinuousShift(), body.getDates()));
+                employeeId,
+                body.getYear(),
+                body.getMonth(),
+                body.getContinuousShift(),
+                body.getDates(),
+                body.getDays()));
         try {
             int recalculated = attendanceService.recalculateEmployeeMonth(
                     employeeId, body.getYear(), body.getMonth());
@@ -194,15 +234,16 @@ public class AttendanceController {
     public Map<String, Object> setYoungChild(
             @PathVariable Long employeeId,
             @Valid @RequestBody com.minhan.hrm.dto.attendance.EmployeeYoungChildRequest body) {
+        LocalDate effectiveDate = body.getEffectiveDate() != null ? body.getEffectiveDate() : LocalDate.now();
         Map<String, Object> result = new LinkedHashMap<>(shiftScheduleService.setEmployeeYoungChild(
-                employeeId, body.getYear(), body.getMonth(), body.getYoungChild()));
+                employeeId, effectiveDate, body.getYoungChild()));
         try {
             int recalculated = attendanceService.recalculateEmployeeMonth(
-                    employeeId, body.getYear(), body.getMonth());
+                    employeeId, effectiveDate.getYear(), effectiveDate.getMonthValue());
             result.put("recalculated", recalculated);
         } catch (Exception e) {
-            log.warn("Nuôi con nhỏ đã lưu nhưng tính lại công thất bại — employee {} {}/{}",
-                    employeeId, body.getMonth(), body.getYear(), e);
+            log.warn("Nuôi con nhỏ đã lưu nhưng tính lại công thất bại — employee {} từ {}",
+                    employeeId, effectiveDate, e);
             result.put("recalculated", 0);
             result.put("recalculateWarning", "Đã lưu chế độ nuôi con nhỏ nhưng chưa tính lại được bảng công.");
         }
@@ -235,7 +276,7 @@ public class AttendanceController {
     }
 
     @GetMapping("/summary")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2')")
     public List<Map<String, Object>> departmentSummary(
             @RequestParam int year,
             @RequestParam int month,
@@ -244,8 +285,8 @@ public class AttendanceController {
     }
 
     @GetMapping("/report/excel")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "Xuất báo cáo công toàn viện theo tháng ra file Excel")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @Operation(summary = "Xuất báo cáo công theo tháng: ADMIN/HR theo bộ lọc, Trưởng khoa/ĐDT chỉ khoa mình, Trưởng phòng ĐD chỉ khối ĐD")
     public ResponseEntity<byte[]> exportMonthlyReport(
             @RequestParam int year,
             @RequestParam int month,
@@ -260,6 +301,16 @@ public class AttendanceController {
                 .contentType(MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .body(body);
+    }
+
+    @GetMapping("/report/matrix")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @Operation(summary = "Ma trận bảng chấm công theo ngày (JSON): ADMIN/HR/HCNS2 theo bộ lọc, Trưởng khoa chỉ khoa mình, Trưởng phòng ĐD chỉ khối ĐD")
+    public Map<String, Object> monthlyMatrix(
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(required = false) Long departmentId) {
+        return summaryService.monthMatrix(year, month, departmentId);
     }
 
     @PostMapping
@@ -319,15 +370,30 @@ public class AttendanceController {
     }
 
     @PostMapping("/requests/{id}/head-review")
-    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     public Map<String, Object> headReview(@PathVariable Long id, @Valid @RequestBody AttendanceReviewDto dto) {
         return workRequestService.headReview(id, dto);
     }
 
+    @PostMapping("/requests/{id}/nursing-head-review")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Operation(summary = "Trưởng phòng Điều dưỡng duyệt điều động khối ĐD–KTV–HS–Thư ký")
+    public Map<String, Object> nursingHeadReview(
+            @PathVariable Long id, @Valid @RequestBody AttendanceReviewDto dto) {
+        return workRequestService.nursingHeadReview(id, dto);
+    }
+
     @PostMapping("/requests/{id}/hr-review")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR2')")
     public Map<String, Object> hrReview(@PathVariable Long id, @Valid @RequestBody AttendanceReviewDto dto) {
         return workRequestService.hrReview(id, dto);
+    }
+
+    @PostMapping("/requests/{id}/director-review")
+    @PreAuthorize("hasAnyRole('ADMIN','DIRECTOR')")
+    @Operation(summary = "Giám đốc duyệt cuối (cập nhật công / giải trình — quyết định trừ tiền)")
+    public Map<String, Object> directorReview(@PathVariable Long id, @Valid @RequestBody AttendanceReviewDto dto) {
+        return workRequestService.directorReview(id, dto);
     }
 
     @PostMapping("/requests/{id}/withdraw")
@@ -335,6 +401,24 @@ public class AttendanceController {
     @Operation(summary = "Thu hồi đơn công (người gửi, khi đang chờ duyệt)")
     public Map<String, Object> withdrawRequest(@PathVariable Long id) {
         return workRequestService.withdraw(id);
+    }
+
+    @PutMapping("/requests/{id}")
+    @Operation(summary = "Chỉnh sửa đơn công đang chờ duyệt (người lập hoặc ADMIN)")
+    public Map<String, Object> updateRequest(
+            @PathVariable Long id,
+            @Valid @RequestBody AttendanceWorkRequestSubmitDto dto) {
+        return workRequestService.update(id, dto);
+    }
+
+    @PostMapping("/requests/reapply-approved-effects")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Khôi phục hiệu lực đơn công đã duyệt trên bảng công (sau đồng bộ ghi đè)")
+    public Map<String, Object> reapplyApprovedEffects(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        LocalDate end = to != null ? to : LocalDate.now();
+        return workRequestService.reapplyApprovedEffectsInRange(from, end);
     }
 
     @GetMapping("/leave-balance")
@@ -353,8 +437,9 @@ public class AttendanceController {
 
     @GetMapping("/duty-shifts/types")
     @Operation(summary = "Danh mục loại ca trực và mức thưởng theo vị trí")
-    public List<Map<String, Object>> dutyShiftTypes() {
-        return dutyShiftService.listShiftTypes();
+    public List<Map<String, Object>> dutyShiftTypes(
+            @RequestParam(required = false) Long employeeId) {
+        return dutyShiftService.listShiftTypes(employeeId);
     }
 
     @GetMapping("/employees/{employeeId}/duty-shifts")
@@ -377,7 +462,7 @@ public class AttendanceController {
     }
 
     @PutMapping("/employees/{employeeId}/duty-shifts")
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     @Operation(summary = "Trưởng phòng nhập / cập nhật ca trực cho nhân viên")
     public Map<String, Object> upsertDutyShift(
             @PathVariable Long employeeId,
@@ -387,8 +472,8 @@ public class AttendanceController {
     }
 
     @PostMapping("/duty-shifts/bulk")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "HCNS/Admin nhập ca trực hàng loạt — mỗi NV một loại ca")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
+    @Operation(summary = "Trưởng phòng/Admin nhập ca trực hàng loạt — mỗi NV một loại ca")
     public Map<String, Object> bulkUpsertDutyShifts(@Valid @RequestBody DutyShiftBulkRequest body) {
         List<Map<String, Object>> results = new ArrayList<>();
         int success = 0;
@@ -424,7 +509,7 @@ public class AttendanceController {
     }
 
     @DeleteMapping("/employees/{employeeId}/duty-shifts/{workDate}")
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     @Operation(summary = "Xóa ca trực")
     public void deleteDutyShift(
             @PathVariable Long employeeId,
@@ -433,8 +518,8 @@ public class AttendanceController {
     }
 
     @PutMapping("/employees/{employeeId}/quang-trung-supplement")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "HCNS/Admin bổ sung hoặc sửa công Quang Trung — không trừ phạt quên chấm")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
+    @Operation(summary = "Trưởng phòng/Admin bổ sung hoặc sửa công Quang Trung — không trừ phạt quên chấm")
     public Map<String, Object> applyQuangTrungSupplement(
             @PathVariable Long employeeId,
             @Valid @RequestBody QuangTrungSupplementRequest body) {
@@ -442,8 +527,8 @@ public class AttendanceController {
     }
 
     @PostMapping("/quang-trung-supplement/bulk")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "HCNS/Admin bổ sung công Quang Trung hàng loạt")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
+    @Operation(summary = "Trưởng phòng/Admin bổ sung công Quang Trung hàng loạt")
     public Map<String, Object> bulkQuangTrungSupplement(@Valid @RequestBody QuangTrungSupplementBulkRequest body) {
         QuangTrungSupplementRequest one = new QuangTrungSupplementRequest();
         one.setWorkDate(body.getWorkDate());
@@ -486,7 +571,7 @@ public class AttendanceController {
     }
 
     @GetMapping("/employees/{employeeId}/quang-trung-supplement")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     @Operation(summary = "Xem công Quang Trung đã bổ sung theo ngày")
     public Map<String, Object> getQuangTrungSupplement(
             @PathVariable Long employeeId,
@@ -495,7 +580,7 @@ public class AttendanceController {
     }
 
     @DeleteMapping("/employees/{employeeId}/quang-trung-supplement/{workDate}")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Xóa công Quang Trung ngày đã chọn")
     public void deleteQuangTrungSupplement(

@@ -1,4 +1,5 @@
 import api from './api';
+import { formatDateVi } from '../utils/dateFormat';
 
 export type AttendanceDay = {
   id: number;
@@ -27,6 +28,8 @@ export type MonthSummary = {
   periodMonth: number;
   totalWorkUnits: number;
   attendanceWorkUnits?: number;
+  clockedWorkUnits?: number;
+  leaveWorkUnits?: number;
   lateMinutesTotal: number;
   latePenalty: number;
   latePenaltyTier: string;
@@ -42,6 +45,11 @@ export type MonthSummary = {
   mealAllowancePresentDays?: number;
   mealAllowanceMorningDays?: number;
   mealAllowanceDutyUnits?: number;
+  seminarSupportTotal?: number;
+  seminarSupportCount?: number;
+  quangTrungAllowance?: number;
+  quangTrungAllowanceCount?: number;
+  quangTrungAllowanceRate?: number;
   days?: AttendanceDay[];
   requests?: WorkRequest[];
 };
@@ -59,10 +67,77 @@ export type DeptSummaryRow = {
   requiresDiscipline: boolean;
 };
 
+export type AttendanceMatrixDay = {
+  workDate: string;
+  status?: string;
+  morningCheckIn?: string;
+  morningCheckOut?: string;
+  afternoonCheckIn?: string;
+  afternoonCheckOut?: string;
+  morningWorkUnits?: number;
+  afternoonWorkUnits?: number;
+  overtimeWorkUnits?: number;
+  totalWorkUnits: number;
+  lateMinutes?: number;
+  lateMinutesExempt?: boolean;
+  youngChild?: boolean;
+  quangTrung?: boolean;
+  note?: string;
+};
+
+export type AttendanceMatrixDutyDay = {
+  workDate: string;
+  shiftType?: string;
+  shiftTypeLabel?: string;
+  shiftTypeCode?: string;
+  roleTier?: string;
+  roleTierLabel?: string;
+  workUnits?: number;
+  bonusAmount?: number;
+  postDutyPay?: number;
+  note?: string;
+};
+
+export type AttendanceMatrixRow = {
+  employeeId: number;
+  employeeCode: string;
+  fullName: string;
+  phone?: string;
+  departmentId?: number | null;
+  department: string;
+  position: string;
+  /** ACTIVE | PROBATION | INTERN | ON_LEAVE */
+  employeeStatus?: string;
+  attendanceWorkUnits: number;
+  clockedWorkUnits?: number;
+  leaveWorkUnits?: number;
+  totalWorkUnits?: number;
+  lateMinutesTotal?: number;
+  dutyShiftCount?: number;
+  dutyWorkUnitsTotal?: number;
+  dutyBonusTotal?: number;
+  dutyPostPayTotal?: number;
+  quangTrungAllowance?: number;
+  quangTrungAllowanceCount?: number;
+  quangTrungAllowanceRate?: number;
+  days: AttendanceMatrixDay[];
+  dutyDays?: AttendanceMatrixDutyDay[];
+};
+
+export type AttendanceMonthMatrix = {
+  year: number;
+  month: number;
+  daysInMonth: number;
+  departmentId: number | null;
+  departmentName: string;
+  rows: AttendanceMatrixRow[];
+};
+
 export type WorkRequest = {
   id: number;
   employeeId: number;
   employeeName: string;
+  positionTitle?: string | null;
   department: string;
   requestType: 'EXPLANATION' | 'UPDATE' | 'LEAVE' | 'UNPAID_LEAVE' | 'BUSINESS_TRIP' | 'DEPLOYMENT';
   workDate: string;
@@ -80,6 +155,8 @@ export type WorkRequest = {
   requestedEnd: string;
   requestedAfternoonStart?: string;
   requestedAfternoonEnd?: string;
+  /** Toàn bộ log máy chấm của nhân viên trong ngày điều động, đã sắp xếp tăng dần. */
+  attendancePunchTimes?: string[];
   explanationKind: string;
   explainedTime: string;
   explainedDepartureTime: string;
@@ -87,13 +164,45 @@ export type WorkRequest = {
   explainedMorningOut?: string;
   explainedAfternoonIn?: string;
   explainedAfternoonOut?: string;
+  /** Giờ máy chấm gốc lúc gửi giải trình. */
+  originalMorningIn?: string;
+  originalMorningOut?: string;
+  originalAfternoonIn?: string;
+  originalAfternoonOut?: string;
   status: string;
   headComment: string;
   hrComment: string;
+  directorComment?: string;
+  nursingHeadComment?: string;
   headReviewedAt?: string;
   hrReviewedAt?: string;
+  directorReviewedAt?: string;
+  nursingHeadReviewedAt?: string;
+  headSignatureUrl?: string | null;
+  hrSignatureUrl?: string | null;
+  directorSignatureUrl?: string | null;
+  nursingHeadSignatureUrl?: string | null;
+  nursingHeadReviewerUsername?: string | null;
+  headReviewerUsername?: string | null;
+  hrReviewerUsername?: string | null;
+  directorReviewerUsername?: string | null;
+  headReviewerName?: string | null;
+  nursingHeadReviewerName?: string | null;
+  hrReviewerName?: string | null;
+  directorReviewerName?: string | null;
+  /** Tên người gửi / người nhận từng bước duyệt (đã ký hoặc đang được gửi tới). */
+  flowSubmitterName?: string | null;
+  flowHeadName?: string | null;
+  flowNursingHeadName?: string | null;
+  flowHrName?: string | null;
+  flowDirectorName?: string | null;
   hrWaiveForgotFine: boolean;
   forgotFineUnits?: number;
+  /** Ngày đơn thuộc ca thông tầm (chỉ vào đầu ngày / ra cuối ngày). */
+  continuousShift?: boolean;
+  /** true = điều động trong ca; false = ngoài ca. */
+  deploymentInsideShift?: boolean;
+  requestedByUsername?: string | null;
   createdAt: string;
 };
 
@@ -169,6 +278,91 @@ export async function applyShiftConfigToAll(
   return data;
 }
 
+export type ContinuousShiftKind = 'CONTINUOUS' | 'SPLIT';
+
+export type ContinuousShiftType = {
+  id: number;
+  name: string;
+  kind: ContinuousShiftKind;
+  kindLabel?: string;
+  startTime: string;
+  endTime: string;
+  morningStart?: string | null;
+  morningEnd?: string | null;
+  afternoonStart?: string | null;
+  afternoonEnd?: string | null;
+  checkInBeforeMin: number;
+  checkInAfterMin: number;
+  checkOutBeforeMin: number;
+  checkOutAfterMin: number;
+  morningOutBeforeMin?: number;
+  morningOutAfterMin?: number;
+  afternoonInBeforeMin?: number;
+  afternoonInAfterMin?: number;
+  active: boolean;
+  hours: number;
+};
+
+export type ContinuousShiftDayInfo = {
+  date: string;
+  shiftTypeId?: number | null;
+  shiftTypeName?: string | null;
+  kind?: ContinuousShiftKind | null;
+  kindLabel?: string | null;
+  continuousStart?: string | null;
+  continuousEnd?: string | null;
+  morningStart?: string | null;
+  morningEnd?: string | null;
+  afternoonStart?: string | null;
+  afternoonEnd?: string | null;
+};
+
+export async function fetchContinuousShiftTypes(activeOnly = true) {
+  const { data } = await api.get<ContinuousShiftType[]>('/v1/attendance/continuous-shift-types', {
+    params: { activeOnly },
+  });
+  return data;
+}
+
+export type ContinuousShiftTypePayload = {
+  name: string;
+  kind: ContinuousShiftKind;
+  startTime?: string;
+  endTime?: string;
+  morningStart?: string;
+  morningEnd?: string;
+  afternoonStart?: string;
+  afternoonEnd?: string;
+  checkInBeforeMin: number;
+  checkInAfterMin: number;
+  checkOutBeforeMin: number;
+  checkOutAfterMin: number;
+  morningOutBeforeMin?: number;
+  morningOutAfterMin?: number;
+  afternoonInBeforeMin?: number;
+  afternoonInAfterMin?: number;
+  active?: boolean;
+};
+
+export async function createContinuousShiftType(body: ContinuousShiftTypePayload) {
+  const { data } = await api.post<ContinuousShiftType>('/v1/attendance/continuous-shift-types', body);
+  return data;
+}
+
+export async function updateContinuousShiftType(id: number, body: ContinuousShiftTypePayload) {
+  const { data } = await api.put<ContinuousShiftType>(`/v1/attendance/continuous-shift-types/${id}`, body);
+  return data;
+}
+
+export async function deleteContinuousShiftType(id: number) {
+  await api.delete(`/v1/attendance/continuous-shift-types/${id}`);
+}
+
+/** @deprecated dùng deleteContinuousShiftType */
+export async function deactivateContinuousShiftType(id: number) {
+  return deleteContinuousShiftType(id);
+}
+
 export async function fetchEmployeeContinuousShiftDays(
   employeeId: number,
   year: number,
@@ -179,7 +373,10 @@ export async function fetchEmployeeContinuousShiftDays(
     periodYear: number;
     periodMonth: number;
     dates: string[];
+    days: ContinuousShiftDayInfo[];
     continuousShift: boolean;
+    continuousDates?: string[];
+    splitDates?: string[];
     dayCount: number;
   }>(`/v1/attendance/employees/${employeeId}/continuous-shift`, {
     params: { year, month },
@@ -191,13 +388,19 @@ export async function setEmployeeContinuousShiftDays(
   employeeId: number,
   year: number,
   month: number,
-  dates: string[],
+  days: Array<{
+    date: string;
+    shiftTypeId?: number | null;
+    continuousStart?: string | null;
+    continuousEnd?: string | null;
+  }>,
 ) {
   const { data } = await api.put<{
     employeeId: number;
     periodYear: number;
     periodMonth: number;
     dates: string[];
+    days: ContinuousShiftDayInfo[];
     continuousShift: boolean;
     dayCount: number;
     recalculated: number;
@@ -205,7 +408,7 @@ export async function setEmployeeContinuousShiftDays(
   }>(`/v1/attendance/employees/${employeeId}/continuous-shift`, {
     year,
     month,
-    dates,
+    days,
   });
   return data;
 }
@@ -236,20 +439,17 @@ export async function setEmployeeContinuousShift(
 
 export async function setEmployeeYoungChild(
   employeeId: number,
-  year: number,
-  month: number,
+  effectiveDate: string,
   youngChild: boolean,
 ) {
   const { data } = await api.put<{
     employeeId: number;
-    periodYear: number;
-    periodMonth: number;
+    effectiveDate: string;
     youngChild: boolean;
     recalculated: number;
     recalculateWarning?: string;
   }>(`/v1/attendance/employees/${employeeId}/young-child`, {
-    year,
-    month,
+    effectiveDate,
     youngChild,
   });
   return data;
@@ -351,6 +551,18 @@ export async function fetchDepartmentSummary(year: number, month: number, depart
   return data;
 }
 
+/** Ma trận bảng chấm công theo ngày (giống sheet Excel "Bảng chấm công"). */
+export async function fetchAttendanceMonthMatrix(
+  year: number,
+  month: number,
+  departmentId?: number,
+) {
+  const { data } = await api.get<AttendanceMonthMatrix>('/v1/attendance/report/matrix', {
+    params: { year, month, ...(departmentId != null ? { departmentId } : {}) },
+  });
+  return data;
+}
+
 export async function notifyAttendanceMonth(employeeId: number, year: number, month: number) {
   await api.post('/v1/attendance/notify-month', { employeeId, year, month });
 }
@@ -373,7 +585,7 @@ export async function recalculateEmployeeMonth(employeeId: number, year: number,
 
 export type SubmitWorkRequest = {
   requestType: 'EXPLANATION' | 'UPDATE' | 'LEAVE' | 'UNPAID_LEAVE' | 'BUSINESS_TRIP' | 'DEPLOYMENT';
-  /** Nhân viên được điều động (DEPLOYMENT). */
+  /** Nhân viên mục tiêu (DEPLOYMENT hoặc EXPLANATION do ADMIN tạo). */
   employeeId?: number;
   workDate: string;
   endDate?: string;
@@ -398,6 +610,11 @@ export type SubmitWorkRequest = {
 
 export async function submitWorkRequest(body: SubmitWorkRequest) {
   const { data } = await api.post<WorkRequest>('/v1/attendance/requests', body);
+  return data;
+}
+
+export async function updateWorkRequest(id: number, body: SubmitWorkRequest) {
+  const { data } = await api.put<WorkRequest>(`/v1/attendance/requests/${id}`, body);
   return data;
 }
 
@@ -427,9 +644,55 @@ export async function headReviewRequest(id: number, approved: boolean, comment?:
 export async function hrReviewRequest(
   id: number,
   approved: boolean,
-  options?: { comment?: string; waiveForgotFine?: boolean },
+  options?: {
+    comment?: string;
+    waiveForgotFine?: boolean;
+    requestedStart?: string;
+    requestedEnd?: string;
+    requestedAfternoonStart?: string;
+    requestedAfternoonEnd?: string;
+  },
 ) {
   const { data } = await api.post<WorkRequest>(`/v1/attendance/requests/${id}/hr-review`, {
+    approved,
+    comment: options?.comment,
+    waiveForgotFine: options?.waiveForgotFine ?? false,
+    requestedStart: options?.requestedStart,
+    requestedEnd: options?.requestedEnd,
+    requestedAfternoonStart: options?.requestedAfternoonStart,
+    requestedAfternoonEnd: options?.requestedAfternoonEnd,
+  });
+  return data;
+}
+
+export async function nursingHeadReviewRequest(
+  id: number,
+  approved: boolean,
+  options?: {
+    comment?: string;
+    requestedStart?: string;
+    requestedEnd?: string;
+    requestedAfternoonStart?: string;
+    requestedAfternoonEnd?: string;
+  },
+) {
+  const { data } = await api.post<WorkRequest>(`/v1/attendance/requests/${id}/nursing-head-review`, {
+    approved,
+    comment: options?.comment,
+    requestedStart: options?.requestedStart,
+    requestedEnd: options?.requestedEnd,
+    requestedAfternoonStart: options?.requestedAfternoonStart,
+    requestedAfternoonEnd: options?.requestedAfternoonEnd,
+  });
+  return data;
+}
+
+export async function directorReviewRequest(
+  id: number,
+  approved: boolean,
+  options?: { comment?: string; waiveForgotFine?: boolean },
+) {
+  const { data } = await api.post<WorkRequest>(`/v1/attendance/requests/${id}/director-review`, {
     approved,
     comment: options?.comment,
     waiveForgotFine: options?.waiveForgotFine ?? false,
@@ -474,11 +737,18 @@ export const UPDATE_KIND_OPTIONS = [
   { value: 'FULL_DAY_SUPPLEMENT', label: 'Bổ sung cả ngày', forgotUnits: 4 },
 ] as const;
 
+export const CONTINUOUS_UPDATE_KIND = {
+  value: 'FULL_DAY_SUPPLEMENT' as const,
+  label: 'Bổ sung ca thông tầm',
+  forgotUnits: 2,
+};
+
 export type UpdateScenario = {
   updateKind: 'MORNING_SUPPLEMENT' | 'AFTERNOON_SUPPLEMENT' | 'FULL_DAY_SUPPLEMENT';
   forgotUnits: number;
   partial?: boolean;
   locked?: boolean;
+  continuous?: boolean;
   missingMorningIn?: boolean;
   missingMorningOut?: boolean;
   missingAfternoonIn?: boolean;
@@ -494,7 +764,28 @@ function punchStr(v: unknown): string {
 }
 
 /** Tự chọn loại cập nhật và số lần trừ quên chấm theo giờ đã/ chưa có trên bảng công. */
-export function detectUpdateFromRow(row: Record<string, unknown> | null | undefined): UpdateScenario {
+export function detectUpdateFromRow(
+  row: Record<string, unknown> | null | undefined,
+  continuousShift?: boolean,
+): UpdateScenario {
+  if (continuousShift) {
+    const dayIn = punchStr(row?.morningCheckIn ?? row?.checkIn);
+    const dayOut = punchStr(row?.afternoonCheckOut ?? row?.checkOut);
+    const missingIn = !dayIn;
+    const missingOut = !dayOut;
+    const missing = (missingIn ? 1 : 0) + (missingOut ? 1 : 0);
+    return {
+      updateKind: 'FULL_DAY_SUPPLEMENT',
+      forgotUnits: missing > 0 ? missing : 2,
+      partial: missing === 1,
+      locked: true,
+      continuous: true,
+      missingMorningIn: missingIn,
+      missingAfternoonOut: missingOut,
+      existingMorningIn: dayIn || undefined,
+      existingAfternoonOut: dayOut || undefined,
+    };
+  }
   const mIn = punchStr(row?.morningCheckIn);
   const mOut = punchStr(row?.morningCheckOut);
   const aIn = punchStr(row?.afternoonCheckIn);
@@ -539,12 +830,16 @@ export function detectUpdateFromRow(row: Record<string, unknown> | null | undefi
     const mMissing = (!mIn ? 1 : 0) + (!mOut ? 1 : 0);
     const aMissing = (!aIn ? 1 : 0) + (!aOut ? 1 : 0);
     if (mMissing > 0 && aMissing > 0) {
-      // Đếm đúng số mốc còn thiếu (vd. đã có giờ ra chiều 17h20 → trừ 3, không hardcode 4).
+      // Có chấm sáng nhưng chiều trống hoàn toàn → ưu tiên bổ sung ca sáng
+      // (thường là chỉ đi làm sáng, chiều nghỉ — không bắt bổ sung chiều).
+      const afternoonEmpty = !aIn && !aOut;
+      const morningHadPunch = Boolean(mIn || mOut);
+      const preferMorningOnly = morningHadPunch && afternoonEmpty;
       return {
-        updateKind: 'FULL_DAY_SUPPLEMENT',
-        forgotUnits: mMissing + aMissing,
-        partial: mMissing + aMissing < 4,
-        locked: true,
+        updateKind: preferMorningOnly ? 'MORNING_SUPPLEMENT' : 'FULL_DAY_SUPPLEMENT',
+        forgotUnits: preferMorningOnly ? mMissing : mMissing + aMissing,
+        partial: preferMorningOnly ? mMissing < 2 : mMissing + aMissing < 4,
+        locked: false,
         missingMorningIn: !mIn,
         missingMorningOut: !mOut,
         missingAfternoonIn: !aIn,
@@ -582,6 +877,38 @@ export function detectUpdateFromRow(row: Record<string, unknown> | null | undefi
   return { updateKind: 'MORNING_SUPPLEMENT', forgotUnits: 2, locked: false };
 }
 
+/** Số lần trừ quên chấm theo loại ca NV chọn + các mốc thiếu trên bảng công. */
+export function forgotUnitsForUpdateChoice(
+  updateKind: string,
+  scenario?: UpdateScenario | null,
+): number {
+  if (scenario?.continuous) {
+    const n =
+      (scenario.missingMorningIn ? 1 : 0) + (scenario.missingAfternoonOut ? 1 : 0);
+    return n > 0 ? n : 2;
+  }
+  if (!scenario) return forgotFineUnitsForUpdateKind(updateKind);
+  if (updateKind === 'MORNING_SUPPLEMENT') {
+    const n =
+      (scenario.missingMorningIn ? 1 : 0) + (scenario.missingMorningOut ? 1 : 0);
+    return n > 0 ? n : forgotFineUnitsForUpdateKind(updateKind);
+  }
+  if (updateKind === 'AFTERNOON_SUPPLEMENT') {
+    const n =
+      (scenario.missingAfternoonIn ? 1 : 0) + (scenario.missingAfternoonOut ? 1 : 0);
+    return n > 0 ? n : forgotFineUnitsForUpdateKind(updateKind);
+  }
+  if (updateKind === 'FULL_DAY_SUPPLEMENT') {
+    const n =
+      (scenario.missingMorningIn ? 1 : 0) +
+      (scenario.missingMorningOut ? 1 : 0) +
+      (scenario.missingAfternoonIn ? 1 : 0) +
+      (scenario.missingAfternoonOut ? 1 : 0);
+    return n > 0 ? n : forgotFineUnitsForUpdateKind(updateKind);
+  }
+  return forgotFineUnitsForUpdateKind(updateKind);
+}
+
 export function forgotFineUnitsForUpdateKind(kind: string): number {
   const opt = UPDATE_KIND_OPTIONS.find((o) => o.value === kind);
   return opt?.forgotUnits ?? 2;
@@ -590,10 +917,14 @@ export function forgotFineUnitsForUpdateKind(kind: string): number {
 export const REQUEST_STATUS_LABEL: Record<string, string> = {
   PENDING_HEAD: 'Chờ lãnh đạo',
   HEAD_REJECTED: 'Lãnh đạo từ chối',
+  PENDING_NURSING_HEAD: 'Chờ Trưởng phòng Điều dưỡng',
+  NURSING_HEAD_REJECTED: 'Trưởng phòng Điều dưỡng từ chối',
   PENDING_HR: 'Chờ HCNS',
   HR_REJECTED: 'HCNS từ chối',
-  APPROVED: 'Đã duyệt (có phạt quên chấm)',
-  APPROVED_NO_FINE: 'Đã duyệt (không phạt quên chấm)',
+  PENDING_DIRECTOR: 'Chờ Giám đốc',
+  DIRECTOR_REJECTED: 'Giám đốc từ chối',
+  APPROVED: 'Đã duyệt (có trừ tiền)',
+  APPROVED_NO_FINE: 'Đã duyệt (không trừ tiền)',
   WITHDRAWN: 'Đã thu hồi',
 };
 
@@ -602,8 +933,12 @@ export function requestStatusLabel(
   status: string,
   requestType?: WorkRequest['requestType'],
 ): string {
-  if (requestType === 'LEAVE' || requestType === 'UNPAID_LEAVE' || requestType === 'EXPLANATION' || requestType === 'BUSINESS_TRIP' || requestType === 'DEPLOYMENT') {
+  if (requestType === 'LEAVE' || requestType === 'UNPAID_LEAVE' || requestType === 'BUSINESS_TRIP' || requestType === 'DEPLOYMENT') {
     if (status === 'APPROVED' || status === 'APPROVED_NO_FINE') return 'Đã duyệt';
+  }
+  if (requestType === 'EXPLANATION') {
+    if (status === 'APPROVED') return 'Đã duyệt (có phạt muộn/sớm)';
+    if (status === 'APPROVED_NO_FINE') return 'Đã duyệt (miễn phạt muộn/sớm)';
   }
   return REQUEST_STATUS_LABEL[status] ?? status;
 }
@@ -617,19 +952,20 @@ export function requestTypeLabel(type: WorkRequest['requestType']): string {
   return 'Cập nhật công';
 }
 
-export function updateKindLabel(kind: string): string {
+export function updateKindLabel(kind: string, continuous?: boolean): string {
+  if (continuous) return CONTINUOUS_UPDATE_KIND.label;
   return UPDATE_KIND_OPTIONS.find((o) => o.value === kind)?.label ?? 'Cập nhật công';
 }
 
 export function formatWorkDate(dateStr: string): string {
+  const formatted = formatDateVi(dateStr, '');
+  if (!formatted || formatted === dateStr) return dateStr;
   const parts = dateStr.split('-').map(Number);
-  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return dateStr;
-  return new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString('vi-VN', {
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return formatted;
+  const weekday = new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString('vi-VN', {
     weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
   });
+  return `${weekday}, ${formatted}`;
 }
 
 export function formatReviewTimestamp(iso?: string): string {
@@ -641,6 +977,9 @@ export function formatReviewTimestamp(iso?: string): string {
 
 export function formatRequestedTimes(r: WorkRequest): string {
   const shifts = resolveRequestShiftTimes(r);
+  if (shifts.single?.start && shifts.single.end) {
+    return `Thông tầm ${shifts.single.start}–${shifts.single.end}`;
+  }
   const parts: string[] = [];
   if (shifts.morning?.start && shifts.morning.end) {
     parts.push(`Sáng ${shifts.morning.start}–${shifts.morning.end}`);
@@ -649,9 +988,6 @@ export function formatRequestedTimes(r: WorkRequest): string {
     parts.push(`Chiều ${shifts.afternoon.start}–${shifts.afternoon.end}`);
   }
   if (parts.length > 0) return parts.join(' · ');
-  if (shifts.single?.start && shifts.single.end) {
-    return `${shifts.single.start} – ${shifts.single.end}`;
-  }
   return '';
 }
 
@@ -706,6 +1042,12 @@ function resolveFullDayShiftTimes(r: WorkRequest): RequestShiftTimes {
 
 export function resolveRequestShiftTimes(r: WorkRequest): RequestShiftTimes {
   if (r.requestType !== 'UPDATE') return {};
+  if (r.continuousShift) {
+    const start = formatTimeShort(r.requestedStart);
+    const end = formatTimeShort(r.requestedAfternoonEnd) || formatTimeShort(r.requestedEnd);
+    if (!start && !end) return {};
+    return { single: { start, end, label: 'Ca thông tầm' } };
+  }
   if (r.updateKind === 'FULL_DAY_SUPPLEMENT') {
     return resolveFullDayShiftTimes(r);
   }
@@ -727,24 +1069,42 @@ export function resolveRequestShiftTimes(r: WorkRequest): RequestShiftTimes {
 
 export function formatExplanationTimes(r: WorkRequest): string {
   const parts: string[] = [];
+  const pair = (label: string, original: string | undefined, explained: string) => {
+    const orig = formatTimeShort(original);
+    return orig ? `${label}: ${orig} → ${explained}` : `${label} → ${explained}`;
+  };
   const mIn = formatTimeShort(r.explainedMorningIn);
   const mOut = formatTimeShort(r.explainedMorningOut);
   const aIn = formatTimeShort(r.explainedAfternoonIn);
   const aOut = formatTimeShort(r.explainedAfternoonOut);
-  if (mIn) parts.push(`Sáng vào → ${mIn}`);
-  if (mOut) parts.push(`Sáng ra → ${mOut}`);
-  if (aIn) parts.push(`Chiều vào → ${aIn}`);
-  if (aOut) parts.push(`Chiều ra → ${aOut}`);
+  if (r.continuousShift) {
+    if (mIn) parts.push(pair('Giờ vào', r.originalMorningIn, mIn));
+    if (aOut) parts.push(pair('Giờ ra', r.originalAfternoonOut, aOut));
+  } else {
+    if (mIn) parts.push(pair('Sáng vào', r.originalMorningIn, mIn));
+    if (mOut) parts.push(pair('Sáng ra', r.originalMorningOut, mOut));
+    if (aIn) parts.push(pair('Chiều vào', r.originalAfternoonIn, aIn));
+    if (aOut) parts.push(pair('Chiều ra', r.originalAfternoonOut, aOut));
+  }
   if (parts.length > 0) return parts.join(' · ');
 
   if (r.explainedTime && r.explanationKind !== 'EARLY_DEPARTURE') {
-    parts.push(`Đi muộn — vào ${r.explainedTime.slice(0, 5)}`);
+    const orig = formatTimeShort(r.originalMorningIn);
+    parts.push(orig
+      ? `Đi muộn — vào: ${orig} → ${r.explainedTime.slice(0, 5)}`
+      : `Đi muộn — vào ${r.explainedTime.slice(0, 5)}`);
   }
   if (r.explainedDepartureTime) {
-    parts.push(`Về sớm — ra ${r.explainedDepartureTime.slice(0, 5)}`);
+    const orig = formatTimeShort(r.originalAfternoonOut);
+    parts.push(orig
+      ? `Về sớm — ra: ${orig} → ${r.explainedDepartureTime.slice(0, 5)}`
+      : `Về sớm — ra ${r.explainedDepartureTime.slice(0, 5)}`);
   }
   if (!r.explainedDepartureTime && r.explainedTime && r.explanationKind === 'EARLY_DEPARTURE') {
-    parts.push(`Về sớm — ra ${r.explainedTime.slice(0, 5)}`);
+    const orig = formatTimeShort(r.originalAfternoonOut);
+    parts.push(orig
+      ? `Về sớm — ra: ${orig} → ${r.explainedTime.slice(0, 5)}`
+      : `Về sớm — ra ${r.explainedTime.slice(0, 5)}`);
   }
   return parts.join(' · ');
 }
@@ -793,24 +1153,26 @@ function minutesEarly(actual: string, expected: string): number {
 
 /**
  * Các khung giờ đang bị tính muộn/về sớm (để giải trình).
+ * Dùng lịch ca thật của NV (API); khớp logic backend: về sớm chỉ tính khi đã có giờ vào ca tương ứng.
  * Ca thông tầm: chỉ xét vào đầu ngày / ra cuối ngày.
  */
 export function detectExplanationPenaltySlots(
   row: Record<string, unknown> | null | undefined,
   workDate: string,
   continuousShift?: boolean,
+  schedule?: ShiftScheduleInfo | null,
 ): ExplanationPenaltySlot[] {
   if (!row) return [];
-  const sch = scheduleForDate(workDate);
+  const sch = schedule ?? scheduleForDate(workDate);
   const slots: ExplanationPenaltySlot[] = [];
 
-  if (continuousShift) {
+  if (continuousShift || sch.continuousShift) {
     const dayIn = punchHm(row.morningCheckIn ?? row.checkIn);
     const dayOut = punchHm(row.afternoonCheckOut ?? row.checkOut);
     const expectedIn = sch.continuousStart ?? sch.morningStart;
     const expectedOut = sch.continuousEnd ?? sch.afternoonEnd;
     const late = dayIn ? minutesLate(dayIn, expectedIn) : 0;
-    const early = dayOut ? minutesEarly(dayOut, expectedOut) : 0;
+    const early = dayIn && dayOut ? minutesEarly(dayOut, expectedOut) : 0;
     if (late > 0) {
       slots.push({
         key: 'morningIn',
@@ -818,7 +1180,7 @@ export function detectExplanationPenaltySlots(
         kind: 'LATE',
         kindLabel: 'Đi muộn',
         current: dayIn,
-        expected: expectedIn,
+        expected: expectedIn.slice(0, 5),
         minutes: late,
       });
     }
@@ -829,7 +1191,7 @@ export function detectExplanationPenaltySlots(
         kind: 'EARLY',
         kindLabel: 'Về sớm',
         current: dayOut,
-        expected: expectedOut,
+        expected: expectedOut.slice(0, 5),
         minutes: early,
       });
     }
@@ -849,11 +1211,12 @@ export function detectExplanationPenaltySlots(
       kind: 'LATE',
       kindLabel: 'Đi muộn',
       current: mIn,
-      expected: sch.morningStart,
+      expected: sch.morningStart.slice(0, 5),
       minutes: lateM,
     });
   }
-  const earlyM = mOut ? minutesEarly(mOut, sch.morningEnd) : 0;
+  // Khớp backend: về sớm ca sáng chỉ khi đã có giờ vào sáng
+  const earlyM = mIn && mOut ? minutesEarly(mOut, sch.morningEnd) : 0;
   if (earlyM > 0) {
     slots.push({
       key: 'morningOut',
@@ -861,7 +1224,7 @@ export function detectExplanationPenaltySlots(
       kind: 'EARLY',
       kindLabel: 'Về sớm',
       current: mOut,
-      expected: sch.morningEnd,
+      expected: sch.morningEnd.slice(0, 5),
       minutes: earlyM,
     });
   }
@@ -873,11 +1236,11 @@ export function detectExplanationPenaltySlots(
       kind: 'LATE',
       kindLabel: 'Đi muộn',
       current: aIn,
-      expected: sch.afternoonStart,
+      expected: sch.afternoonStart.slice(0, 5),
       minutes: lateA,
     });
   }
-  const earlyA = aOut ? minutesEarly(aOut, sch.afternoonEnd) : 0;
+  const earlyA = aIn && aOut ? minutesEarly(aOut, sch.afternoonEnd) : 0;
   if (earlyA > 0) {
     slots.push({
       key: 'afternoonOut',
@@ -885,7 +1248,7 @@ export function detectExplanationPenaltySlots(
       kind: 'EARLY',
       kindLabel: 'Về sớm',
       current: aOut,
-      expected: sch.afternoonEnd,
+      expected: sch.afternoonEnd.slice(0, 5),
       minutes: earlyA,
     });
   }
@@ -910,15 +1273,32 @@ export function requestStatusColor(
 }
 
 export function isRequestPending(status: string): boolean {
-  return status === 'PENDING_HEAD' || status === 'PENDING_HR';
+  return (
+    status === 'PENDING_HEAD' ||
+    status === 'PENDING_NURSING_HEAD' ||
+    status === 'PENDING_HR' ||
+    status === 'PENDING_DIRECTOR'
+  );
 }
 
-export function isRequestWithdrawable(status: string): boolean {
-  return isRequestPending(status);
+export function isRequestWithdrawable(status: string, opts?: { asAdmin?: boolean }): boolean {
+  // Người gửi không thu hồi sau khi gửi — chỉ ADMIN được thu hồi.
+  if (!opts?.asAdmin) return false;
+  return status !== 'WITHDRAWN';
 }
 
 export async function withdrawWorkRequest(id: number) {
   const { data } = await api.post<WorkRequest>(`/v1/attendance/requests/${id}/withdraw`);
+  return data;
+}
+
+/** Khôi phục hiệu lực đơn giải trình / cập nhật công / nghỉ đã duyệt trên bảng công. */
+export async function reapplyApprovedAttendanceEffects(from: string, to?: string) {
+  const { data } = await api.post<{ reapplied: number; from: string; to: string }>(
+    '/v1/attendance/requests/reapply-approved-effects',
+    null,
+    { params: { from, ...(to ? { to } : {}) }, timeout: 600000 },
+  );
   return data;
 }
 
@@ -948,13 +1328,14 @@ export function hasAfternoonPunch(row: AttendanceStatusRow | Record<string, unkn
 }
 
 export function hasOvertimeUnits(row: AttendanceStatusRow | Record<string, unknown>): boolean {
-  return Number(row.overtimeWorkUnits) > 0;
+  return Number((row as Record<string, unknown>).overtimeWorkUnits) > 0;
 }
 
 export function isDeploymentRow(row: AttendanceStatusRow | Record<string, unknown> | null | undefined): boolean {
   if (!row) return false;
-  if (row.deployment === true) return true;
-  const note = String(row.note ?? '');
+  const extra = row as Record<string, unknown>;
+  if (extra.deployment === true) return true;
+  const note = String(extra.note ?? '');
   return note.includes('Điều động làm thêm') || note.includes('Điều động trong ca');
 }
 
@@ -978,6 +1359,7 @@ const ATTENDANCE_STATUS_LABEL: Record<string, string> = {
   LEAVE: 'Phép',
   UNPAID_LEAVE: 'Không lương',
   BUSINESS_TRIP: 'Công tác',
+  SEMINAR: 'Hội thảo',
   DEPLOYMENT: 'Điều động',
 };
 
@@ -1082,8 +1464,10 @@ export type DutyShiftPreview = {
   monthlyTotalSalary: number;
 };
 
-export async function fetchDutyShiftTypes() {
-  const { data } = await api.get<DutyShiftTypeOption[]>('/v1/attendance/duty-shifts/types');
+export async function fetchDutyShiftTypes(employeeId?: number) {
+  const { data } = await api.get<DutyShiftTypeOption[]>('/v1/attendance/duty-shifts/types', {
+    params: employeeId != null ? { employeeId } : undefined,
+  });
   return data;
 }
 

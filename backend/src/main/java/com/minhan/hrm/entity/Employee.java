@@ -62,10 +62,26 @@ public class Employee {
     @Builder.Default
     private EmployeeStatus status = EmployeeStatus.ACTIVE;
 
+    /** Toàn thời gian (TTG) / bán thời gian (BTG). */
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "employment_type", nullable = false, length = 16)
+    @Builder.Default
+    private EmploymentType employmentType = EmploymentType.FULL_TIME;
+
     /** Làm thông tầm: không nghỉ trưa, chỉ cần giờ vào/ra đầu ngày và cuối ngày. */
     @Column(name = "continuous_shift", nullable = false)
     @Builder.Default
     private boolean continuousShift = false;
+
+    /** Đang đi đào tạo / bồi dưỡng (sau khi phiếu đề xuất được Giám đốc duyệt). */
+    @Column(name = "on_training", nullable = false)
+    @Builder.Default
+    private boolean onTraining = false;
+
+    /** false = chỉ được ca trực kèm (TK); true = được chọn mọi loại trực. */
+    @Column(name = "main_duty_authorized", nullable = false)
+    @Builder.Default
+    private boolean mainDutyAuthorized = true;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

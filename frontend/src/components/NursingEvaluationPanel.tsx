@@ -1,18 +1,14 @@
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
+import PersonSearchOutlinedIcon from '@mui/icons-material/PersonSearchOutlined';
+import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
+import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
-  Checkbox,
   Chip,
-  FormControl,
-  IconButton,
-  InputAdornment,
-  InputLabel,
+  LinearProgress,
   MenuItem,
-  Paper,
-  Select,
   Stack,
   Table,
   TableBody,
@@ -21,1341 +17,973 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material';
-import RateReviewIcon from '@mui/icons-material/RateReview';
-import SearchIcon from '@mui/icons-material/Search';
-import { alpha } from '@mui/material/styles';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { alpha, useTheme } from '@mui/material/styles';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { isHeadDepartmentRole } from '../utils/roleAccess';
 import * as employeeService from '../services/employeeService';
+import * as att from '../services/attendanceService';
 import * as ne from '../services/nursingEvaluationService';
+import { extractApiErrorMessage, ensureHasSignature } from '../services/approvalSignatureService';
+import { MonthPickerField } from './ui/DateTimeFields';
+import { RequestFlowSteps } from './work/WorkRequestFormUi';
+import {
+  applyRequestListFilters,
+  EMPTY_REQUEST_FILTERS,
+  RequestListFilters,
+  type RequestListFilterState,
+} from './requests/RequestListFilters';
 
-/** Bố cục theo mẫu Excel ảnh bạn gửi (xanh ngọc) */
-const SHEET = {
-  bg: '#ffffff',
-  header: '#59a9a5',
-  text: '#0b0f0f',
-  textMuted: '#2b2b2b',
-  border: 'rgba(0,0,0,0.55)',
+/** Chuẩn công tháng dùng để nhận diện thiếu công khi đánh giá. */
+const STANDARD_MONTH_WORK_UNITS = 26;
+
+type AttendanceEvalStats = {
+  totalWorkUnits: number;
+  lateMinutesTotal: number;
+  lateEarlyTimes: number;
+  missingWorkUnits: number;
+  isShortWork: boolean;
 };
 
-type RosterStatusFilter = 'all' | 'no_sheet' | 'need_my_part' | 'done_my_part';
-
-type RowState = {
-  truongKhoa: string;
-  ddt: string;
-  truongKhoaNote: string;
-  ddtNote: string;
-  hd: string;
-  hdNote: string;
-};
-
-function defaultRows(groups: ne.CriterionGroup[]): Record<string, RowState> {
-  const out: Record<string, RowState> = {};
-  for (const g of groups) {
-    const vi = g.id.startsWith('VI_');
-    out[g.id] = {
-      truongKhoa: vi ? '0' : '',
-      ddt: vi ? '0' : '',
-      truongKhoaNote: '',
-      ddtNote: '',
-      hd: '',
-      hdNote: '',
-    };
-  }
-  return out;
+/** Làm tròn công (tránh lỗi số thực 23.99999999). */
+function roundWorkUnits(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-function mergeRowsFromApi(
-  groups: ne.CriterionGroup[],
-  base: Record<string, RowState>,
-  scoresUnknown: unknown
-): Record<string, RowState> {
-  const out = { ...base };
-  if (!scoresUnknown || typeof scoresUnknown !== 'object') return out;
-  const raw = scoresUnknown as Record<string, Record<string, unknown>>;
-  for (const g of groups) {
-    const part = raw[g.id];
-    if (!part || typeof part !== 'object') continue;
-    const row = { ...out[g.id] };
-    for (const k of ['truongKhoa', 'ddt'] as const) {
-      const v = part[k];
-      if (v != null && v !== '') row[k] = String(v);
-    }
-    const vhd = part.hd;
-    if (vhd != null && vhd !== '') row.hd = String(vhd);
-    const ntk = part.truongKhoaNote;
-    const ndt = part.ddtNote;
-    if (ntk != null) row.truongKhoaNote = String(ntk);
-    if (ndt != null) row.ddtNote = String(ndt);
-    const nhd = part.hdNote;
-    if (nhd != null) row.hdNote = String(nhd);
-    out[g.id] = row;
-  }
-  return out;
+function formatWorkUnits(n: number): string {
+  const v = roundWorkUnits(n);
+  if (Number.isInteger(v)) return String(v);
+  return v.toFixed(2).replace(/\.?0+$/, '') || '0';
 }
 
-/**
- * Phiếu chấm dạng bảng: STT — nội dung — điểm tối đa — Khoa phòng (điểm + ghi chú) — Điều dưỡng trưởng (điểm + ghi chú).
- * Không có cột tự đánh giá.
- */
 export type NursingEvaluationEditFocus = {
   employeeId: number;
   periodYear: number;
   periodMonth: number;
 };
 
-type NursingEvaluationPanelProps = {
+type Props = {
   editFocus?: NursingEvaluationEditFocus | null;
   onEditFocusConsumed?: () => void;
-  /** Báo cho trang cha refetch (vd. bảng tổng hợp tháng) sau khi lưu phiếu thành công */
   onDataMutated?: () => void;
 };
 
-export function NursingEvaluationPanel({
-  editFocus = null,
-  onEditFocusConsumed,
-  onDataMutated,
-}: NursingEvaluationPanelProps = {}) {
-  const templateCode = ne.MA2026_EVAL_TEMPLATE_CODE;
+type RowState = { points: string; note: string };
+
+type RosterItem = employeeService.EmployeeSummary & {
+  evalStatus: string;
+};
+
+function defaultRows(groups: ne.CriterionGroup[]): Record<string, RowState> {
+  const out: Record<string, RowState> = {};
+  for (const g of groups) {
+    const extra = Boolean(g.bonus || g.penalty || g.id.startsWith('VI_') || g.id.startsWith('VII_'));
+    out[g.id] = { points: extra ? '0' : '', note: '' };
+  }
+  return out;
+}
+
+function currentYearMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function filledCount(groups: ne.CriterionGroup[], rows: Record<string, RowState>): { filled: number; total: number } {
+  let filled = 0;
+  let total = 0;
+  for (const g of groups) {
+    const extra = Boolean(g.bonus || g.penalty || g.id.startsWith('VI_') || g.id.startsWith('VII_'));
+    if (extra) continue;
+    total += 1;
+    const v = rows[g.id]?.points;
+    if (v != null && v !== '' && Number.isFinite(Number(v))) filled += 1;
+  }
+  return { filled, total };
+}
+
+export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataMutated }: Props) {
+  const theme = useTheme();
+  const accent = theme.palette.primary.main;
   const { user } = useAuth();
+  const canScore = user?.role === 'ADMIN' || isHeadDepartmentRole(user?.role);
+  const canViewRoster = canScore;
 
-  /** Chuẩn hóa để tránh lệch chữ hoa/thường từ API hoặc dữ liệu cũ trong storage. */
-  const role = (user?.role ?? '').toUpperCase();
-  const isAdmin = role === 'ADMIN';
-  const isHr = role === 'HR';
-  const isDeptHead = role === 'HEAD_DEPARTMENT';
-  const isNursingHead = role === 'HEAD_NURSING';
-  const isEmployee = role === 'EMPLOYEE';
-
-  const canPickEmployee = isAdmin || isDeptHead || isNursingHead || isHr;
-  const canEdit = isAdmin || isDeptHead || isNursingHead || isHr;
-  const showTkCol = isAdmin || isDeptHead; // chỉ trưởng khoa thấy cột trưởng khoa
-  const showDdtCol = isAdmin || isNursingHead; // chỉ ĐDT thấy cột ĐDT
-  const showHdCol = isAdmin || isHr; // chỉ hội đồng (HR) thấy phần HD_*
-
-  const editTk = isAdmin || isDeptHead;
-  const editDdt = isAdmin || isNursingHead;
-  const editHd = isAdmin || isHr;
+  const [period, setPeriod] = useState(currentYearMonth);
+  const year = Number(period.slice(0, 4));
+  const month = Number(period.slice(5, 7));
 
   const [template, setTemplate] = useState<ne.NursingTemplate | null>(null);
   const [roster, setRoster] = useState<employeeService.EmployeeSummary[]>([]);
+  const [periodStatus, setPeriodStatus] = useState<Map<number, ne.NursingPeriodStatusRow>>(new Map());
   const [employeeId, setEmployeeId] = useState<number | ''>('');
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [rows, setRows] = useState<Record<string, RowState>>({});
-  // Ghi chú chung đã bỏ theo yêu cầu
-  const [history, setHistory] = useState<ne.NursingEvalRow[]>([]);
+  const [comments, setComments] = useState('');
   const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const formSheetRef = useRef<HTMLDivElement | null>(null);
-  const [periodStatusRows, setPeriodStatusRows] = useState<ne.NursingPeriodStatusRow[]>([]);
-  const [periodStatusLoading, setPeriodStatusLoading] = useState(false);
-  const [rosterStatusFilter, setRosterStatusFilter] = useState<RosterStatusFilter>('all');
-  const [departmentFilter, setDepartmentFilter] = useState<string>('all');
-  const [rosterSearchText, setRosterSearchText] = useState('');
-
-  const loadPeriodStatus = useCallback(async () => {
-    if (!canPickEmployee) return;
-    setPeriodStatusLoading(true);
-    try {
-      const rows = await ne.fetchNursingPeriodStatus(year, month, templateCode);
-      setPeriodStatusRows(rows);
-    } catch {
-      setPeriodStatusRows([]);
-    } finally {
-      setPeriodStatusLoading(false);
-    }
-  }, [canPickEmployee, year, month, templateCode]);
-
-  useEffect(() => {
-    void loadPeriodStatus();
-  }, [loadPeriodStatus]);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
+  const [attStats, setAttStats] = useState<AttendanceEvalStats | null>(null);
+  const [attStatsLoading, setAttStatsLoading] = useState(false);
+  const [attStatsErr, setAttStatsErr] = useState<string | null>(null);
 
   const groups = template?.criteriaGroups ?? [];
 
-  /** Chỉ render đúng phần việc của từng vai trò (HCNS: 30 điểm HD; khoa/ĐDT/NV: I–VI, không HD). */
-  const groupsForTable = useMemo(() => {
-    if (!template?.criteriaGroups?.length) return [];
-    const all = template.criteriaGroups;
-    if (isAdmin) return all;
-    if (isHr) return all.filter((g) => g.id.startsWith('HD_'));
-    return all.filter((g) => !g.id.startsWith('HD_'));
-  }, [template, isAdmin, isHr]);
-
-  const activeRow = useMemo(() => {
-    return history.find(
-      (x) => Number(x.periodYear) === year && Number(x.periodMonth) === month && String(x.templateCode) === templateCode
-    );
-  }, [history, month, templateCode, year]);
-
-  const channelEvalStatus = useMemo(() => {
-    const scores = activeRow?.scores as Record<string, unknown> | undefined;
-    if (!scores || typeof scores !== 'object') return null;
-    const raw = scores['__channelEvaluators__'];
-    if (!raw || typeof raw !== 'object') return null;
-    return raw as Record<string, { username?: string; displayName?: string; savedAt?: string }>;
-  }, [activeRow]);
-
-  const channelStatusLines = useMemo(() => {
-    if (!channelEvalStatus) return [];
-    const labels: Record<string, string> = {
-      truongKhoa: 'Trưởng khoa phòng',
-      ddt: 'Điều dưỡng trưởng',
-      hd: 'Hội đồng (30 điểm)',
-    };
-    const out: string[] = [];
-    for (const key of Object.keys(labels)) {
-      const slot = channelEvalStatus[key];
-      const name = ne.formatChannelEvaluatorName(slot);
-      if (!name) continue;
-      const when = ne.formatChannelEvalSavedAt(slot?.savedAt);
-      out.push(`${labels[key]}: đã lưu bởi «${name}»${when ? ` — ${when}` : ''}.`);
-    }
-    return out;
-  }, [channelEvalStatus]);
-
-  /** Đã có điểm lưu trên server đúng kênh / vai trò hiện tại → mặc định hiện nút Sửa. */
-  const hasMyChannelData = useMemo(() => {
-    const scores = activeRow?.scores as Record<string, Record<string, unknown>> | undefined;
-    if (!scores) return false;
-    const skipMeta = (id: string) => id === '__channelEvaluators__';
-
-    if (isAdmin) {
-      for (const g of groups) {
-        if (skipMeta(g.id)) continue;
-        const row = scores[g.id];
-        if (!row) continue;
-        if (g.id.startsWith('HD_')) {
-          if (row.hd != null && String(row.hd).trim() !== '') return true;
-        } else {
-          const tk = row.truongKhoa != null && String(row.truongKhoa).trim() !== '';
-          const ddt = row.ddt != null && String(row.ddt).trim() !== '';
-          if (tk && ddt) return true;
-        }
-      }
-      return false;
-    }
-    if (isDeptHead) {
-      return Object.entries(scores).some(
-        ([id, row]) =>
-          !skipMeta(id) &&
-          !id.startsWith('HD_') &&
-          row?.truongKhoa != null &&
-          String(row.truongKhoa).trim() !== ''
-      );
-    }
-    if (isNursingHead) {
-      return Object.entries(scores).some(
-        ([id, row]) =>
-          !skipMeta(id) && !id.startsWith('HD_') && row?.ddt != null && String(row.ddt).trim() !== ''
-      );
-    }
-    if (isHr) {
-      return Object.entries(scores).some(
-        ([id, row]) => id.startsWith('HD_') && row?.hd != null && String(row.hd).trim() !== ''
-      );
-    }
-    return false;
-  }, [activeRow, groups, isAdmin, isDeptHead, isHr, isNursingHead]);
-
-  const [saveUiPhase, setSaveUiPhase] = useState<'save' | 'sua'>('save');
-
-  useEffect(() => {
-    setSaveUiPhase(hasMyChannelData ? 'sua' : 'save');
-  }, [employeeId, year, month, hasMyChannelData]);
-
-  const formLocked = canEdit && saveUiPhase === 'sua';
-
-  const statusByEmployeeId = useMemo(() => {
-    const m = new Map<number, ne.NursingPeriodStatusRow>();
-    for (const r of periodStatusRows) {
-      m.set(r.employeeId, r);
-    }
-    return m;
-  }, [periodStatusRows]);
-
-  const departmentOptions = useMemo(() => {
-    const s = new Set<string>();
-    for (const em of roster) {
-      if (em.departmentName) s.add(em.departmentName);
-    }
-    return Array.from(s).sort((a, b) => a.localeCompare(b, 'vi'));
-  }, [roster]);
-
-  const channelComplete = useCallback((st: ne.NursingPeriodStatusRow | undefined) => {
-    if (!st) return false;
-    if (isAdmin) return st.hasTruongKhoa && st.hasDdt && st.hasHd;
-    if (isHr) return st.hasHd;
-    if (isDeptHead) return st.hasTruongKhoa;
-    if (isNursingHead) return st.hasDdt;
-    return false;
-  }, [isAdmin, isHr, isDeptHead, isNursingHead]);
-
-  const filteredRoster = useMemo(() => {
-    return roster.filter((em) => {
-      if (departmentFilter !== 'all' && em.departmentName !== departmentFilter) return false;
-      const st = statusByEmployeeId.get(em.id);
-      const hasSheet = statusByEmployeeId.has(em.id);
-      switch (rosterStatusFilter) {
-        case 'all':
-          return true;
-        case 'no_sheet':
-          return !hasSheet;
-        case 'need_my_part':
-          return !channelComplete(st);
-        case 'done_my_part':
-          return channelComplete(st);
-        default:
-          return true;
-      }
-    });
-  }, [roster, rosterStatusFilter, departmentFilter, statusByEmployeeId, channelComplete]);
-
-  const displayRoster = useMemo(() => {
-    const q = rosterSearchText.trim().toLowerCase();
-    if (!q) return filteredRoster;
-    return filteredRoster.filter((em) => {
-      const hay = `${em.employeeCode ?? ''} ${em.fullName} ${em.departmentName} ${em.username ?? ''}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [filteredRoster, rosterSearchText]);
-
-  const openEmployeeSheet = useCallback((em: employeeService.EmployeeSummary) => {
-    setEmployeeId(em.id);
-    setErr(null);
-    setOk(null);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        formSheetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    });
-  }, []);
-
-  const showEvalSheet = !canPickEmployee || employeeId !== '';
-
-  useEffect(() => {
-    if (departmentFilter !== 'all' && !departmentOptions.includes(departmentFilter)) {
-      setDepartmentFilter('all');
-    }
-  }, [departmentFilter, departmentOptions]);
-
-  const totals = useMemo(() => {
-    if (!template) {
-      return {
-        total70: null as number | null,
-        bonusVI: 0,
-        total30: null as number | null,
-        totalWithBonus: null as number | null,
-        maxBase70: 70,
-        maxBonus12: 12,
-      };
-    }
-
-    const isVi = (id: string) => id.startsWith('VI_');
-    const isHdCrit = (id: string) => id.startsWith('HD_');
-
-    const maxBase70 = groups
-      .filter((g) => !isHdCrit(g.id) && !isVi(g.id))
-      .reduce((s, g) => s + (g.maxPoints ?? 0), 0);
-    const maxBonus12 = groups.filter((g) => isVi(g.id)).reduce((s, g) => s + (g.maxPoints ?? 0), 0);
-
-    const parse = (v: string | undefined) => {
-      if (!v || v === '') return null;
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    if (isHr) {
-      const requiredHdIds = groups.filter((g) => isHdCrit(g.id)).map((g) => g.id);
-      let sum = 0;
-      for (const cid of requiredHdIds) {
-        const v = parse(rows[cid]?.hd);
-        if (v == null) {
-          return {
-            total70: null,
-            bonusVI: 0,
-            total30: null,
-            totalWithBonus: null,
-            maxBase70,
-            maxBonus12,
-          };
-        }
-        sum += v;
-      }
-      return {
-        total70: null,
-        bonusVI: 0,
-        total30: Number(sum.toFixed(2)),
-        totalWithBonus: null,
-        maxBase70,
-        maxBonus12,
-      };
-    }
-
-    const deptChannelKey: keyof RowState = isDeptHead ? 'truongKhoa' : isNursingHead ? 'ddt' : 'truongKhoa';
-    const requiredDeptIds = groups
-      .filter((g) => !isHdCrit(g.id) && !isVi(g.id))
-      .map((g) => g.id);
-    let sum70 = 0;
-    for (const cid of requiredDeptIds) {
-      const v = parse(rows[cid]?.[deptChannelKey]);
-      if (v == null) {
-        return {
-          total70: null,
-          bonusVI: 0,
-          total30: null,
-          totalWithBonus: null,
-          maxBase70,
-          maxBonus12,
-        };
-      }
-      sum70 += v;
-    }
-
-    const bonusIds = groups.filter((g) => isVi(g.id)).map((g) => g.id);
-    let bonusSum = 0;
-    for (const cid of bonusIds) {
-      const v = parse(rows[cid]?.[deptChannelKey]);
-      bonusSum += v ?? 0;
-    }
-
-    const baseN = Number(sum70.toFixed(2));
-    const bonusN = Number(bonusSum.toFixed(2));
-
-    return {
-      total70: baseN,
-      bonusVI: bonusN,
-      total30: null,
-      totalWithBonus: Number((baseN + bonusN).toFixed(2)),
-      maxBase70,
-      maxBonus12,
-    };
-  }, [groups, isDeptHead, isHr, isNursingHead, rows, template]);
-
-  useEffect(() => {
-    let c = false;
-    ne.fetchNursingTemplate(templateCode).then((t) => {
-      if (!c) {
-        setTemplate(t);
-        setRows(defaultRows(t.criteriaGroups));
-      }
-    });
-    return () => {
-      c = true;
-    };
-  }, [templateCode]);
-
-  useEffect(() => {
-    if (!canPickEmployee) {
-      if (user?.employeeId) setEmployeeId(user.employeeId);
-      return;
-    }
-    employeeService.fetchEvaluationRoster().then(setRoster).catch(() => setRoster([]));
-  }, [canPickEmployee, user?.employeeId]);
-
-  useEffect(() => {
-    if (employeeId === '') return;
-    let c = false;
-    ne.fetchNursingHistory(Number(employeeId)).then((h) => {
-      if (c) return;
-      setHistory(h);
-      const row = h.find(
-        (x) =>
-          Number(x.periodYear) === year &&
-          Number(x.periodMonth) === month &&
-          String(x.templateCode) === templateCode
-      );
-      if (template) {
-        const base = defaultRows(template.criteriaGroups);
-        setRows(mergeRowsFromApi(template.criteriaGroups, base, row?.scores));
-      }
-    });
-    return () => {
-      c = true;
-    };
-  }, [employeeId, year, month, template, templateCode]);
-
-  useEffect(() => {
-    if (!editFocus) return;
-    setEmployeeId(editFocus.employeeId);
-    setYear(editFocus.periodYear);
-    setMonth(editFocus.periodMonth);
-    onEditFocusConsumed?.();
-    const id = requestAnimationFrame(() => {
-      panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      requestAnimationFrame(() => {
-        formSheetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [editFocus, onEditFocusConsumed]);
-
-  function setRowField(id: string, field: keyof RowState, value: string) {
-    setRows((prev) => ({
-      ...prev,
-      [id]: {
-        ...(prev[id] || { truongKhoa: '', ddt: '', truongKhoaNote: '', ddtNote: '', hd: '', hdNote: '' }),
-        [field]: value,
-      },
-    }));
-  }
-
-  const titleBlock = useMemo(
-    () => (
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="h6" fontWeight={800} sx={{ color: SHEET.text, letterSpacing: '0.01em' }}>
-          {isHr
-            ? 'Đánh giá ĐD-KTV-HS (MA 2026) — Hội đồng (30 điểm)'
-            : 'Đánh giá ĐD-KTV-HS (MA 2026) — khoa phòng (I–V + điểm thưởng)'}
-        </Typography>
-      </Box>
-    ),
-    [isHr]
-  );
-
-  async function onSave() {
-    setErr(null);
-    setOk(null);
-    if (employeeId === '') {
-      setErr('Chọn nhân viên.');
-      return;
-    }
-    if (!template) return;
-
-    if (isAdmin) {
-      const bodyScores: Record<string, ne.CriterionScorePayload> = {};
-      for (const g of groups) {
-        const r = rows[g.id];
-        if (!r) continue;
-        const payload: ne.CriterionScorePayload = {
-          truongKhoa: Number(r.truongKhoa),
-          ddt: Number(r.ddt),
-        };
-        if (g.id.startsWith('HD_')) {
-          payload.hd = Number(r.hd);
-          if (r.hdNote.trim()) payload.hdNote = r.hdNote.trim();
-        } else {
-          if (r.truongKhoaNote.trim()) payload.truongKhoaNote = r.truongKhoaNote.trim();
-          if (r.ddtNote.trim()) payload.ddtNote = r.ddtNote.trim();
-        }
-        bodyScores[g.id] = payload;
-      }
-      setLoading(true);
-      try {
-        await ne.submitNursingEvaluation({
-          employeeId: Number(employeeId),
-          periodYear: year,
-          periodMonth: month,
-          templateCode,
-          scores: bodyScores,
-        });
-        setOk('Đã lưu phiếu (hai cột đánh giá + ghi chú).');
-        setSaveUiPhase('sua');
-        setHistory(await ne.fetchNursingHistory(Number(employeeId)));
-        void loadPeriodStatus();
-        onDataMutated?.();
-      } catch {
-        setErr('Không lưu được — kiểm tra mỗi ô điểm phải chọn đúng một mức trong thang.');
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    const channel =
-      isDeptHead ? ('truongKhoa' as const) : isNursingHead ? ('ddt' as const) : isHr ? ('hd' as const) : null;
-    if (!channel) {
-      setErr('Tài khoản không được phép lưu điểm.');
-      return;
-    }
-
-    const part: Record<string, number> = {};
-    const notes: Record<string, string> = {};
-    for (const g of groups) {
-      const r = rows[g.id];
-      if (!r) continue;
-      if (channel === 'hd' && !g.id.startsWith('HD_')) continue;
-      if (channel !== 'hd' && g.id.startsWith('HD_')) continue;
-
-      const raw = (r as any)[channel] as string | undefined;
-
-      if (g.id.startsWith('VI_')) {
-        const n = raw === '' || raw == null ? 0 : Number(raw);
-        if (!Number.isFinite(n) || (n !== 0 && n !== 3)) {
-          setErr('Điểm thưởng: mỗi tiêu chí chỉ 0 hoặc 3 điểm.');
-          return;
-        }
-        part[g.id] = n;
-      } else {
-        if (raw === '' || raw == null || Number.isNaN(Number(raw))) {
-          setErr('Chọn đủ điểm cho từng dòng tiêu chí.');
-          return;
-        }
-        part[g.id] = Number(raw);
-      }
-
-      const noteKey = channel === 'truongKhoa' ? 'truongKhoaNote' : channel === 'ddt' ? 'ddtNote' : 'hdNote';
-      const noteText = (r as any)[noteKey].trim();
-      if (noteText) notes[g.id] = noteText;
-    }
-
+  const loadMeta = useCallback(async () => {
     setLoading(true);
     try {
-      await ne.submitNursingEvaluationChannel({
-        employeeId: Number(employeeId),
-        periodYear: year,
-        periodMonth: month,
-        templateCode,
-        channel,
-        scores: part,
-        ...(Object.keys(notes).length ? { notes } : {}),
-      });
-      setOk(
-        channel === 'truongKhoa'
-          ? 'Đã lưu cột khoa phòng.'
-          : channel === 'ddt'
-            ? 'Đã lưu cột Điều dưỡng trưởng.'
-            : 'Đã lưu phần Hội đồng (30 điểm).'
-      );
-      setSaveUiPhase('sua');
-      setHistory(await ne.fetchNursingHistory(Number(employeeId)));
-      void loadPeriodStatus();
-      onDataMutated?.();
+      const [tpl, list, status] = await Promise.all([
+        ne.fetchNursingTemplate(ne.MA2026_EVAL_TEMPLATE_CODE),
+        canViewRoster ? employeeService.fetchEvaluationRoster() : Promise.resolve([]),
+        canViewRoster
+          ? ne.fetchNursingPeriodStatus(year, month, ne.MA2026_EVAL_TEMPLATE_CODE)
+          : Promise.resolve([]),
+      ]);
+      setTemplate(tpl);
+      setRoster(list);
+      setPeriodStatus(new Map(status.map((s) => [s.employeeId, s])));
+      setRows((prev) => (Object.keys(prev).length ? prev : defaultRows(tpl.criteriaGroups)));
     } catch {
-      setErr('Không lưu được. Kiểm tra quyền và mức điểm hợp lệ.');
+      setErr('Không tải được mẫu / danh sách nhân viên khối ĐD.');
     } finally {
       setLoading(false);
     }
+  }, [canViewRoster, year, month]);
+
+  useEffect(() => {
+    void loadMeta();
+  }, [loadMeta]);
+
+  useEffect(() => {
+    if (!editFocus) return;
+    setPeriod(
+      `${editFocus.periodYear}-${String(editFocus.periodMonth).padStart(2, '0')}`,
+    );
+    setEmployeeId(editFocus.employeeId);
+    onEditFocusConsumed?.();
+  }, [editFocus, onEditFocusConsumed]);
+
+  useEffect(() => {
+    if (!employeeId || !template) return;
+    let cancelled = false;
+    ne.fetchNursingHistory(Number(employeeId))
+      .then((hist) => {
+        if (cancelled) return;
+        const match = hist.find(
+          (h) => Number(h.periodYear) === year && Number(h.periodMonth) === month,
+        );
+        const base = defaultRows(template.criteriaGroups);
+        if (match?.scores && typeof match.scores === 'object') {
+          const scores = match.scores as Record<string, Record<string, unknown>>;
+          for (const g of template.criteriaGroups) {
+            const part = scores[g.id];
+            if (!part) continue;
+            const pts = part.points ?? part.truongKhoa ?? part.ddt;
+            base[g.id] = {
+              points: pts != null && pts !== '' ? String(pts) : base[g.id].points,
+              note:
+                part.note != null
+                  ? String(part.note)
+                  : part.truongKhoaNote != null
+                    ? String(part.truongKhoaNote)
+                    : '',
+            };
+          }
+        }
+        setRows(base);
+        setComments(match?.comments != null ? String(match.comments) : '');
+      })
+      .catch(() => {
+        /* keep defaults */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeId, year, month, template]);
+
+  useEffect(() => {
+    if (!employeeId) {
+      setAttStats(null);
+      setAttStatsErr(null);
+      return;
+    }
+    let cancelled = false;
+    setAttStatsLoading(true);
+    setAttStatsErr(null);
+    att
+      .fetchMonthDetail(Number(employeeId), year, month)
+      .then((detail) => {
+        if (cancelled) return;
+        const days = detail.days ?? [];
+        const lateEarlyTimes = days.filter(
+          (d) => !d.lateMinutesExempt && Number(d.lateMinutes || 0) > 0,
+        ).length;
+        const totalWorkUnits = roundWorkUnits(Number(detail.totalWorkUnits ?? 0));
+        const lateMinutesTotal = Math.round(Number(detail.lateMinutesTotal ?? 0));
+        const missingWorkUnits = roundWorkUnits(
+          Math.max(0, STANDARD_MONTH_WORK_UNITS - totalWorkUnits),
+        );
+        setAttStats({
+          totalWorkUnits,
+          lateMinutesTotal,
+          lateEarlyTimes,
+          missingWorkUnits,
+          isShortWork: totalWorkUnits < STANDARD_MONTH_WORK_UNITS - 0.001,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAttStats(null);
+        setAttStatsErr('Không tải được thống kê công tháng này.');
+      })
+      .finally(() => {
+        if (!cancelled) setAttStatsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeId, year, month]);
+
+  const rosterItems: RosterItem[] = useMemo(
+    () =>
+      roster.map((e) => ({
+        ...e,
+        evalStatus: periodStatus.get(e.id)?.status || 'NONE',
+      })),
+    [roster, periodStatus],
+  );
+
+  const departmentOptions = useMemo(
+    () =>
+      [...new Set(rosterItems.map((e) => (e.departmentName || '').trim()).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, 'vi'),
+      ),
+    [rosterItems],
+  );
+
+  const filteredRoster = useMemo(
+    () =>
+      applyRequestListFilters(rosterItems, filters, {
+        searchText: (e) =>
+          [e.fullName, e.employeeCode, e.positionTitle, e.departmentName].map((x) => String(x || '')).join(' '),
+        dateValue: () => null,
+        statusValue: (e) => ne.nursingEvalStatusFilterGroup(e.evalStatus),
+        departmentValue: (e) => e.departmentName || '',
+      }),
+    [rosterItems, filters],
+  );
+
+  const selectedEmp = useMemo(
+    () => roster.find((e) => e.id === employeeId),
+    [roster, employeeId],
+  );
+
+  const selectedStatus = employeeId !== '' ? periodStatus.get(Number(employeeId)) : undefined;
+
+  const previewTotal = useMemo(() => {
+    let base = 0;
+    let bonus = 0;
+    let penalty = 0;
+    for (const g of groups) {
+      const v = Number(rows[g.id]?.points);
+      if (!Number.isFinite(v)) continue;
+      if (g.bonus || g.id.startsWith('VI_')) bonus += v;
+      else if (g.penalty || g.id.startsWith('VII_')) penalty += v;
+      else base += v;
+    }
+    return Math.max(0, base + bonus - penalty);
+  }, [groups, rows]);
+
+  const progress = useMemo(() => {
+    const { filled, total } = filledCount(groups, rows);
+    return total ? Math.round((filled / total) * 100) : 0;
+  }, [groups, rows]);
+
+  const sections = useMemo(() => {
+    const map = new Map<string, ne.CriterionGroup[]>();
+    for (const g of groups) {
+      const key = g.section || 'Khác';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(g);
+    }
+    return [...map.entries()];
+  }, [groups]);
+
+  const rosterStats = useMemo(() => {
+    const done = rosterItems.filter((e) => e.evalStatus === 'APPROVED').length;
+    const pending = rosterItems.filter((e) => e.evalStatus.startsWith('PENDING_')).length;
+    const none = rosterItems.filter((e) => e.evalStatus === 'NONE').length;
+    return { done, pending, none, total: rosterItems.length };
+  }, [rosterItems]);
+
+  async function save(submitForReview: boolean) {
+    if (!employeeId || !template) return;
+    if (!canScore) {
+      setErr('Chỉ Trưởng khoa / ĐDT khoa (khối Điều dưỡng) được lập phiếu đánh giá.');
+      return;
+    }
+    setSaving(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      if (submitForReview) {
+        await ensureHasSignature();
+      }
+      const scores: Record<string, number> = {};
+      const notes: Record<string, string> = {};
+      for (const g of groups) {
+        const raw = rows[g.id]?.points;
+        const n = Number(raw);
+        if (!Number.isFinite(n)) {
+          throw new Error(`Thiếu điểm: ${g.title}`);
+        }
+        scores[g.id] = n;
+        const note = (rows[g.id]?.note || '').trim();
+        if (note) notes[g.id] = note;
+      }
+      await ne.submitNursingEvaluation({
+        employeeId: Number(employeeId),
+        periodYear: year,
+        periodMonth: month,
+        templateCode: template.code,
+        scores,
+        notes: Object.keys(notes).length ? notes : undefined,
+        comments: comments.trim() || undefined,
+        submitForReview,
+      });
+      setMsg(
+        submitForReview
+          ? 'Đã gửi Trưởng phòng ĐD duyệt (kèm chữ ký).'
+          : 'Đã lưu nháp.',
+      );
+      onDataMutated?.();
+      await loadMeta();
+    } catch (e) {
+      setErr(extractApiErrorMessage(e, e instanceof Error ? e.message : 'Lưu thất bại.'));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  // HCNS chấm phần 30 điểm ngay trên phiếu, nên không return sớm.
+  if (loading && !template) {
+    return (
+      <Box sx={{ py: 3 }}>
+        <LinearProgress sx={{ borderRadius: 1 }} />
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+          Đang tải mẫu đánh giá…
+        </Typography>
+      </Box>
+    );
+  }
 
   return (
-    <Box ref={panelRef}>
-      {!template && <Typography color="text.secondary">Đang tải mẫu…</Typography>}
+    <Box>
+      <RequestFlowSteps
+        accent={accent}
+        steps={[
+          { label: 'Lập + chấm', hint: 'Trưởng khoa / ĐDT' },
+          { label: 'Trưởng phòng ĐD', hint: 'Xem + ký duyệt' },
+          { label: 'HCNS duyệt', hint: 'Ký duyệt' },
+          { label: 'Giám đốc', hint: 'Ký duyệt cuối' },
+        ]}
+      />
 
-      {template && (
-        <Card
-          elevation={0}
-          sx={{
-            bgcolor: SHEET.bg,
-            border: `1px solid ${SHEET.border}`,
-            borderRadius: 2,
-            overflow: 'hidden',
-          }}
+      <Box
+        sx={{
+          mt: 2,
+          p: { xs: 2, sm: 2.5 },
+          borderRadius: 3,
+          border: `1px solid ${alpha(accent, 0.14)}`,
+          bgcolor: alpha(theme.palette.background.paper, 0.98),
+          boxShadow: `0 6px 28px ${alpha('#0f172a', 0.05)}`,
+        }}
+      >
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={2}
+          alignItems={{ md: 'flex-start' }}
+          justifyContent="space-between"
+          sx={{ mb: 2 }}
         >
-          <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
-            {titleBlock}
-
-            {isEmployee && (
-              <Alert
-                severity="info"
-                sx={{
-                  mb: 2,
-                  bgcolor: alpha(SHEET.header, 0.1),
-                  color: SHEET.textMuted,
-                  border: `1px solid ${SHEET.border}`,
-                }}
-              >
-                Bạn chỉ <strong style={{ color: SHEET.text }}>xem</strong> phiếu đánh giá.
-              </Alert>
-            )}
-
-            {!canPickEmployee && (
-              <Stack direction="row" spacing={2} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
-                <TextField
-                  size="small"
-                  type="number"
-                  label="Năm"
-                  value={year}
-                  onChange={(e) => setYear(Number(e.target.value))}
-                  sx={{
-                    width: 110,
-                    input: { color: SHEET.text },
-                    label: { color: SHEET.textMuted },
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: SHEET.border },
-                  }}
-                />
-                <TextField
-                  size="small"
-                  type="number"
-                  label="Tháng"
-                  value={month}
-                  onChange={(e) => setMonth(Number(e.target.value))}
-                  inputProps={{ min: 1, max: 12 }}
-                  sx={{
-                    width: 100,
-                    input: { color: SHEET.text },
-                    label: { color: SHEET.textMuted },
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: SHEET.border },
-                  }}
-                />
-              </Stack>
-            )}
-
-            {canPickEmployee && (
-              <Paper
-                elevation={0}
-                sx={{
-                  mb: 2,
-                  p: 2,
-                  border: `1px solid ${SHEET.border}`,
-                  borderRadius: 1,
-                  bgcolor: '#fafcfc',
-                }}
-              >
-                <Stack spacing={2}>
-                  <Typography variant="subtitle1" fontWeight={800} sx={{ color: SHEET.text }}>
-                    Chọn nhân viên đánh giá
-                  </Typography>
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Năm"
-                      value={year}
-                      onChange={(e) => setYear(Number(e.target.value))}
-                      sx={{
-                        width: 110,
-                        input: { color: SHEET.text },
-                        label: { color: SHEET.textMuted },
-                        '& .MuiOutlinedInput-notchedOutline': { borderColor: SHEET.border },
-                      }}
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Tháng"
-                      value={month}
-                      onChange={(e) => setMonth(Number(e.target.value))}
-                      inputProps={{ min: 1, max: 12 }}
-                      sx={{
-                        width: 100,
-                        input: { color: SHEET.text },
-                        label: { color: SHEET.textMuted },
-                        '& .MuiOutlinedInput-notchedOutline': { borderColor: SHEET.border },
-                      }}
-                    />
-                    <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 } }}>
-                      <InputLabel sx={{ color: SHEET.textMuted }}>Khoa / phòng</InputLabel>
-                      <Select
-                        label="Khoa / phòng"
-                        value={departmentFilter}
-                        onChange={(e) => setDepartmentFilter(String(e.target.value))}
-                        sx={{
-                          color: SHEET.text,
-                          '.MuiOutlinedInput-notchedOutline': { borderColor: SHEET.border },
-                          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: SHEET.header },
-                        }}
-                      >
-                        <MenuItem value="all">Tất cả</MenuItem>
-                        {departmentOptions.map((d) => (
-                          <MenuItem key={d} value={d}>
-                            {d}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 280 } }}>
-                      <InputLabel sx={{ color: SHEET.textMuted }}>Trạng thái đánh giá</InputLabel>
-                      <Select
-                        label="Trạng thái đánh giá"
-                        value={rosterStatusFilter}
-                        onChange={(e) => setRosterStatusFilter(e.target.value as RosterStatusFilter)}
-                        sx={{
-                          color: SHEET.text,
-                          '.MuiOutlinedInput-notchedOutline': { borderColor: SHEET.border },
-                          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: SHEET.header },
-                        }}
-                      >
-                        <MenuItem value="all">Tất cả ({roster.length})</MenuItem>
-                        <MenuItem value="no_sheet">Chưa có phiếu tháng này</MenuItem>
-                        <MenuItem value="need_my_part">
-                          {isAdmin
-                            ? 'Chưa đủ 3 kênh (khoa + ĐDT + HĐ)'
-                            : isHr
-                              ? 'Chưa chấm / chưa xong hội đồng'
-                              : isDeptHead
-                                ? 'Chưa chấm / chưa xong khoa phòng'
-                                : isNursingHead
-                                  ? 'Chưa chấm / chưa xong ĐDT'
-                                  : 'Chưa xong phần của tôi'}
-                        </MenuItem>
-                        <MenuItem value="done_my_part">
-                          {isAdmin
-                            ? 'Đã đủ 3 kênh'
-                            : isHr
-                              ? 'Đã chấm hội đồng'
-                              : isDeptHead
-                                ? 'Đã chấm khoa phòng'
-                                : isNursingHead
-                                  ? 'Đã chấm ĐDT'
-                                  : 'Đã xong phần của tôi'}
-                        </MenuItem>
-                      </Select>
-                    </FormControl>
-                    <TextField
-                      size="small"
-                      value={rosterSearchText}
-                      onChange={(e) => setRosterSearchText(e.target.value)}
-                      placeholder="Tìm mã NV, họ tên, khoa…"
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <SearchIcon sx={{ color: SHEET.textMuted, fontSize: 20 }} />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        flex: { md: 1 },
-                        minWidth: { xs: '100%', md: 240 },
-                        '& .MuiOutlinedInput-root': { color: SHEET.text },
-                        '& .MuiOutlinedInput-notchedOutline': { borderColor: SHEET.border },
-                      }}
-                    />
-                  </Stack>
-                  <Typography variant="caption" sx={{ color: SHEET.textMuted }}>
-                    Hiển thị {displayRoster.length}/{roster.length} nhân viên sau lọc.
-                    {periodStatusLoading ? ' Đang đồng bộ trạng thái kỳ…' : ''}
-                    {displayRoster.length === 0 && roster.length > 0 && !periodStatusLoading
-                      ? ' Không có dòng khớp — đổi bộ lọc hoặc từ khóa tìm kiếm.'
-                      : ''}
-                  </Typography>
-                  <TableContainer
-                    component={Paper}
-                    elevation={0}
-                    sx={{
-                      maxHeight: 380,
-                      border: `1px solid ${SHEET.border}`,
-                      borderRadius: 0,
-                      bgcolor: '#fff',
-                    }}
-                  >
-                    <Table size="small" stickyHeader>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 800, bgcolor: SHEET.header, color: '#fff', borderColor: SHEET.border }}>
-                            STT
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 800, bgcolor: SHEET.header, color: '#fff', borderColor: SHEET.border }}>
-                            Mã NV
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 800, bgcolor: SHEET.header, color: '#fff', borderColor: SHEET.border }}>
-                            Họ và tên
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 800, bgcolor: SHEET.header, color: '#fff', borderColor: SHEET.border }}>
-                            Khoa / phòng
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 800, bgcolor: SHEET.header, color: '#fff', borderColor: SHEET.border }}>
-                            Trạng thái kỳ
-                          </TableCell>
-                          <TableCell
-                            align="center"
-                            sx={{
-                              fontWeight: 800,
-                              bgcolor: SHEET.header,
-                              color: '#fff',
-                              borderColor: SHEET.border,
-                              width: 88,
-                            }}
-                          >
-                            Phiếu
-                          </TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {roster.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={6} sx={{ borderColor: SHEET.border }}>
-                              <Typography color="text.secondary">Đang tải danh sách nhân viên…</Typography>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                        {roster.length > 0 && displayRoster.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={6} sx={{ borderColor: SHEET.border }}>
-                              <Typography color="text.secondary">Không có nhân viên khớp bộ lọc hoặc từ khóa.</Typography>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                        {displayRoster.map((em, idx) => {
-                          const st = statusByEmployeeId.get(em.id);
-                          const hasSheet = statusByEmployeeId.has(em.id);
-                          const done = channelComplete(st);
-                          const statusChip = !hasSheet ? (
-                            <Chip size="small" variant="outlined" label="Chưa có phiếu" sx={{ borderColor: SHEET.border }} />
-                          ) : done ? (
-                            <Chip size="small" color="success" label="Hoàn thành (theo vai trò)" />
-                          ) : (
-                            <Chip size="small" color="warning" label="Đang chấm / thiếu kênh" />
-                          );
-                          return (
-                            <TableRow
-                              key={em.id}
-                              hover
-                              selected={employeeId === em.id}
-                              sx={{
-                                '&.MuiTableRow-root': {
-                                  ...(employeeId === em.id ? { bgcolor: alpha(SHEET.header, 0.14) } : {}),
-                                },
-                                '&.Mui-selected': { bgcolor: `${alpha(SHEET.header, 0.2)} !important` },
-                              }}
-                            >
-                              <TableCell sx={{ borderColor: SHEET.border }}>{idx + 1}</TableCell>
-                              <TableCell sx={{ fontWeight: 700, borderColor: SHEET.border }}>{em.employeeCode ?? '—'}</TableCell>
-                              <TableCell sx={{ borderColor: SHEET.border }}>{em.fullName}</TableCell>
-                              <TableCell sx={{ borderColor: SHEET.border }}>{em.departmentName}</TableCell>
-                              <TableCell sx={{ borderColor: SHEET.border }}>{statusChip}</TableCell>
-                              <TableCell align="center" sx={{ borderColor: SHEET.border }}>
-                                <Tooltip title="Mở phiếu đánh giá">
-                                  <IconButton
-                                    size="small"
-                                    sx={{ color: SHEET.header }}
-                                    onClick={() => openEmployeeSheet(em)}
-                                    aria-label={`Đánh giá ${em.fullName}`}
-                                  >
-                                    <RateReviewIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Stack>
-              </Paper>
-            )}
-
-            {err && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {err}
-              </Alert>
-            )}
-            {ok && (
-              <Alert severity="success" sx={{ mb: 2 }}>
-                {ok}
-              </Alert>
-            )}
-
-            <Box ref={formSheetRef}>
-            {showEvalSheet ? (
-              <>
-            {channelStatusLines.length > 0 && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                  Phiếu kỳ này
-                </Typography>
-                {channelStatusLines.map((line) => (
-                  <Typography key={line} variant="body2" display="block">
-                    {line}
-                  </Typography>
-                ))}
-              </Alert>
-            )}
-
-            <TableContainer
-              component={Paper}
-              elevation={0}
+          <Stack direction="row" spacing={1.25} alignItems="center">
+            <Box
               sx={{
-                bgcolor: '#fff',
-                border: `1px solid ${SHEET.border}`,
-                borderRadius: 0,
-                maxHeight: { xs: '70vh', md: 'none' },
+                width: 40,
+                height: 40,
+                borderRadius: 2,
+                display: 'grid',
+                placeItems: 'center',
+                bgcolor: alpha(accent, 0.12),
+                color: accent,
               }}
             >
-              <Table size="small" stickyHeader sx={{ minWidth: 960 }}>
+              <FactCheckOutlinedIcon fontSize="small" />
+            </Box>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={800} letterSpacing="-0.01em">
+                Lập phiếu đánh giá
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Chấm theo mẫu Excel MA 2026 — khối ĐD–KTV–HS–Thư ký
+              </Typography>
+            </Box>
+          </Stack>
+          <MonthPickerField
+            size="small"
+            label="Kỳ đánh giá"
+            value={period}
+            onChange={(v) => {
+              setPeriod(v);
+              setEmployeeId('');
+            }}
+            sx={{ width: { xs: '100%', sm: 220 } }}
+          />
+        </Stack>
+
+        {canViewRoster && (
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.75 }}>
+            <Chip size="small" label={`${rosterStats.total} NV khối`} sx={{ fontWeight: 700 }} />
+            <Chip size="small" color="default" variant="outlined" label={`${rosterStats.none} chưa có phiếu`} sx={{ fontWeight: 650 }} />
+            <Chip size="small" color="warning" variant="outlined" label={`${rosterStats.pending} chờ duyệt`} sx={{ fontWeight: 650 }} />
+            <Chip size="small" color="success" variant="outlined" label={`${rosterStats.done} đã duyệt`} sx={{ fontWeight: 650 }} />
+          </Stack>
+        )}
+
+        {template?.note && (
+          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+            {template.note}
+          </Alert>
+        )}
+
+        {canViewRoster && (
+          <Box sx={{ mb: 1.5 }}>
+            <RequestListFilters
+              value={filters}
+              onChange={setFilters}
+              title="Tìm nhân viên để chấm"
+              hideDateFilters
+              resultCount={filteredRoster.length}
+              resultCountLabel="NV"
+              searchPlaceholder="Tìm tên, mã NV, chức danh…"
+              statusOptions={ne.NURSING_EVAL_ROSTER_STATUS_OPTIONS}
+              departmentOptions={departmentOptions}
+            />
+          </Box>
+        )}
+
+        {canViewRoster && (
+          <Box
+            sx={{
+              mb: 2,
+              maxHeight: 220,
+              overflowY: 'auto',
+              borderRadius: 2.5,
+              border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+              bgcolor: alpha(theme.palette.primary.main, 0.02),
+            }}
+          >
+            {filteredRoster.length === 0 ? (
+              <Stack alignItems="center" spacing={1} sx={{ py: 3, px: 2 }}>
+                <PersonSearchOutlinedIcon color="disabled" />
+                <Typography variant="body2" color="text.secondary">
+                  Không có nhân viên khớp bộ lọc.
+                </Typography>
+              </Stack>
+            ) : (
+              filteredRoster.map((e) => {
+                const active = employeeId === e.id;
+                const st = e.evalStatus;
+                const label =
+                  st === 'NONE' ? 'Chưa có phiếu' : ne.NURSING_EVAL_STATUS_LABEL[st] || st;
+                return (
+                  <Box
+                    key={e.id}
+                    onClick={() => setEmployeeId(e.id)}
+                    sx={{
+                      px: 1.75,
+                      py: 1.1,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.25,
+                      borderBottom: `1px solid ${alpha(theme.palette.divider, 0.7)}`,
+                      bgcolor: active ? alpha(accent, 0.1) : 'transparent',
+                      borderLeft: active ? `3px solid ${accent}` : '3px solid transparent',
+                      transition: 'background-color 0.15s',
+                      '&:hover': { bgcolor: alpha(accent, active ? 0.12 : 0.05) },
+                    }}
+                  >
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={750} noWrap>
+                        {e.fullName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap display="block">
+                        {[e.departmentName, e.positionTitle].filter(Boolean).join(' · ') || '—'}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      size="small"
+                      color={st === 'NONE' ? 'default' : ne.nursingEvalStatusColor(st)}
+                      variant={active ? 'filled' : 'outlined'}
+                      label={label}
+                      sx={{ height: 22, fontWeight: 650, borderRadius: '6px', maxWidth: 160 }}
+                    />
+                  </Box>
+                );
+              })
+            )}
+          </Box>
+        )}
+
+        {err && (
+          <Alert severity="error" sx={{ mb: 1.5, borderRadius: 2 }} onClose={() => setErr(null)}>
+            {err}
+          </Alert>
+        )}
+        {msg && (
+          <Alert severity="success" sx={{ mb: 1.5, borderRadius: 2 }} onClose={() => setMsg(null)}>
+            {msg}
+          </Alert>
+        )}
+
+        {employeeId === '' && canViewRoster && (
+          <Alert severity="info" sx={{ borderRadius: 2 }}>
+            Chọn nhân viên từ danh sách phía trên để xem hoặc lập phiếu đánh giá.
+          </Alert>
+        )}
+
+        {selectedEmp && (
+          <>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1.25}
+              alignItems={{ sm: 'center' }}
+              justifyContent="space-between"
+              sx={{
+                mb: 2,
+                p: 1.75,
+                borderRadius: 2.5,
+                bgcolor: alpha(accent, 0.06),
+                border: `1px solid ${alpha(accent, 0.14)}`,
+              }}
+            >
+              <Box>
+                <Typography variant="subtitle2" fontWeight={800}>
+                  {selectedEmp.fullName}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {[selectedEmp.departmentName, selectedEmp.positionTitle].filter(Boolean).join(' · ')}
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip
+                  size="small"
+                  color={
+                    selectedStatus?.status
+                      ? ne.nursingEvalStatusColor(selectedStatus.status)
+                      : 'default'
+                  }
+                  label={
+                    selectedStatus?.status
+                      ? ne.NURSING_EVAL_STATUS_LABEL[selectedStatus.status] || selectedStatus.status
+                      : 'Chưa có phiếu'
+                  }
+                  sx={{ fontWeight: 700 }}
+                />
+                <Chip
+                  size="small"
+                  color="primary"
+                  label={`Tạm tính: ${previewTotal} điểm`}
+                  sx={{ fontWeight: 800 }}
+                />
+              </Stack>
+            </Stack>
+
+            {(attStatsLoading || attStats || attStatsErr) && (
+              <Box
+                sx={{
+                  mb: 2,
+                  p: 1.75,
+                  borderRadius: 2.5,
+                  border: `1px solid ${alpha(
+                    attStats?.isShortWork ? theme.palette.error.main : theme.palette.info.main,
+                    0.22,
+                  )}`,
+                  bgcolor: alpha(
+                    attStats?.isShortWork ? theme.palette.error.main : theme.palette.info.main,
+                    0.05,
+                  ),
+                }}
+              >
+                <Typography variant="caption" fontWeight={800} color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                  Thống kê công tháng {String(month).padStart(2, '0')}/{year}
+                </Typography>
+                {attStatsLoading && <LinearProgress sx={{ borderRadius: 1, mb: 1 }} />}
+                {attStatsErr && (
+                  <Alert severity="warning" sx={{ borderRadius: 2 }}>
+                    {attStatsErr}
+                  </Alert>
+                )}
+                {attStats && (
+                  <>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gap: 1.25,
+                        gridTemplateColumns: {
+                          xs: '1fr 1fr',
+                          sm: 'repeat(4, minmax(0, 1fr))',
+                        },
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 2,
+                          bgcolor: '#fff',
+                          border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+                        }}
+                      >
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                          Số công
+                        </Typography>
+                        <Typography
+                          variant="h6"
+                          fontWeight={900}
+                          color={attStats.isShortWork ? 'error.main' : 'primary.main'}
+                          sx={{ lineHeight: 1.2, mt: 0.25 }}
+                        >
+                          {formatWorkUnits(attStats.totalWorkUnits)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Chuẩn {STANDARD_MONTH_WORK_UNITS} công
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 2,
+                          bgcolor: '#fff',
+                          border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+                        }}
+                      >
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                          Phút muộn / về sớm
+                        </Typography>
+                        <Typography
+                          variant="h6"
+                          fontWeight={900}
+                          color={attStats.lateMinutesTotal > 0 ? 'warning.dark' : 'text.primary'}
+                          sx={{ lineHeight: 1.2, mt: 0.25 }}
+                        >
+                          {attStats.lateMinutesTotal}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Tổng phút trong tháng
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 2,
+                          bgcolor: '#fff',
+                          border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+                        }}
+                      >
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                          Số lần muộn / về sớm
+                        </Typography>
+                        <Typography
+                          variant="h6"
+                          fontWeight={900}
+                          color={attStats.lateEarlyTimes > 0 ? 'warning.dark' : 'text.primary'}
+                          sx={{ lineHeight: 1.2, mt: 0.25 }}
+                        >
+                          {attStats.lateEarlyTimes}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Ngày có phút muộn/về sớm
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 2,
+                          bgcolor: '#fff',
+                          border: `1px solid ${alpha(
+                            attStats.isShortWork ? theme.palette.error.main : theme.palette.success.main,
+                            0.35,
+                          )}`,
+                        }}
+                      >
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                          Thiếu công
+                        </Typography>
+                        <Typography
+                          variant="h6"
+                          fontWeight={900}
+                          color={attStats.isShortWork ? 'error.main' : 'success.main'}
+                          sx={{ lineHeight: 1.2, mt: 0.25 }}
+                        >
+                          {attStats.isShortWork ? formatWorkUnits(attStats.missingWorkUnits) : '0'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {attStats.isShortWork
+                            ? `Thiếu so với ${STANDARD_MONTH_WORK_UNITS} công`
+                            : 'Đủ công chuẩn'}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    {attStats.isShortWork && (
+                      <Alert severity="error" sx={{ mt: 1.25, borderRadius: 2 }}>
+                        Thiếu công: {formatWorkUnits(attStats.totalWorkUnits)}/{STANDARD_MONTH_WORK_UNITS} công
+                        (thiếu {formatWorkUnits(attStats.missingWorkUnits)} công) — lưu ý khi chấm tiêu chí tuân thủ
+                        thời gian làm việc.
+                      </Alert>
+                    )}
+                  </>
+                )}
+              </Box>
+            )}
+
+            <Box sx={{ mb: 1.5 }}>
+              <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                <Typography variant="caption" fontWeight={700} color="text.secondary">
+                  Tiến độ chấm tiêu chí
+                </Typography>
+                <Typography variant="caption" fontWeight={800} color="primary.main">
+                  {progress}%
+                </Typography>
+              </Stack>
+              <LinearProgress
+                variant="determinate"
+                value={progress}
+                sx={{
+                  height: 8,
+                  borderRadius: 99,
+                  bgcolor: alpha(accent, 0.1),
+                  '& .MuiLinearProgress-bar': { borderRadius: 99, bgcolor: accent },
+                }}
+              />
+            </Box>
+
+            <TableContainer
+              sx={{
+                border: `1px solid ${alpha(theme.palette.divider, 0.95)}`,
+                borderRadius: 2.5,
+                mb: 2,
+                overflowX: 'auto',
+                maxWidth: '100%',
+              }}
+            >
+              <Table
+                size="small"
+                sx={{
+                  tableLayout: 'fixed',
+                  width: '100%',
+                }}
+              >
+                <colgroup>
+                  <col style={{ width: 44 }} />
+                  <col />
+                  <col style={{ width: 280 }} />
+                </colgroup>
                 <TableHead>
-                  <TableRow>
-                    <TableCell
-                      rowSpan={2}
-                      sx={{
-                        bgcolor: SHEET.header,
-                        color: '#ffffff',
-                        fontWeight: 900,
-                        borderColor: SHEET.border,
-                        verticalAlign: 'middle',
-                        width: 48,
-                      }}
-                    >
-                      STT
-                    </TableCell>
-                    <TableCell
-                      rowSpan={2}
-                      sx={{
-                        bgcolor: SHEET.header,
-                        color: '#ffffff',
-                        fontWeight: 900,
-                        borderColor: SHEET.border,
-                        minWidth: 260,
-                      }}
-                    >
-                      TIÊU CHÍ
-                    </TableCell>
-                    <TableCell
-                      rowSpan={2}
-                      align="center"
-                      sx={{
-                        bgcolor: SHEET.header,
-                        color: '#ffffff',
-                        fontWeight: 900,
-                        borderColor: SHEET.border,
-                        width: 88,
-                      }}
-                    >
-                      THANG ĐIỂM
-                    </TableCell>
-                    <TableCell
-                      colSpan={showTkCol && showDdtCol ? 2 : 1}
-                      align="center"
-                      sx={{
-                        bgcolor: SHEET.header,
-                        color: '#ffffff',
-                        fontWeight: 900,
-                        borderColor: SHEET.border,
-                      }}
-                    >
-                      {showHdCol && !showTkCol && !showDdtCol ? 'HỘI ĐỒNG' : 'KHOA PHÒNG'}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    {showTkCol && (
-                      <TableCell
-                        align="center"
-                        sx={{ bgcolor: SHEET.header, color: '#ffffff', fontWeight: 800, borderColor: SHEET.border }}
-                      >
-                        Trưởng khoa
-                      </TableCell>
-                    )}
-                    {showDdtCol && (
-                      <TableCell
-                        align="center"
-                        sx={{ bgcolor: SHEET.header, color: '#ffffff', fontWeight: 800, borderColor: SHEET.border }}
-                      >
-                        ĐDT
-                      </TableCell>
-                    )}
-                    {showHdCol && !showTkCol && !showDdtCol && (
-                      <TableCell
-                        align="center"
-                        sx={{ bgcolor: SHEET.header, color: '#ffffff', fontWeight: 800, borderColor: SHEET.border }}
-                      >
-                        Điểm
-                      </TableCell>
-                    )}
+                  <TableRow sx={{ bgcolor: accent }}>
+                    <TableCell sx={{ color: '#fff', fontWeight: 800, px: 1 }}>STT</TableCell>
+                    <TableCell sx={{ color: '#fff', fontWeight: 800 }}>Tiêu chí</TableCell>
+                    <TableCell sx={{ color: '#fff', fontWeight: 800 }}>Điểm đạt</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {(() => {
-                    const bySection = new Map<string, ne.CriterionGroup[]>();
-                    for (const g of groupsForTable) {
-                      const s = g.section || '—';
-                      bySection.set(s, [...(bySection.get(s) || []), g]);
-                    }
-                    return Array.from(bySection.entries()).flatMap(([sec, items]) => {
-                      const out: React.ReactNode[] = [];
-                      const secStt = (() => {
-                        // Excel style: I., II., III... when section begins with roman numerals
-                        const m = /^([IVXLCDM]+)\./.exec(sec.trim());
-                        return m ? `${m[1]}.` : '';
-                      })();
-                      const secLabel = sec.replace(/^([IVXLCDM]+)\.\s*/, '');
-                      out.push(
-                        <TableRow key={`sec-${sec}`}>
-                          <TableCell
-                            align="center"
-                            sx={{ fontWeight: 900, fontStyle: 'italic', borderColor: SHEET.border, width: 48 }}
+                  {sections.map(([section, items]) => (
+                    <Fragment key={`sec-${section}`}>
+                      <TableRow>
+                        <TableCell
+                          colSpan={3}
+                          sx={{ bgcolor: alpha(accent, 0.1), fontWeight: 800, color: theme.palette.primary.dark }}
+                        >
+                          {section}
+                          {items[0]?.sectionPoints != null ? ` (${items[0].sectionPoints} điểm)` : ''}
+                        </TableCell>
+                      </TableRow>
+                      {items.map((g) => {
+                        const selectedOpt = g.options.find(
+                          (o) => String(o.points) === String(rows[g.id]?.points ?? ''),
+                        );
+                        const selectedLabel = selectedOpt
+                          ? `${selectedOpt.points} — ${selectedOpt.label}`
+                          : '';
+                        return (
+                          <TableRow
+                            key={g.id}
+                            sx={{
+                              '&:nth-of-type(even)': { bgcolor: alpha(accent, 0.02) },
+                              '&:hover': { bgcolor: alpha(accent, 0.04) },
+                            }}
                           >
-                            {secStt}
-                          </TableCell>
-                          <TableCell
-                            colSpan={
-                              2 +
-                              (showTkCol ? 1 : 0) +
-                              (showDdtCol ? 1 : 0) +
-                              (showHdCol && !showTkCol && !showDdtCol ? 1 : 0)
-                            }
-                            sx={{ fontWeight: 900, fontStyle: 'italic', borderColor: SHEET.border }}
-                          >
-                            {secLabel}
-                          </TableCell>
-                        </TableRow>
-                      );
-                      for (const g of items) {
-                        const r =
-                          rows[g.id] ||
-                          ({ truongKhoa: '', ddt: '', truongKhoaNote: '', ddtNote: '', hd: '', hdNote: '' } satisfies RowState);
-                        const isHd = g.id.startsWith('HD_');
-                        const isVi = g.id.startsWith('VI_');
-
-                        const maxThang =
-                          g.maxPoints != null
-                            ? g.maxPoints
-                            : g.options.length
-                              ? Math.max(...g.options.map((o) => o.points))
-                              : 0;
-
-                        if (isVi) {
-                          const deptEvalCols = (showTkCol ? 1 : 0) + (showDdtCol ? 1 : 0);
-                          out.push(
-                            <TableRow key={`vi-${g.id}`}>
-                              <TableCell align="center" sx={{ borderColor: SHEET.border }}>
-                                -
-                              </TableCell>
-                              <TableCell sx={{ borderColor: SHEET.border }}>{g.title}</TableCell>
-                              <TableCell align="center" sx={{ borderColor: SHEET.border, fontWeight: 700 }}>
-                                {maxThang}
-                              </TableCell>
-                              {deptEvalCols === 0 ? (
-                                <TableCell align="center" sx={{ borderColor: SHEET.border, color: 'text.secondary' }}>
-                                  —
-                                </TableCell>
-                              ) : (
-                                <>
-                                  {showTkCol && (
-                                    <TableCell align="center" sx={{ borderColor: SHEET.border }}>
-                                      <Checkbox
-                                        size="small"
-                                        checked={r.truongKhoa === '3'}
-                                        disabled={!editTk || formLocked}
-                                        onChange={(_, c) => setRowField(g.id, 'truongKhoa', c ? '3' : '0')}
-                                      />
-                                    </TableCell>
-                                  )}
-                                  {showDdtCol && (
-                                    <TableCell align="center" sx={{ borderColor: SHEET.border }}>
-                                      <Checkbox
-                                        size="small"
-                                        checked={r.ddt === '3'}
-                                        disabled={!editDdt || formLocked}
-                                        onChange={(_, c) => setRowField(g.id, 'ddt', c ? '3' : '0')}
-                                      />
-                                    </TableCell>
-                                  )}
-                                </>
-                              )}
-                            </TableRow>
-                          );
-                          continue;
-                        }
-
-                        out.push(
-                          <TableRow key={`crit-${g.id}`}>
-                            <TableCell align="center" sx={{ fontWeight: 800, borderColor: SHEET.border }}>
-                              {g.no || ''}
+                            <TableCell sx={{ verticalAlign: 'middle', px: 1 }}>
+                              <Typography variant="body2" fontWeight={700} color="text.secondary">
+                                {g.no || ''}
+                              </Typography>
                             </TableCell>
-                            <TableCell sx={{ fontWeight: 800, fontStyle: 'italic', borderColor: SHEET.border }}>
-                              {g.title}
+                            <TableCell sx={{ verticalAlign: 'middle', pr: 1.5 }}>
+                              <Typography variant="body2" fontWeight={650} sx={{ whiteSpace: 'normal' }}>
+                                {g.title}
+                              </Typography>
                             </TableCell>
-                            <TableCell align="center" sx={{ borderColor: SHEET.border }} />
-                            {!isHd ? (
-                              <>
-                                {showTkCol && (
-                                  <TableCell sx={{ borderColor: SHEET.border, minWidth: 110 }}>
-                                    <FormControl size="small" fullWidth disabled={!editTk || formLocked}>
-                                      <Select
-                                        value={r.truongKhoa}
-                                        displayEmpty
-                                        renderValue={(selected) => (selected ? String(selected) : ' ')}
-                                        onChange={(e) => setRowField(g.id, 'truongKhoa', e.target.value as string)}
+                            <TableCell sx={{ overflow: 'hidden', verticalAlign: 'middle', width: 280, maxWidth: 280 }}>
+                              <TextField
+                                select
+                                size="small"
+                                fullWidth
+                                disabled={!canScore}
+                                value={rows[g.id]?.points ?? ''}
+                                onChange={(e) =>
+                                  setRows((prev) => ({
+                                    ...prev,
+                                    [g.id]: { ...prev[g.id], points: e.target.value },
+                                  }))
+                                }
+                                SelectProps={{
+                                  displayEmpty: true,
+                                  renderValue: (selected) => {
+                                    const v = String(selected ?? '');
+                                    if (!v) {
+                                      return (
+                                        <Typography variant="body2" color="text.secondary" noWrap>
+                                          — Chọn điểm —
+                                        </Typography>
+                                      );
+                                    }
+                                    const text = selectedLabel || v;
+                                    return (
+                                      <Typography
+                                        component="span"
+                                        variant="body2"
+                                        title={text}
+                                        noWrap
+                                        sx={{ display: 'block', maxWidth: '100%', pr: 0.5 }}
                                       >
-                                        {g.options.map((o, i) => (
-                                          <MenuItem key={i} value={String(o.points)}>
-                                            {o.points}
-                                          </MenuItem>
-                                        ))}
-                                      </Select>
-                                    </FormControl>
-                                  </TableCell>
-                                )}
-                                {showDdtCol && (
-                                  <TableCell sx={{ borderColor: SHEET.border, minWidth: 110 }}>
-                                    <FormControl size="small" fullWidth disabled={!editDdt || formLocked}>
-                                      <Select
-                                        value={r.ddt}
-                                        displayEmpty
-                                        renderValue={(selected) => (selected ? String(selected) : ' ')}
-                                        onChange={(e) => setRowField(g.id, 'ddt', e.target.value as string)}
-                                      >
-                                        {g.options.map((o, i) => (
-                                          <MenuItem key={i} value={String(o.points)}>
-                                            {o.points}
-                                          </MenuItem>
-                                        ))}
-                                      </Select>
-                                    </FormControl>
-                                  </TableCell>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                <TableCell colSpan={showHdCol ? 1 : 0} sx={{ borderColor: SHEET.border }}>
-                                  <FormControl size="small" fullWidth disabled={!editHd || formLocked}>
-                                    <Select
-                                      value={r.hd}
-                                      displayEmpty
-                                      renderValue={(selected) => (selected ? String(selected) : ' ')}
-                                      onChange={(e) => setRowField(g.id, 'hd', e.target.value as string)}
-                                    >
-                                      {g.options.map((o, i) => (
-                                        <MenuItem key={i} value={String(o.points)}>
-                                          {o.points}
-                                        </MenuItem>
-                                      ))}
-                                    </Select>
-                                  </FormControl>
-                                </TableCell>
-                              </>
-                            )}
+                                        {text}
+                                      </Typography>
+                                    );
+                                  },
+                                  MenuProps: {
+                                    PaperProps: {
+                                      sx: {
+                                        maxWidth: 440,
+                                        maxHeight: 360,
+                                      },
+                                    },
+                                  },
+                                }}
+                                sx={{
+                                  maxWidth: '100%',
+                                  '& .MuiOutlinedInput-root': {
+                                    bgcolor: '#fff',
+                                    borderRadius: 2,
+                                    maxWidth: '100%',
+                                  },
+                                  '& .MuiSelect-select': {
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    display: 'block',
+                                    boxSizing: 'border-box',
+                                    pr: '32px !important',
+                                  },
+                                }}
+                              >
+                                <MenuItem value="">— Chọn điểm —</MenuItem>
+                                {g.options.map((o) => (
+                                  <MenuItem
+                                    key={`${g.id}-${o.points}-${o.label}`}
+                                    value={String(o.points)}
+                                    sx={{
+                                      whiteSpace: 'normal',
+                                      alignItems: 'flex-start',
+                                      py: 1.1,
+                                    }}
+                                  >
+                                    <Typography variant="body2" sx={{ whiteSpace: 'normal', lineHeight: 1.45 }}>
+                                      {o.points} — {o.label}
+                                    </Typography>
+                                  </MenuItem>
+                                ))}
+                              </TextField>
+                            </TableCell>
                           </TableRow>
                         );
-
-                        for (const o of g.options) {
-                          const trailingCount = isHd ? (showHdCol ? 1 : 0) : (showTkCol ? 1 : 0) + (showDdtCol ? 1 : 0);
-                          out.push(
-                            <TableRow key={`opt-${g.id}-${o.points}-${o.label.slice(0, 10)}`}>
-                              <TableCell align="center" sx={{ borderColor: SHEET.border }}>
-                                -
-                              </TableCell>
-                              <TableCell sx={{ borderColor: SHEET.border }}>{o.label}</TableCell>
-                              <TableCell align="center" sx={{ borderColor: SHEET.border, fontWeight: 700 }}>
-                                {o.points}
-                              </TableCell>
-                              {Array.from({ length: trailingCount }).map((_, idx) => (
-                                <TableCell key={`opt-empty-${g.id}-${idx}`} sx={{ borderColor: SHEET.border }} />
-                              ))}
-                            </TableRow>
-                          );
-                        }
-                      }
-                      return out;
-                    });
-                  })()}
+                      })}
+                    </Fragment>
+                  ))}
                 </TableBody>
               </Table>
             </TableContainer>
 
-              {isHr && (
-                <Typography variant="subtitle2" sx={{ display: 'block', mt: 1, fontWeight: 800 }}>
-                  Tổng điểm Hội đồng (30): {totals.total30 ?? 'Chưa đủ'} / 30
-                </Typography>
-              )}
-              {!isHr && (isDeptHead || isNursingHead) && (
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="subtitle2" sx={{ display: 'block', fontWeight: 800 }}>
-                    Tổng điểm (I–V + thưởng): {totals.totalWithBonus ?? 'Chưa đủ'} /{' '}
-                    {totals.maxBase70 + totals.maxBonus12}
-                  </Typography>
-                  <Typography variant="caption" sx={{ display: 'block', mt: 0.25, color: SHEET.textMuted }}>
-                    Trong đó phần I–V: {totals.total70 ?? '—'} / {totals.maxBase70} · Điểm thưởng: {totals.bonusVI} /{' '}
-                    {totals.maxBonus12}
-                  </Typography>
-                </Box>
-              )}
+            <TextField
+              fullWidth
+              size="small"
+              multiline
+              minRows={2}
+              label="Nhận xét chung"
+              value={comments}
+              disabled={!canScore}
+              onChange={(e) => setComments(e.target.value)}
+              sx={{
+                mb: 2,
+                '& .MuiOutlinedInput-root': { bgcolor: '#fff', borderRadius: 2 },
+              }}
+            />
 
-            {canEdit && (
-              <Button
-                variant={saveUiPhase === 'sua' ? 'outlined' : 'contained'}
-                size="large"
+            {canScore && (
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1.25}
+                justifyContent="flex-end"
                 sx={{
-                  mt: 2,
-                  bgcolor: saveUiPhase === 'sua' ? 'transparent' : SHEET.header,
-                  color: saveUiPhase === 'sua' ? SHEET.header : '#fff',
-                  borderColor: saveUiPhase === 'sua' ? SHEET.header : undefined,
-                  fontWeight: 800,
-                  '&:hover': {
-                    bgcolor: saveUiPhase === 'sua' ? alpha(SHEET.header, 0.08) : '#4f9c98',
-                    borderColor: saveUiPhase === 'sua' ? SHEET.header : undefined,
-                  },
-                }}
-                onClick={() => {
-                  if (saveUiPhase === 'sua') {
-                    setSaveUiPhase('save');
-                    return;
-                  }
-                  void onSave();
-                }}
-                disabled={loading}
-              >
-                {saveUiPhase === 'sua'
-                  ? `Sửa đánh giá — ${month}/${year}`
-                  : isAdmin
-                    ? `Lưu phiếu — ${month}/${year}`
-                    : `Lưu phần được phân quyền — ${month}/${year}`}
-              </Button>
-            )}
-              </>
-            ) : (
-              <Paper
-                elevation={0}
-                sx={{
-                  py: 5,
-                  px: 3,
-                  textAlign: 'center',
-                  border: `1px dashed ${SHEET.border}`,
-                  bgcolor: alpha(SHEET.header, 0.06),
-                  borderRadius: 1,
+                  pt: 1.5,
+                  borderTop: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
                 }}
               >
-                <RateReviewIcon sx={{ fontSize: 40, color: SHEET.header, opacity: 0.85, mb: 1 }} />
-                <Typography variant="subtitle1" fontWeight={800} sx={{ color: SHEET.text }}>
-                  Chưa chọn nhân viên
-                </Typography>
-              </Paper>
+                <Button
+                  variant="outlined"
+                  disabled={saving}
+                  startIcon={<SaveOutlinedIcon />}
+                  onClick={() => void save(false)}
+                  sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
+                >
+                  Lưu nháp
+                </Button>
+                <Button
+                  variant="contained"
+                  disabled={saving}
+                  startIcon={<SendOutlinedIcon />}
+                  onClick={() => void save(true)}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 800,
+                    borderRadius: 2,
+                    bgcolor: accent,
+                    boxShadow: `0 8px 20px ${alpha(accent, 0.28)}`,
+                    '&:hover': { bgcolor: accent, filter: 'brightness(0.94)' },
+                  }}
+                >
+                  Gửi Trưởng phòng ĐD duyệt
+                </Button>
+              </Stack>
             )}
-            </Box>
-          </CardContent>
-        </Card>
-      )}
-
-      {employeeId !== '' && (
-        <Card sx={{ mt: 2.5 }} variant="outlined">
-          <CardContent>
-            <Typography variant="h6" gutterBottom fontWeight={600}>
-              Lịch sử (MA 2026)
-            </Typography>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Kỳ</TableCell>
-                  <TableCell align="right">Điểm KP</TableCell>
-                  <TableCell>Loại KP</TableCell>
-                  <TableCell align="right">Điểm ĐDT</TableCell>
-                  <TableCell>Loại ĐDT</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {history.filter((h) => String(h.templateCode) === templateCode).length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5}>
-                      <Typography color="text.secondary">Chưa có bản đánh giá.</Typography>
-                    </TableCell>
-                  </TableRow>
-                )}
-                {history
-                  .filter((h) => String(h.templateCode) === templateCode)
-                  .map((r) => (
-                    <TableRow key={String(r.id)}>
-                      <TableCell>
-                        {String(r.periodMonth)}/{String(r.periodYear)}
-                      </TableCell>
-                      <TableCell align="right">{String(r.totalTruongKhoa ?? '—')}</TableCell>
-                      <TableCell>{String(r.gradeTruongKhoa ?? '—')}</TableCell>
-                      <TableCell align="right">{String(r.totalDdt ?? '—')}</TableCell>
-                      <TableCell>{String(r.gradeDdt ?? '—')}</TableCell>
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+            {!canScore && (
+              <Alert severity="info" sx={{ borderRadius: 2 }}>
+                Bạn chỉ xem được phiếu trong khối; Trưởng khoa / ĐDT khoa lập, chấm và gửi Trưởng phòng ĐD duyệt.
+              </Alert>
+            )}
+          </>
+        )}
+      </Box>
     </Box>
   );
 }

@@ -52,11 +52,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAvatarUrl(url);
     };
 
-    if (!me.erpLinked || !me.userAvatar) {
+    if (!me.userAvatar && !me.hasAvatar) {
       applyIfCurrent(null);
       return;
     }
-    if (me.userAvatar.startsWith('data:image')) {
+    if (me.userAvatar?.startsWith('data:image')) {
       applyIfCurrent(me.userAvatar);
       return;
     }
@@ -103,6 +103,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           role: a.role,
           employeeId: a.employeeId,
           mustChangePassword: a.mustChangePassword,
+          mustSetSignature: !a.hasSignature,
+          canViewSalary: a.canViewSalary !== false,
+          employeeStatus: a.employeeStatus ?? null,
+          departmentId: a.departmentId ?? null,
+          departmentName: a.departmentName ?? null,
+          positionTitle: a.positionTitle ?? null,
+          directorApprovalEnabled: a.directorApprovalEnabled === true,
+          reportViewEnabled: a.reportViewEnabled === true,
+          workUnitScoped: a.workUnitScoped === true,
+          workUnitDetail: a.workUnitDetail ?? null,
         };
         setAuth(t, next);
         setUser(next);
@@ -141,6 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       fullName: res.fullName,
       ...(res.email ? { email: res.email } : {}),
       mustChangePassword: res.mustChangePassword,
+      mustSetSignature: res.mustSetSignature,
     };
     setAuth(res.accessToken, su);
     setToken(res.accessToken);
@@ -155,6 +166,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: a.role || su.role,
         employeeId: a.employeeId,
         mustChangePassword: a.mustChangePassword,
+        mustSetSignature: !a.hasSignature,
+        canViewSalary: a.canViewSalary !== false,
+        employeeStatus: a.employeeStatus ?? null,
+        departmentId: a.departmentId ?? null,
+        departmentName: a.departmentName ?? null,
+        positionTitle: a.positionTitle ?? null,
+        directorApprovalEnabled: a.directorApprovalEnabled === true,
+        reportViewEnabled: a.reportViewEnabled === true,
+        workUnitScoped: a.workUnitScoped === true,
+        workUnitDetail: a.workUnitDetail ?? null,
       };
       setAuth(res.accessToken, next);
       setUser(next);
@@ -185,6 +206,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: a.role,
         employeeId: a.employeeId,
         mustChangePassword: a.mustChangePassword,
+        mustSetSignature: !a.hasSignature,
+        canViewSalary: a.canViewSalary !== false,
+        employeeStatus: a.employeeStatus ?? null,
+        departmentId: a.departmentId ?? null,
+        departmentName: a.departmentName ?? null,
+        positionTitle: a.positionTitle ?? null,
+        directorApprovalEnabled: a.directorApprovalEnabled === true,
+        reportViewEnabled: a.reportViewEnabled === true,
+        workUnitScoped: a.workUnitScoped === true,
+        workUnitDetail: a.workUnitDetail ?? null,
       };
       setAuth(t, next);
       setUser(next);

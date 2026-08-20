@@ -1,6 +1,6 @@
 package com.minhan.hrm.controller;
 
-import com.minhan.hrm.dto.evaluation.NursingEvaluationChannelSubmitRequest;
+import com.minhan.hrm.dto.evaluation.NursingEvaluationReviewRequest;
 import com.minhan.hrm.dto.evaluation.NursingEvaluationSubmitRequest;
 import com.minhan.hrm.service.NursingEvaluationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -19,7 +19,7 @@ import java.util.Map;
 @RequestMapping("/j1-api/v1/nursing-evaluations")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
-@Tag(name = "Nursing evaluations", description = "Đánh giá ĐD-KTV-HS — xếp loại theo tháng (MA 2026)")
+@Tag(name = "Nursing evaluations", description = "Đánh giá NV khối ĐD — Trưởng khoa lập → Trưởng phòng ĐD → HCNS → Giám đốc")
 public class NursingEvaluationController {
 
     private final NursingEvaluationService nursingEvaluationService;
@@ -31,14 +31,14 @@ public class NursingEvaluationController {
     }
 
     @GetMapping("/employees/{employeeId}")
-    @Operation(summary = "Lịch sử đánh giá (ADMIN/HR, NV xem mình, trưởng khoa/ĐDT xem cùng phòng ban)")
+    @Operation(summary = "Lịch sử đánh giá theo nhân viên")
     public List<Map<String, Object>> list(@PathVariable Long employeeId) {
         return nursingEvaluationService.listForEmployee(employeeId);
     }
 
     @GetMapping("/period-status")
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
-    @Operation(summary = "Phiếu MA trong tháng: đã có điểm từng kênh (lọc danh sách NV)")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','HEAD_DEPARTMENT','HEAD_NURSING','DIRECTOR')")
+    @Operation(summary = "Trạng thái phiếu đánh giá trong tháng (khối ĐD)")
     public List<Map<String, Object>> periodStatus(
             @RequestParam int year,
             @RequestParam int month,
@@ -47,8 +47,8 @@ public class NursingEvaluationController {
     }
 
     @GetMapping("/summary")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "Tổng hợp xếp loại theo tháng — P.HCNS / ADMIN")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','HEAD_NURSING','DIRECTOR')")
+    @Operation(summary = "Tổng hợp xếp loại theo tháng — khối ĐD")
     public List<Map<String, Object>> monthlySummary(
             @RequestParam int year,
             @RequestParam int month,
@@ -56,26 +56,72 @@ public class NursingEvaluationController {
         return nursingEvaluationService.listMonthlySummary(year, month, templateCode);
     }
 
+    @GetMapping("/pending")
+    @PreAuthorize("hasAnyRole('ADMIN','HR2','HEAD_NURSING','DIRECTOR')")
+    @Operation(summary = "Danh sách phiếu chờ duyệt (Trưởng phòng ĐD / HCNS / Giám đốc)")
+    public List<Map<String, Object>> pending() {
+        return nursingEvaluationService.listPending();
+    }
+
+    @GetMapping("/history")
+    @PreAuthorize("hasAnyRole('ADMIN','HR2','HEAD_NURSING','DIRECTOR')")
+    @Operation(summary = "Lịch sử phiếu đã duyệt / từ chối ở bước của người xem")
+    public List<Map<String, Object>> history() {
+        return nursingEvaluationService.listHistory();
+    }
+
+    @GetMapping("/mine")
+    @Operation(summary = "Phiếu đánh giá đã duyệt của chính tôi (sau khi Giám đốc duyệt)")
+    public List<Map<String, Object>> mine() {
+        return nursingEvaluationService.listMineApproved();
+    }
+
     @GetMapping("/records/{evaluationId}")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "Chi tiết một bản đánh giá (đủ tiêu chí + điểm) — HCNS / ADMIN")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','HEAD_DEPARTMENT','HEAD_NURSING','DIRECTOR','EMPLOYEE')")
+    @Operation(summary = "Chi tiết một phiếu đánh giá (NV chỉ xem phiếu đã duyệt của mình)")
     public Map<String, Object> recordDetail(@PathVariable Long evaluationId) {
         return nursingEvaluationService.getRecordDetail(evaluationId);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "ADMIN: lưu đủ 2 cột (Khoa phòng + ĐDT) một lần (ghi đè nếu trùng kỳ + mẫu)")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
+    @Operation(summary = "Trưởng khoa / ĐDT khoa lập + chấm. submitForReview=true → gửi Trưởng phòng ĐD")
     public Map<String, Object> submit(@Valid @RequestBody NursingEvaluationSubmitRequest request) {
         return nursingEvaluationService.submit(request);
     }
 
-    @PostMapping("/channel")
-    @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
-    @Operation(summary = "Lưu một cột (Trưởng khoa / ĐDT: 70 điểm; HCNS: 30 điểm) — gộp dần theo tháng")
-    public Map<String, Object> submitChannel(@Valid @RequestBody NursingEvaluationChannelSubmitRequest request) {
-        return nursingEvaluationService.submitChannel(request);
+    @PostMapping("/{id}/nursing-head-review")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Operation(summary = "Trưởng phòng Điều dưỡng duyệt + ký")
+    public Map<String, Object> nursingHeadReview(
+            @PathVariable Long id,
+            @Valid @RequestBody NursingEvaluationReviewRequest body) {
+        return nursingEvaluationService.nursingHeadReview(id, body);
+    }
+
+    @PostMapping("/{id}/hr-review")
+    @PreAuthorize("hasAnyRole('ADMIN','HR2')")
+    @Operation(summary = "HCNS duyệt / từ chối + ký")
+    public Map<String, Object> hrReview(
+            @PathVariable Long id,
+            @Valid @RequestBody NursingEvaluationReviewRequest body) {
+        return nursingEvaluationService.hrReview(id, body);
+    }
+
+    @PostMapping("/{id}/director-review")
+    @PreAuthorize("hasAnyRole('ADMIN','DIRECTOR')")
+    @Operation(summary = "Giám đốc duyệt / từ chối + ký")
+    public Map<String, Object> directorReview(
+            @PathVariable Long id,
+            @Valid @RequestBody NursingEvaluationReviewRequest body) {
+        return nursingEvaluationService.directorReview(id, body);
+    }
+
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
+    @Operation(summary = "Thu hồi phiếu đánh giá (người lập hoặc ADMIN)")
+    public Map<String, Object> cancel(@PathVariable Long id) {
+        return nursingEvaluationService.cancel(id);
     }
 }

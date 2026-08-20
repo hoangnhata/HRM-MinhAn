@@ -18,6 +18,7 @@ import { Link } from 'react-router-dom';
 import { EmployeeStatusChip } from '../EmployeeStatusChip';
 import { MaternityLeaveChip } from '../MaternityLeaveChip';
 import type { EmployeeSummary } from '../../services/employeeService';
+import { formatDateVi } from '../../utils/dateFormat';
 
 type Props = {
   open: boolean;
@@ -30,9 +31,7 @@ type Props = {
 };
 
 function formatDate(iso?: string | null) {
-  if (!iso) return '—';
-  const [y, m, d] = iso.split('-');
-  return d && m && y ? `${d}/${m}/${y}` : iso;
+  return formatDateVi(iso);
 }
 
 function isTrialEmployee(row: EmployeeSummary) {

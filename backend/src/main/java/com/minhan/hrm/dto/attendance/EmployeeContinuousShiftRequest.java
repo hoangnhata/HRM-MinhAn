@@ -1,5 +1,6 @@
 package com.minhan.hrm.dto.attendance;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -16,7 +17,15 @@ public class EmployeeContinuousShiftRequest {
     private Integer month;
 
     /**
+     * Ngày + ca/khung giờ tương ứng (ưu tiên hơn {@link #dates}).
+     * Thay thế toàn bộ tháng.
+     */
+    @Valid
+    private List<ContinuousShiftDayAssignment> days;
+
+    /**
      * Danh sách ngày ca thông tầm trong tháng (thay thế toàn bộ tháng).
+     * Giờ dùng cấu hình mùa/NV nếu không gửi {@link #days}.
      * Nếu null và {@link #continuousShift} khác null → bật cả tháng / tắt hết (tương thích cũ).
      */
     private List<LocalDate> dates;

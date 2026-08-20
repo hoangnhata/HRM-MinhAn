@@ -33,14 +33,24 @@ public class AttendanceDayProcessor {
     private final HolidayWorkDayService holidayWorkDayService;
 
     public void applyToRecord(AttendanceRecord rec) {
+        // Gỡ ghi chú điều động không có mã đơn duyệt — tránh cộng trùng / tính đơn chưa duyệt
+        String previousNote = rec.getNote() == null ? "" : rec.getNote().trim();
+        String cleanedNote = dropUnmarkedDeploymentNotes(previousNote);
+        if (!cleanedNote.equals(previousNote)) {
+            rec.setNote(cleanedNote.isBlank() ? null : cleanedNote);
+        }
+        SeminarProtection seminar = extractSeminarProtection(rec.getNote());
         // Ngày nghỉ phép / công tác đã duyệt — không ghi đè bằng chấm công / tính lại
         // (Điều động làm thêm không khóa ngày — vẫn cho chấm công chính)
         if ("LEAVE".equals(rec.getStatus())
                 || "UNPAID_LEAVE".equals(rec.getStatus())
-                || "BUSINESS_TRIP".equals(rec.getStatus())) {
+                || "BUSINESS_TRIP".equals(rec.getStatus())
+                || ("SEMINAR".equals(rec.getStatus()) && seminar == null)) {
             return;
         }
         DeploymentBonusSplit deployment = extractDeploymentBonusSplit(rec.getNote());
+        InsideDeploymentRequirement insideDeployment =
+                extractInsideDeploymentRequirement(rec.getNote());
         List<LocalTime> punches = resolvePunches(rec);
         if (rec.getPunchTimesJson() == null || rec.getPunchTimesJson().isBlank()) {
             rec.setPunchTimesJson(writePunches(punches));
@@ -48,14 +58,23 @@ public class AttendanceDayProcessor {
         AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(
                 rec.getEmployee() != null ? rec.getEmployee().getId() : null, rec.getWorkDate());
 
-        if (isContinuousShift(rec)) {
+        if (isContinuousShift(rec) && (seminar == null || seminar.scope() == AttendanceShiftScope.FULL_DAY)) {
             applyContinuousShift(rec, punches, schedule);
-            applyDeploymentBonuses(rec, deployment);
+            DeploymentPunches deploymentPunches =
+                    resolveInsideDeploymentPunches(punches, schedule, insideDeployment);
+            rec.setOvertimeWorkUnits(BigDecimal.ZERO);
+            applyDeploymentBonuses(
+                    rec, filterDeploymentBonuses(deployment, insideDeployment, deploymentPunches));
             applyHolidayWorkMultiplier(rec);
+            applySeminarProtection(rec, schedule, seminar);
             return;
         }
 
         ShiftAssignment shifts = assignShifts(punches, schedule);
+        DeploymentPunches deploymentPunches =
+                resolveInsideDeploymentPunches(punches, schedule, insideDeployment);
+        shifts = mergeInsideDeploymentPunches(shifts, insideDeployment, deploymentPunches);
+        deployment = filterDeploymentBonuses(deployment, insideDeployment, deploymentPunches);
 
         rec.setMorningCheckIn(shifts.morningIn());
         rec.setMorningCheckOut(shifts.morningOut());
@@ -66,15 +85,18 @@ public class AttendanceDayProcessor {
         boolean afternoonOk = shifts.afternoonCredited();
         rec.setMorningWorkUnits(morningOk ? schedule.morningUnits() : BigDecimal.ZERO);
         rec.setAfternoonWorkUnits(afternoonOk ? schedule.afternoonUnits() : BigDecimal.ZERO);
+        // Luôn reset ngoài giờ trước khi áp bonus từ ghi chú — tránh OT “dính” sau khi thu hồi/từ chối điều động
+        rec.setOvertimeWorkUnits(BigDecimal.ZERO);
         applyDeploymentBonuses(rec, deployment);
         applyHolidayWorkMultiplier(rec);
 
-        rec.setForgotShifts(buildForgotShifts(shifts, morningOk, afternoonOk));
+        rec.setForgotShifts(buildForgotShifts(
+                shifts, morningOk, afternoonOk, insideDeployment, seminar));
 
-        applyLateMinutes(rec, schedule, shifts.morningIn(), shifts.morningOut(),
-                shifts.afternoonIn(), shifts.afternoonOut());
+        applyLateMinutes(rec, schedule, shifts, insideDeployment, seminar);
 
         finalizeStatus(rec, shifts.morningIn(), shifts.morningOut(), shifts.afternoonOut());
+        applySeminarProtection(rec, schedule, seminar);
     }
 
     private boolean isContinuousShift(AttendanceRecord rec) {
@@ -306,8 +328,24 @@ public class AttendanceDayProcessor {
         return !punch.isBefore(from) && !punch.isAfter(to);
     }
 
-    private static boolean isMorningPunch(LocalTime time, AttendanceShiftSchedule schedule) {
-        return time.isBefore(schedule.morningEnd());
+    /**
+     * Phân loại log thuộc nửa buổi sáng hay chiều khi cập nhật/giải trình theo ca.
+     * Không dùng đúng mốc kết thúc ca sáng ({@code morningEnd}) — giờ ra trễ vài phút
+     * (vd. 11:48 khi ca kết thúc 11:45) vẫn phải thuộc sáng, nếu không đơn cập nhật ca chiều
+     * sẽ xóa nhầm giờ ra sáng khi đồng bộ lại.
+     */
+    static boolean isMorningPunch(LocalTime time, AttendanceShiftSchedule schedule) {
+        if (time == null || schedule == null || schedule.morningEnd() == null) {
+            return false;
+        }
+        LocalTime morningEnd = schedule.morningEnd();
+        LocalTime afternoonStart = schedule.afternoonStart();
+        if (afternoonStart != null && afternoonStart.isAfter(morningEnd)) {
+            long gapMin = java.time.Duration.between(morningEnd, afternoonStart).toMinutes();
+            LocalTime split = morningEnd.plusMinutes(Math.max(1L, gapMin / 2));
+            return time.isBefore(split);
+        }
+        return !time.isAfter(morningEnd);
     }
 
     private static int minutesLate(LocalTime actual, LocalTime expected) {
@@ -350,17 +388,72 @@ public class AttendanceDayProcessor {
         }
     }
 
+    private record InsideDeploymentRequirement(
+            LocalTime morningStart,
+            LocalTime morningEnd,
+            LocalTime afternoonStart,
+            LocalTime afternoonEnd) {
+
+        static final InsideDeploymentRequirement NONE =
+                new InsideDeploymentRequirement(null, null, null, null);
+
+        boolean hasMorning() {
+            return morningStart != null && morningEnd != null;
+        }
+
+        boolean hasAfternoon() {
+            return afternoonStart != null && afternoonEnd != null;
+        }
+    }
+
+    private record DeploymentPunches(
+            LocalTime morningIn,
+            LocalTime morningOut,
+            LocalTime afternoonIn,
+            LocalTime afternoonOut) {
+
+        static final DeploymentPunches EMPTY =
+                new DeploymentPunches(null, null, null, null);
+
+        boolean morningCredited() {
+            return morningIn != null && morningOut != null;
+        }
+
+        boolean afternoonCredited() {
+            return afternoonIn != null && afternoonOut != null;
+        }
+    }
+
     /**
      * Thiếu giờ vào hoặc giờ ra của ca → cần cập nhật quên chấm.
      * Ca chiều hoàn toàn không có log nhưng ca sáng đủ → quên cả ca chiều.
      */
-    private static String buildForgotShifts(ShiftAssignment shifts, boolean morningOk, boolean afternoonOk) {
+    private static String buildForgotShifts(
+            ShiftAssignment shifts,
+            boolean morningOk,
+            boolean afternoonOk,
+            InsideDeploymentRequirement deployment,
+            SeminarProtection seminar) {
         List<String> forgot = new ArrayList<>();
         if (!morningOk && needsMorningUpdate(shifts, afternoonOk)) {
             forgot.add("MORNING");
         }
         if (!afternoonOk && needsAfternoonUpdate(shifts, morningOk)) {
             forgot.add("AFTERNOON");
+        }
+        // Ca điều động đã duyệt luôn phải hiện đúng ca thiếu chấm để nhân viên
+        // có thể lập đơn cập nhật công, kể cả khi hoàn toàn chưa có log trong ngày.
+        if (deployment.hasMorning() && !morningOk && !forgot.contains("MORNING")) {
+            forgot.add("MORNING");
+        }
+        if (deployment.hasAfternoon() && !afternoonOk && !forgot.contains("AFTERNOON")) {
+            forgot.add("AFTERNOON");
+        }
+        if (protectsMorning(seminar)) {
+            forgot.remove("MORNING");
+        }
+        if (protectsAfternoon(seminar)) {
+            forgot.remove("AFTERNOON");
         }
         return forgot.isEmpty() ? null : String.join(",", forgot);
     }
@@ -591,28 +684,97 @@ public class AttendanceDayProcessor {
     private static void applyLateMinutes(
             AttendanceRecord rec,
             AttendanceShiftSchedule schedule,
-            LocalTime morningIn,
-            LocalTime morningOut,
-            LocalTime afternoonIn,
-            LocalTime afternoonOut) {
+            ShiftAssignment shifts,
+            InsideDeploymentRequirement deployment,
+            SeminarProtection seminar) {
         if (rec.isLateMinutesExempt()) {
             rec.setLateMinutes(0);
             return;
         }
         int late = 0;
-        if (morningIn != null) {
-            late += minutesLate(morningIn, schedule.morningStart());
-            if (morningOut != null) {
-                late += minutesEarly(morningOut, schedule.morningEnd());
+        if (!protectsMorning(seminar) && shifts.morningIn() != null) {
+            LocalTime expectedIn = deployment.hasMorning()
+                    ? deployment.morningStart() : schedule.morningStart();
+            LocalTime expectedOut = deployment.hasMorning()
+                    ? deployment.morningEnd() : schedule.morningEnd();
+            late += minutesLate(shifts.morningIn(), expectedIn);
+            if (shifts.morningOut() != null) {
+                late += minutesEarly(shifts.morningOut(), expectedOut);
             }
         }
-        if (afternoonIn != null) {
-            late += minutesLate(afternoonIn, schedule.afternoonStart());
-            if (afternoonOut != null) {
-                late += minutesEarly(afternoonOut, schedule.afternoonEnd());
+        if (!protectsAfternoon(seminar) && shifts.afternoonIn() != null) {
+            LocalTime expectedIn = deployment.hasAfternoon()
+                    ? deployment.afternoonStart() : schedule.afternoonStart();
+            LocalTime expectedOut = deployment.hasAfternoon()
+                    ? deployment.afternoonEnd() : schedule.afternoonEnd();
+            late += minutesLate(shifts.afternoonIn(), expectedIn);
+            if (shifts.afternoonOut() != null) {
+                late += minutesEarly(shifts.afternoonOut(), expectedOut);
             }
         }
         rec.setLateMinutes(late);
+    }
+
+    private static SeminarProtection extractSeminarProtection(String note) {
+        if (note == null || note.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\\[SEMINAR:(MORNING|AFTERNOON|FULL_DAY):(PAID|UNPAID)]")
+                .matcher(note);
+        if (!matcher.find()) {
+            return null;
+        }
+        return new SeminarProtection(
+                AttendanceShiftScope.valueOf(matcher.group(1)),
+                "PAID".equals(matcher.group(2)));
+    }
+
+    private static boolean protectsMorning(SeminarProtection seminar) {
+        return seminar != null && (seminar.scope() == AttendanceShiftScope.MORNING
+                || seminar.scope() == AttendanceShiftScope.FULL_DAY);
+    }
+
+    private static boolean protectsAfternoon(SeminarProtection seminar) {
+        return seminar != null && (seminar.scope() == AttendanceShiftScope.AFTERNOON
+                || seminar.scope() == AttendanceShiftScope.FULL_DAY);
+    }
+
+    private static void applySeminarProtection(
+            AttendanceRecord rec,
+            AttendanceShiftSchedule schedule,
+            SeminarProtection seminar) {
+        if (seminar == null) {
+            return;
+        }
+        if (protectsMorning(seminar)) {
+            rec.setMorningWorkUnits(seminar.withPay() ? schedule.morningUnits() : BigDecimal.ZERO);
+        }
+        if (protectsAfternoon(seminar)) {
+            rec.setAfternoonWorkUnits(seminar.withPay() ? schedule.afternoonUnits() : BigDecimal.ZERO);
+        }
+        rec.setForgotShifts(removeForgotScope(rec.getForgotShifts(), seminar.scope()));
+        if (seminar.scope() == AttendanceShiftScope.FULL_DAY) {
+            rec.setLateMinutes(0);
+        }
+        rec.setStatus("SEMINAR");
+    }
+
+    private static String removeForgotScope(String forgot, AttendanceShiftScope scope) {
+        if (forgot == null || forgot.isBlank()) {
+            return null;
+        }
+        List<String> values = new ArrayList<>(List.of(forgot.split(",")));
+        if (scope == AttendanceShiftScope.MORNING || scope == AttendanceShiftScope.FULL_DAY) {
+            values.remove("MORNING");
+        }
+        if (scope == AttendanceShiftScope.AFTERNOON || scope == AttendanceShiftScope.FULL_DAY) {
+            values.remove("AFTERNOON");
+        }
+        return values.isEmpty() ? null : String.join(",", values);
+    }
+
+    private record SeminarProtection(AttendanceShiftScope scope, boolean withPay) {
     }
 
     private static void finalizeStatus(
@@ -644,6 +806,113 @@ public class AttendanceDayProcessor {
         }
     }
 
+    private static InsideDeploymentRequirement extractInsideDeploymentRequirement(String note) {
+        if (note == null || note.isBlank()) {
+            return InsideDeploymentRequirement.NONE;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
+                "\\[DDTC:S=([0-9]{2}:[0-9]{2})-([0-9]{2}:[0-9]{2})|"
+                        + "\\[DDTC:S=-")
+                .matcher(note);
+        LocalTime morningStart = null;
+        LocalTime morningEnd = null;
+        int markerStart = -1;
+        if (matcher.find()) {
+            markerStart = matcher.start();
+            if (matcher.group(1) != null) {
+                morningStart = LocalTime.parse(matcher.group(1));
+                morningEnd = LocalTime.parse(matcher.group(2));
+            }
+        }
+        if (markerStart < 0) {
+            return InsideDeploymentRequirement.NONE;
+        }
+        int markerEnd = note.indexOf(']', markerStart);
+        if (markerEnd < 0) {
+            return InsideDeploymentRequirement.NONE;
+        }
+        String marker = note.substring(markerStart, markerEnd + 1);
+        java.util.regex.Matcher afternoonMatcher = java.util.regex.Pattern.compile(
+                "A=([0-9]{2}:[0-9]{2})-([0-9]{2}:[0-9]{2})")
+                .matcher(marker);
+        LocalTime afternoonStart = null;
+        LocalTime afternoonEnd = null;
+        if (afternoonMatcher.find()) {
+            afternoonStart = LocalTime.parse(afternoonMatcher.group(1));
+            afternoonEnd = LocalTime.parse(afternoonMatcher.group(2));
+        }
+        return new InsideDeploymentRequirement(
+                morningStart, morningEnd, afternoonStart, afternoonEnd);
+    }
+
+    private static DeploymentPunches resolveInsideDeploymentPunches(
+            List<LocalTime> punches,
+            AttendanceShiftSchedule schedule,
+            InsideDeploymentRequirement requirement) {
+        if (!requirement.hasMorning() && !requirement.hasAfternoon()) {
+            return DeploymentPunches.EMPTY;
+        }
+        List<LocalTime> available = new ArrayList<>(punches.stream().sorted().distinct().toList());
+        AttendancePunchWindows windows = schedule.punchWindows();
+        LocalTime morningIn = null;
+        LocalTime morningOut = null;
+        LocalTime afternoonIn = null;
+        LocalTime afternoonOut = null;
+        if (requirement.hasMorning()) {
+            morningIn = pickMinInWindow(
+                    available,
+                    requirement.morningStart(),
+                    windows.morningInBeforeMin(),
+                    windows.morningInAfterMin());
+            morningOut = pickMaxInWindow(
+                    available,
+                    requirement.morningEnd(),
+                    windows.morningOutBeforeMin(),
+                    windows.morningOutAfterMin());
+        }
+        if (requirement.hasAfternoon()) {
+            afternoonIn = pickMinInWindow(
+                    available,
+                    requirement.afternoonStart(),
+                    windows.afternoonInBeforeMin(),
+                    windows.afternoonInAfterMin());
+            afternoonOut = pickMaxInWindow(
+                    available,
+                    requirement.afternoonEnd(),
+                    windows.afternoonOutBeforeMin(),
+                    windows.afternoonOutAfterMin());
+        }
+        return new DeploymentPunches(morningIn, morningOut, afternoonIn, afternoonOut);
+    }
+
+    private static ShiftAssignment mergeInsideDeploymentPunches(
+            ShiftAssignment shifts,
+            InsideDeploymentRequirement requirement,
+            DeploymentPunches deploymentPunches) {
+        return new ShiftAssignment(
+                requirement.hasMorning() ? deploymentPunches.morningIn() : shifts.morningIn(),
+                requirement.hasMorning() ? deploymentPunches.morningOut() : shifts.morningOut(),
+                requirement.hasAfternoon() ? deploymentPunches.afternoonIn() : shifts.afternoonIn(),
+                requirement.hasAfternoon() ? deploymentPunches.afternoonOut() : shifts.afternoonOut());
+    }
+
+    private static DeploymentBonusSplit filterDeploymentBonuses(
+            DeploymentBonusSplit deployment,
+            InsideDeploymentRequirement requirement,
+            DeploymentPunches punches) {
+        if (!requirement.hasMorning() && !requirement.hasAfternoon()) {
+            return deployment;
+        }
+        boolean morningOk = !requirement.hasMorning() || punches.morningCredited();
+        boolean afternoonOk = !requirement.hasAfternoon() || punches.afternoonCredited();
+        return new DeploymentBonusSplit(
+                morningOk ? deployment.morning() : BigDecimal.ZERO,
+                morningOk && deployment.replaceMorning(),
+                afternoonOk ? deployment.afternoon() : BigDecimal.ZERO,
+                afternoonOk && deployment.replaceAfternoon(),
+                deployment.overtime());
+    }
+
     private static void applyDeploymentBonuses(AttendanceRecord rec, DeploymentBonusSplit deployment) {
         if (deployment.replaceMorning() && deployment.morning().compareTo(BigDecimal.ZERO) > 0) {
             rec.setMorningWorkUnits(deployment.morning());
@@ -655,9 +924,8 @@ public class AttendanceDayProcessor {
         } else if (deployment.afternoon().compareTo(BigDecimal.ZERO) > 0) {
             rec.setAfternoonWorkUnits(nz(rec.getAfternoonWorkUnits()).add(deployment.afternoon()));
         }
-        if (deployment.overtime().compareTo(BigDecimal.ZERO) > 0) {
-            rec.setOvertimeWorkUnits(deployment.overtime());
-        }
+        // Gán cả khi = 0 để gỡ ngoài giờ sau khi bỏ ghi chú điều động
+        rec.setOvertimeWorkUnits(nz(deployment.overtime()));
     }
 
     private static BigDecimal nz(BigDecimal v) {
@@ -666,6 +934,8 @@ public class AttendanceDayProcessor {
 
     /**
      * Parse công điều động từ ghi chú.
+     * Chỉ tính các dòng đã gắn mã đơn duyệt {@code [DD:…]} / {@code [DDTC:…]} —
+     * bỏ qua ghi chú điều động cũ/mồ côi (không mã) để tránh cộng trùng hoặc tính đơn chưa duyệt.
      * Mới: (=A sáng / =B chiều / +C ngoài giờ) — thay công ca khi ngày đã chấm
      * Mới: (+A sáng / +B chiều / +C ngoài giờ) — cộng thêm
      * Cũ 2 phần: (+A sáng / +B chiều)
@@ -683,72 +953,108 @@ public class AttendanceDayProcessor {
 
         java.util.regex.Pattern flexible = java.util.regex.Pattern.compile(
                 "([+=])([0-9]+(?:\\.[0-9]+)?) (sáng|chiều|ngoài giờ)");
-        java.util.regex.Matcher mf = flexible.matcher(note);
-        boolean matchedFlexible = false;
-        while (mf.find()) {
-            if (!noteContainsDeployment(mf.start(), note)) {
-                continue;
-            }
-            matchedFlexible = true;
-            boolean replace = "=".equals(mf.group(1));
-            BigDecimal amount = parseBd(mf.group(2));
-            switch (mf.group(3)) {
-                case "sáng" -> {
-                    morning = morning.add(amount);
-                    replaceMorning = replaceMorning || replace;
-                }
-                case "chiều" -> {
-                    afternoon = afternoon.add(amount);
-                    replaceAfternoon = replaceAfternoon || replace;
-                }
-                case "ngoài giờ" -> overtime = overtime.add(amount);
-                default -> { }
-            }
-        }
-
-        if (matchedFlexible) {
-            return new DeploymentBonusSplit(morning, replaceMorning, afternoon, replaceAfternoon, overtime);
-        }
-
         java.util.regex.Pattern three = java.util.regex.Pattern.compile(
                 "Điều động làm thêm[^;]*\\(\\+([0-9]+(?:\\.[0-9]+)?) sáng\\s*/\\s*\\+([0-9]+(?:\\.[0-9]+)?) chiều\\s*/\\s*\\+([0-9]+(?:\\.[0-9]+)?) ngoài giờ\\)");
-        java.util.regex.Matcher m3 = three.matcher(note);
-        boolean matchedSplit = false;
-        while (m3.find()) {
-            matchedSplit = true;
-            morning = morning.add(parseBd(m3.group(1)));
-            afternoon = afternoon.add(parseBd(m3.group(2)));
-            overtime = overtime.add(parseBd(m3.group(3)));
-        }
-
         java.util.regex.Pattern two = java.util.regex.Pattern.compile(
                 "Điều động làm thêm[^;]*\\(\\+([0-9]+(?:\\.[0-9]+)?) sáng\\s*/\\s*\\+([0-9]+(?:\\.[0-9]+)?) chiều\\)");
-        java.util.regex.Matcher m2 = two.matcher(note);
-        while (m2.find()) {
-            String full = m2.group(0);
-            if (full.contains("ngoài giờ")) {
+        java.util.regex.Pattern one = java.util.regex.Pattern.compile(
+                "Điều động làm thêm[^;]*\\(\\+([0-9]+(?:\\.[0-9]+)?) công\\)");
+
+        for (String part : note.split(";")) {
+            String segment = part.trim();
+            if (!isApprovedDeploymentNoteSegment(segment)) {
                 continue;
             }
-            matchedSplit = true;
-            morning = morning.add(parseBd(m2.group(1)));
-            afternoon = afternoon.add(parseBd(m2.group(2)));
-        }
 
-        if (!matchedSplit) {
-            java.util.regex.Pattern one = java.util.regex.Pattern.compile(
-                    "Điều động làm thêm[^;]*\\(\\+([0-9]+(?:\\.[0-9]+)?) công\\)");
-            java.util.regex.Matcher m1 = one.matcher(note);
-            while (m1.find()) {
-                overtime = overtime.add(parseBd(m1.group(1)));
+            boolean segmentFlexible = false;
+            java.util.regex.Matcher mf = flexible.matcher(segment);
+            while (mf.find()) {
+                segmentFlexible = true;
+                boolean replace = "=".equals(mf.group(1));
+                BigDecimal amount = parseBd(mf.group(2));
+                switch (mf.group(3)) {
+                    case "sáng" -> {
+                        morning = morning.add(amount);
+                        replaceMorning = replaceMorning || replace;
+                    }
+                    case "chiều" -> {
+                        afternoon = afternoon.add(amount);
+                        replaceAfternoon = replaceAfternoon || replace;
+                    }
+                    case "ngoài giờ" -> overtime = overtime.add(amount);
+                    default -> { }
+                }
+            }
+            if (segmentFlexible) {
+                continue;
+            }
+
+            boolean segmentSplit = false;
+            java.util.regex.Matcher m3 = three.matcher(segment);
+            while (m3.find()) {
+                segmentSplit = true;
+                morning = morning.add(parseBd(m3.group(1)));
+                afternoon = afternoon.add(parseBd(m3.group(2)));
+                overtime = overtime.add(parseBd(m3.group(3)));
+            }
+
+            java.util.regex.Matcher m2 = two.matcher(segment);
+            while (m2.find()) {
+                String full = m2.group(0);
+                if (full.contains("ngoài giờ")) {
+                    continue;
+                }
+                segmentSplit = true;
+                morning = morning.add(parseBd(m2.group(1)));
+                afternoon = afternoon.add(parseBd(m2.group(2)));
+            }
+
+            if (!segmentSplit) {
+                java.util.regex.Matcher m1 = one.matcher(segment);
+                while (m1.find()) {
+                    overtime = overtime.add(parseBd(m1.group(1)));
+                }
             }
         }
-        return new DeploymentBonusSplit(morning, false, afternoon, false, overtime);
+
+        return new DeploymentBonusSplit(morning, replaceMorning, afternoon, replaceAfternoon, overtime);
     }
 
-    private static boolean noteContainsDeployment(int matchStart, String note) {
-        int lineStart = Math.max(note.lastIndexOf("Điều động làm thêm", matchStart),
-                note.lastIndexOf("Điều động trong ca", matchStart));
-        return lineStart >= 0;
+    /** Ghi chú điều động đã duyệt phải có mã đơn [DD:id] hoặc [DDTC:…]. */
+    public static boolean isApprovedDeploymentNoteSegment(String segment) {
+        if (segment == null || segment.isBlank()) {
+            return false;
+        }
+        String s = segment.trim();
+        if (!(s.startsWith("Điều động làm thêm") || s.startsWith("Điều động trong ca"))) {
+            return false;
+        }
+        return s.contains("[DD:") || s.contains("[DDTC:");
+    }
+
+    /**
+     * Gỡ ghi chú điều động không gắn mã đơn (mồ côi / bản cũ) — giữ dòng đã duyệt.
+     */
+    public static String dropUnmarkedDeploymentNotes(String existing) {
+        if (existing == null || existing.isBlank()) {
+            return existing == null ? "" : existing;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String part : existing.split(";")) {
+            String p = part.trim();
+            if (p.isEmpty()) {
+                continue;
+            }
+            boolean isDeployment = p.startsWith("Điều động làm thêm") || p.startsWith("Điều động trong ca");
+            if (isDeployment && !isApprovedDeploymentNoteSegment(p)) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append("; ");
+            }
+            sb.append(p);
+        }
+        return sb.toString();
     }
 
     private static BigDecimal parseBd(String s) {

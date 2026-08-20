@@ -25,6 +25,7 @@ public class DutyShiftService {
 
     private final DutyShiftEntryRepository dutyShiftEntryRepository;
     private final EmployeeRepository employeeRepository;
+    private final EmployeeLinkService employeeLinkService;
     private final EmployeeService employeeService;
     private final EmployeeSalaryProfileRepository salaryProfileRepository;
     private final EmployeeWorkforceDetailsRepository workforceDetailsRepository;
@@ -33,12 +34,26 @@ public class DutyShiftService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listShiftTypes() {
+        return listShiftTypes(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> listShiftTypes(Long employeeId) {
+        boolean mainAuthorized = true;
+        if (employeeId != null) {
+            Employee emp = employeeService.requireEmployeeEntity(employeeId);
+            mainAuthorized = emp.isMainDutyAuthorized();
+        }
         List<Map<String, Object>> list = new ArrayList<>();
         for (DutyShiftType type : DutyShiftType.values()) {
+            if (!mainAuthorized && type != DutyShiftType.TK) {
+                continue;
+            }
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("code", type.getCode());
             m.put("label", type.getLabel());
             m.put("grantsWorkUnits", DutyShiftCalculator.typesWithWorkUnits().contains(type));
+            m.put("mainDutyRequired", type != DutyShiftType.TK);
             m.put("roleTiers", DutyShiftCalculator.tiersForShiftType(type).stream().map(this::tierView).toList());
             list.add(m);
         }
@@ -50,6 +65,7 @@ public class DutyShiftService {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
         assertCanView(emp);
         DutyShiftType type = DutyShiftType.fromCode(shiftTypeCode);
+        assertMainDutyAllowed(emp, type);
         DutyRoleTier tier = resolveRoleTier(emp, type, roleTierCode);
         DutyShiftCalculator.CalculationResult calc = calculateForEmployee(emp, type, tier);
         Map<String, Object> m = new LinkedHashMap<>();
@@ -94,6 +110,7 @@ public class DutyShiftService {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
         assertCanManage(emp);
         DutyShiftType type = DutyShiftType.fromCode(shiftTypeCode);
+        assertMainDutyAllowed(emp, type);
         DutyRoleTier tier = resolveRoleTier(emp, type, roleTierCode);
         DutyShiftCalculator.CalculationResult calc = calculateForEmployee(emp, type, tier);
 
@@ -261,28 +278,39 @@ public class DutyShiftService {
 
     private void assertCanView(Employee target) {
         UserAccount current = employeeService.currentUser();
-        if (current.getRole() == UserRole.ADMIN || current.getRole() == UserRole.HR) {
+        if (current.getRole() == UserRole.ADMIN || EmployeeService.isHr2Role(current)) {
             return;
         }
-        Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
+        Employee self = employeeLinkService.findLinkedEmployee(current).orElse(null);
         if (self != null && self.getId().equals(target.getId())) {
             return;
         }
-        if (current.getRole() == UserRole.HEAD_DEPARTMENT || current.getRole() == UserRole.HEAD_NURSING) {
+        if (EmployeeService.isHeadRole(current)
+                && self != null
+                && self.getDepartment() != null
+                && target.getDepartment() != null
+                && self.getDepartment().getId().equals(target.getDepartment().getId())) {
             return;
         }
         throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem ca trực");
     }
 
+    private void assertMainDutyAllowed(Employee emp, DutyShiftType type) {
+        if (!emp.isMainDutyAuthorized() && type != DutyShiftType.TK) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Nhân viên chưa được duyệt đơn trực chính — chỉ được chọn ca Trực kèm (TK)");
+        }
+    }
+
     private void assertCanManage(Employee target) {
         UserAccount current = employeeService.currentUser();
-        if (current.getRole() == UserRole.ADMIN || current.getRole() == UserRole.HR) {
+        if (current.getRole() == UserRole.ADMIN) {
             return;
         }
-        Employee self = employeeRepository.findByUser(current)
+        Employee self = employeeLinkService.findLinkedEmployee(current)
                 .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "Tài khoản chưa gắn hồ sơ nhân viên"));
-        if (current.getRole() != UserRole.HEAD_DEPARTMENT && current.getRole() != UserRole.HEAD_NURSING) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ trưởng phòng/HR/ADMIN được nhập ca trực");
+        if (!EmployeeService.isHeadRole(current)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ trưởng phòng/Điều dưỡng trưởng được nhập ca trực");
         }
         if (!self.getDepartment().getId().equals(target.getDepartment().getId())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ nhập ca trực cho nhân viên cùng khoa/phòng");

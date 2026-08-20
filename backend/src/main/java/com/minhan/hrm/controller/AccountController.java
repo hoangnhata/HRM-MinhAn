@@ -2,7 +2,9 @@ package com.minhan.hrm.controller;
 
 import com.minhan.hrm.dto.account.AccountMeResponse;
 import com.minhan.hrm.dto.account.AccountProfileUpdateRequest;
+import com.minhan.hrm.dto.account.AvatarSaveRequest;
 import com.minhan.hrm.dto.account.ChangePasswordRequest;
+import com.minhan.hrm.dto.account.SignatureSaveRequest;
 import com.minhan.hrm.service.AccountService;
 import com.minhan.hrm.sso.ErpAuthClient;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,15 +34,50 @@ public class AccountController {
     }
 
     @GetMapping("/me/avatar")
-    @Operation(summary = "Ảnh đại diện từ ERP (proxy)")
+    @Operation(summary = "Ảnh đại diện (local ưu tiên, fallback ERP)")
     public ResponseEntity<byte[]> avatar() {
-        ErpAuthClient.AvatarBytes avatar = accountService.getErpAvatar();
+        ErpAuthClient.AvatarBytes avatar = accountService.getMyAvatar();
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate")
                 .header(HttpHeaders.PRAGMA, "no-cache")
                 .header("Vary", "Authorization")
                 .contentType(MediaType.parseMediaType(avatar.contentType()))
                 .body(avatar.data());
+    }
+
+    @PutMapping("/me/avatar")
+    @Operation(summary = "Tải lên / cập nhật ảnh đại diện (PNG/JPG base64)")
+    public AccountMeResponse saveAvatar(@Valid @RequestBody AvatarSaveRequest request) {
+        return accountService.saveMyAvatar(request);
+    }
+
+    @DeleteMapping("/me/avatar")
+    @Operation(summary = "Xóa ảnh đại diện local")
+    public AccountMeResponse deleteAvatar() {
+        return accountService.deleteMyAvatar();
+    }
+
+    @GetMapping("/me/signature")
+    @Operation(summary = "Ảnh chữ ký số cá nhân của tài khoản đang đăng nhập")
+    public ResponseEntity<byte[]> mySignature() {
+        AccountService.SignatureBytes sig = accountService.getMySignature();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .contentType(MediaType.parseMediaType(sig.contentType()))
+                .body(sig.data());
+    }
+
+    @PutMapping("/me/signature")
+    @Operation(summary = "Tạo / cập nhật chữ ký số cá nhân (ảnh PNG/JPG base64)")
+    public AccountMeResponse saveSignature(@Valid @RequestBody SignatureSaveRequest request) {
+        return accountService.saveMySignature(request);
+    }
+
+    @DeleteMapping("/me/signature")
+    @Operation(summary = "Xóa chữ ký số cá nhân")
+    public AccountMeResponse deleteSignature() {
+        return accountService.deleteMySignature();
     }
 
     @PatchMapping("/me")

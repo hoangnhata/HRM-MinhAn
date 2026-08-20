@@ -2,7 +2,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined';
-import { Box, Chip, CircularProgress, Popover, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, CircularProgress, Popover, Stack, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -20,6 +20,7 @@ export function NotificationPopover({ open, anchorEl, onClose, onCountsUpdated }
   const navigate = useNavigate();
   const [items, setItems] = useState<notificationService.AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -70,6 +71,18 @@ export function NotificationPopover({ open, anchorEl, onClose, onCountsUpdated }
 
   const unreadCount = items.filter((n) => !n.read).length;
 
+  async function handleMarkAllRead() {
+    if (unreadCount === 0 || markingAll) return;
+    setMarkingAll(true);
+    try {
+      await notificationService.markAllRead();
+      setItems((current) => current.map((notification) => ({ ...notification, read: true })));
+      onCountsUpdated?.();
+    } finally {
+      setMarkingAll(false);
+    }
+  }
+
   return (
     <Popover
       open={open}
@@ -107,7 +120,20 @@ export function NotificationPopover({ open, anchorEl, onClose, onCountsUpdated }
               {unreadCount > 0 ? `${unreadCount} chưa đọc` : 'Bạn đã xem hết thông báo'}
             </Typography>
           </Box>
-          <NotificationsNoneOutlinedIcon sx={{ color: alpha(theme.palette.primary.main, 0.55), fontSize: 28 }} />
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            {unreadCount > 0 && (
+              <Button
+                size="small"
+                startIcon={<DoneAllIcon />}
+                onClick={() => void handleMarkAllRead()}
+                disabled={markingAll}
+                sx={{ minWidth: 0, px: 1.25, borderRadius: 2, fontWeight: 700 }}
+              >
+                {markingAll ? 'Đang đọc…' : 'Đọc tất cả'}
+              </Button>
+            )}
+            <NotificationsNoneOutlinedIcon sx={{ color: alpha(theme.palette.primary.main, 0.55), fontSize: 28 }} />
+          </Stack>
         </Stack>
       </Box>
 

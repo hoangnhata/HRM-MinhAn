@@ -3,15 +3,14 @@ package com.minhan.hrm.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.minhan.hrm.dto.evaluation.NursingEvaluationChannelSubmitRequest;
+import com.minhan.hrm.dto.evaluation.NursingEvaluationReviewRequest;
 import com.minhan.hrm.dto.evaluation.NursingEvaluationSubmitRequest;
-import com.minhan.hrm.entity.Employee;
-import com.minhan.hrm.entity.NursingEvaluation;
-import com.minhan.hrm.entity.UserAccount;
+import com.minhan.hrm.entity.*;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.exception.ResourceNotFoundException;
-import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.NursingEvaluationRepository;
+import com.minhan.hrm.repository.UserAccountRepository;
+import com.minhan.hrm.security.ApprovalAuthority;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,21 +26,14 @@ import java.util.*;
 @RequiredArgsConstructor
 public class NursingEvaluationService {
 
-    private static final String CH_TRUONG_KHOA = "truongKhoa";
-    private static final String CH_DDT = "ddt";
-    private static final String CH_HD = "hd";
-    /** 70 điểm: Trưởng khoa + ĐDT; 30 điểm: HCNS */
-    private static final List<String> DEPT_CHANNELS = List.of(CH_TRUONG_KHOA, CH_DDT);
-    private static final String NOTE_TRUONG_KHOA = "truongKhoaNote";
-    private static final String NOTE_DDT = "ddtNote";
-    private static final String NOTE_HD = "hdNote";
-    /** Lưu kèm trong scores_json: ai đã lưu từng kênh (không phải tiêu chí). */
-    private static final String META_CHANNEL_EVALUATORS = "__channelEvaluators__";
+    public static final String TEMPLATE_MA2026 = "DD_KTV_HS_MA_2026";
 
     private final NursingEvaluationTemplateService templateService;
     private final NursingEvaluationRepository nursingEvaluationRepository;
     private final EmployeeService employeeService;
-    private final EmployeeRepository employeeRepository;
+    private final UserAccountRepository userAccountRepository;
+    private final ApprovalSignatureService approvalSignatureService;
+    private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
@@ -51,9 +43,11 @@ public class NursingEvaluationService {
         m.put("code", text(root, "code"));
         m.put("name", text(root, "name"));
         m.put("version", root.has("version") ? root.get("version").asInt() : 1);
+        m.put("baseMaxPoints", root.has("baseMaxPoints") ? root.get("baseMaxPoints").asInt() : 90);
         m.put("criteriaGroups", objectMapper.convertValue(root.get("criteriaGroups"),
                 new TypeReference<List<Map<String, Object>>>() {
                 }));
+        m.put("note", text(root, "note"));
         m.put("gradingScale", List.of(
                 Map.of("min", 90, "label", "Xuất sắc", "proposal", "Xét tăng lương sớm"),
                 Map.of("min", 80, "label", "Tốt", "proposal", "Ưu tiên, theo dõi"),
@@ -63,637 +57,678 @@ public class NursingEvaluationService {
         return m;
     }
 
-    private static String text(JsonNode n, String field) {
-        return n.has(field) ? n.get(field).asText() : "";
-    }
-
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listForEmployee(Long employeeId) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
-        assertCanViewNursing(emp);
+        assertCanView(emp);
+        UserAccount current = employeeService.currentUser();
+        boolean selfOnly = isSelfViewerOnly(current, emp);
         return nursingEvaluationRepository.findByEmployeeOrderByPeriodYearDescPeriodMonthDesc(emp).stream()
-                .map(this::toRow)
+                .filter(n -> !selfOnly || n.getStatus() == NursingEvaluationStatus.APPROVED)
+                .map(this::toMap)
                 .toList();
     }
 
-    /**
-     * Trạng thái đã có điểm từng kênh trong kỳ — lọc NV theo quyền xem của user (ADMIN/HCNS/trưởng khoa/ĐDT: toàn viện).
-     */
+    /** Phiếu đánh giá đã duyệt của chính nhân viên đang đăng nhập. */
     @Transactional(readOnly = true)
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    public List<Map<String, Object>> listMineApproved() {
+        UserAccount current = employeeService.currentUser();
+        Employee self = employeeService.linkedEmployee(current)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
+                        "Tài khoản chưa liên kết hồ sơ nhân viên"));
+        return nursingEvaluationRepository.findByEmployeeOrderByPeriodYearDescPeriodMonthDesc(self).stream()
+                .filter(n -> n.getStatus() == NursingEvaluationStatus.APPROVED)
+                .map(this::toMap)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','HEAD_DEPARTMENT','HEAD_NURSING','DIRECTOR')")
     public List<Map<String, Object>> listPeriodEvaluationStatus(int year, int month, String templateCode) {
         UserAccount current = employeeService.currentUser();
-        List<NursingEvaluation> all = nursingEvaluationRepository.listMonthlyForTemplate(year, month, templateCode);
         List<Map<String, Object>> out = new ArrayList<>();
-        for (NursingEvaluation n : all) {
+        for (NursingEvaluation n : nursingEvaluationRepository.listMonthlyForTemplate(year, month, templateCode)) {
             Employee emp = n.getEmployee();
-            if (!canViewNursingEvalQuiet(current, emp)) {
+            if (!NursingBlockClassifier.matches(emp) || !canViewQuiet(current, emp)) {
                 continue;
             }
-            String json = n.getScoresJson();
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("employeeId", emp.getId());
-            // Một người có thể kiêm Trưởng khoa và ĐDT: chấm một kênh (khoa hoặc ĐDT) coi như đủ phần 70 điểm (trước HĐ).
-            boolean deptSide = mergedHasAnyChannelScore(json, CH_TRUONG_KHOA)
-                    || mergedHasAnyChannelScore(json, CH_DDT);
-            m.put("hasTruongKhoa", deptSide);
-            m.put("hasDdt", deptSide);
-            m.put("hasHd", mergedHasAnyChannelScore(json, CH_HD));
+            m.put("evaluationId", n.getId());
+            m.put("status", n.getStatus() != null ? n.getStatus().name() : null);
+            m.put("totalScore", n.getTotalScore());
+            m.put("overallGrade", n.getOverallGrade());
             out.add(m);
         }
         return out;
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
-    @Transactional
-    public Map<String, Object> submit(NursingEvaluationSubmitRequest req) {
-        JsonNode template = templateService.getTemplate(req.getTemplateCode());
-        JsonNode groups = template.get("criteriaGroups");
-        if (groups == null || !groups.isArray()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Mẫu đánh giá không hợp lệ");
-        }
-        Map<String, Set<BigDecimal>> allowedByCriterion = buildAllowedPoints(groups);
-        Map<String, Object> merged = new LinkedHashMap<>();
-
-        for (JsonNode g : groups) {
-            String cid = g.get("id").asText();
-            Map<String, Object> src = req.getScores().get(cid);
-            if (src == null) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Thiếu điểm cho tiêu chí: " + cid);
-            }
-            Map<String, Object> row = new LinkedHashMap<>();
-            Set<BigDecimal> allowed = allowedByCriterion.get(cid);
-            if (allowed == null) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Tiêu chí không hợp lệ: " + cid);
-            }
-
-            if (isCouncilCriterion(g)) {
-                BigDecimal val = toBigDecimalOrNull(src.get(CH_HD));
-                if (val == null) {
-                    throw new ApiException(HttpStatus.BAD_REQUEST, "Thiếu điểm Hội đồng cho " + cid);
-                }
-                val = val.setScale(2, RoundingMode.HALF_UP);
-                if (!containsPoint(allowed, val)) {
-                    throw new ApiException(HttpStatus.BAD_REQUEST, "Điểm Hội đồng không hợp lệ cho " + cid + ": " + val);
-                }
-                row.put(CH_HD, val);
-                copyNoteIfPresent(src, row, NOTE_HD);
-            } else {
-                for (String channel : DEPT_CHANNELS) {
-                    BigDecimal val = toBigDecimalOrNull(src.get(channel));
-                    if (val == null) {
-                        throw new ApiException(HttpStatus.BAD_REQUEST, "Thiếu điểm " + channel + " cho " + cid);
-                    }
-                    val = val.setScale(2, RoundingMode.HALF_UP);
-                    if (!containsPoint(allowed, val)) {
-                        throw new ApiException(HttpStatus.BAD_REQUEST,
-                                "Điểm không hợp lệ cho " + cid + "/" + channel + ": " + val);
-                    }
-                    row.put(channel, val);
-                }
-                copyNoteIfPresent(src, row, NOTE_TRUONG_KHOA);
-                copyNoteIfPresent(src, row, NOTE_DDT);
-            }
-            merged.put(cid, row);
-        }
-
-        UserAccount evaluator = employeeService.currentUser();
-        touchChannelEvaluator(merged, CH_TRUONG_KHOA, evaluator);
-        touchChannelEvaluator(merged, CH_DDT, evaluator);
-        touchChannelEvaluator(merged, CH_HD, evaluator);
-        Employee emp = employeeService.requireEmployeeEntity(req.getEmployeeId());
-        return persistEvaluation(emp, evaluator, req.getPeriodYear(), req.getPeriodMonth(),
-                req.getTemplateCode(), merged, req.getComments(), groups);
-    }
-
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
-    @Transactional
-    public Map<String, Object> submitChannel(NursingEvaluationChannelSubmitRequest req) {
-        if (!Set.of(CH_TRUONG_KHOA, CH_DDT, CH_HD).contains(req.getChannel())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Kênh không hợp lệ");
-        }
-        JsonNode template = templateService.getTemplate(req.getTemplateCode());
-        JsonNode groups = template.get("criteriaGroups");
-        if (groups == null || !groups.isArray()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Mẫu đánh giá không hợp lệ");
-        }
-        Map<String, Set<BigDecimal>> allowedByCriterion = buildAllowedPoints(groups);
-        Employee emp = employeeService.requireEmployeeEntity(req.getEmployeeId());
-        UserAccount evaluator = employeeService.currentUser();
-        assertCanSubmitChannel(evaluator, emp, req.getChannel());
-
-        String existingJson = nursingEvaluationRepository
-                .findByEmployeeAndPeriodYearAndPeriodMonthAndTemplateCode(
-                        emp, req.getPeriodYear(), req.getPeriodMonth(), req.getTemplateCode())
-                .map(NursingEvaluation::getScoresJson)
-                .orElse(null);
-        Map<String, Object> merged = readMergedScores(existingJson);
-
-        // Chỉ bắt buộc các tiêu chí thuộc đúng phần (70 hoặc 30) tương ứng với kênh đang lưu
-        Set<String> requiredIds = new LinkedHashSet<>();
-        for (JsonNode g : groups) {
-            boolean council = isCouncilCriterion(g);
-            boolean bonus = isBonusCriterion(g);
-            if (bonus) {
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','HEAD_NURSING','DIRECTOR')")
+    public List<Map<String, Object>> listMonthlySummary(int year, int month, String templateCode) {
+        UserAccount current = employeeService.currentUser();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (NursingEvaluation n : nursingEvaluationRepository.listMonthlyForTemplate(year, month, templateCode)) {
+            if (!NursingBlockClassifier.matches(n.getEmployee()) || !canViewQuiet(current, n.getEmployee())) {
                 continue;
             }
-            if (CH_HD.equals(req.getChannel()) && council) {
-                requiredIds.add(g.get("id").asText());
+            if (n.getStatus() == NursingEvaluationStatus.CANCELLED
+                    || n.getStatus() == NursingEvaluationStatus.DRAFT) {
+                continue;
             }
-            if (!CH_HD.equals(req.getChannel()) && !council) {
-                requiredIds.add(g.get("id").asText());
-            }
+            out.add(toSummaryRow(n));
         }
-
-        for (String cid : requiredIds) {
-            BigDecimal val = req.getScores().get(cid);
-            if (val == null) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Thiếu điểm cho tiêu chí: " + cid);
-            }
-            val = val.setScale(2, RoundingMode.HALF_UP);
-            Set<BigDecimal> allowed = allowedByCriterion.get(cid);
-            if (allowed == null) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Tiêu chí không hợp lệ: " + cid);
-            }
-            if (!containsPoint(allowed, val)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Điểm không hợp lệ cho " + cid + ": " + val);
-            }
-        }
-
-        String noteKey = CH_TRUONG_KHOA.equals(req.getChannel()) ? NOTE_TRUONG_KHOA
-                : CH_DDT.equals(req.getChannel()) ? NOTE_DDT
-                : NOTE_HD;
-        Map<String, String> noteMap = req.getNotes();
-
-        for (String cid : requiredIds) {
-            BigDecimal raw = req.getScores().get(cid);
-            if (raw == null) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Thiếu điểm cho tiêu chí: " + cid);
-            }
-            BigDecimal val = raw.setScale(2, RoundingMode.HALF_UP);
-            Map<String, Object> row = ensureScoreRow(merged, cid);
-            row.put(req.getChannel(), val);
-            if (noteMap != null && noteMap.containsKey(cid)) {
-                String n = noteMap.get(cid);
-                if (n != null && !n.isBlank()) {
-                    row.put(noteKey, n.trim());
-                }
-            }
-        }
-
-        // Điểm thưởng VI_*: mỗi mục 0 hoặc 3; nếu client không gửi thì giữ điểm cũ của kênh, không có thì 0
-        if (!CH_HD.equals(req.getChannel())) {
-            for (JsonNode g : groups) {
-                if (!isBonusCriterion(g)) {
-                    continue;
-                }
-                String id = g.get("id").asText();
-                BigDecimal raw = req.getScores() != null ? req.getScores().get(id) : null;
-                if (raw == null) {
-                    Map<String, Object> ex = scoreRow(merged, id);
-                    raw = ex != null ? toBigDecimalOrNull(ex.get(req.getChannel())) : null;
-                }
-                if (raw == null) {
-                    raw = BigDecimal.ZERO;
-                }
-                BigDecimal val = raw.setScale(2, RoundingMode.HALF_UP);
-                Set<BigDecimal> allowed = allowedByCriterion.get(id);
-                if (allowed == null) {
-                    throw new ApiException(HttpStatus.BAD_REQUEST, "Tiêu chí không hợp lệ: " + id);
-                }
-                if (!containsPoint(allowed, val)) {
-                    throw new ApiException(HttpStatus.BAD_REQUEST, "Điểm thưởng không hợp lệ cho " + id + ": " + val);
-                }
-                Map<String, Object> row = ensureScoreRow(merged, id);
-                row.put(req.getChannel(), val);
-                if (noteMap != null && noteMap.containsKey(id)) {
-                    String n = noteMap.get(id);
-                    if (n != null && !n.isBlank()) {
-                        row.put(noteKey, n.trim());
-                    }
-                }
-            }
-        }
-
-        touchChannelEvaluator(merged, req.getChannel(), evaluator);
-        return persistEvaluation(emp, evaluator, req.getPeriodYear(), req.getPeriodMonth(),
-                req.getTemplateCode(), merged, req.getComments(), groups);
+        return out;
     }
 
     @Transactional(readOnly = true)
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    public List<Map<String, Object>> listMonthlySummary(int year, int month, String templateCode) {
-        return nursingEvaluationRepository.listMonthlyForTemplate(year, month, templateCode).stream()
-                .map(this::toSummaryRow)
+    @PreAuthorize("hasAnyRole('ADMIN','HR2','HEAD_NURSING','DIRECTOR')")
+    public List<Map<String, Object>> listPending() {
+        UserAccount current = employeeService.currentUser();
+        Set<NursingEvaluationStatus> initial = switch (current.getRole()) {
+            case ADMIN -> Set.of(
+                    NursingEvaluationStatus.PENDING_NURSING_HEAD,
+                    NursingEvaluationStatus.PENDING_HR,
+                    NursingEvaluationStatus.PENDING_DIRECTOR);
+            case HEAD_NURSING -> Set.of(NursingEvaluationStatus.PENDING_NURSING_HEAD);
+            case HR2 -> Set.of(NursingEvaluationStatus.PENDING_HR);
+            case DIRECTOR -> Set.of(NursingEvaluationStatus.PENDING_DIRECTOR);
+            default -> Set.of();
+        };
+        final Set<NursingEvaluationStatus> statuses =
+                initial.isEmpty() && ApprovalAuthority.isDirectorApprover(current)
+                        ? Set.of(NursingEvaluationStatus.PENDING_DIRECTOR)
+                        : initial;
+        if (statuses.isEmpty()) {
+            return List.of();
+        }
+        return nursingEvaluationRepository.findPendingWithDetails(statuses).stream()
+                .filter(n -> NursingBlockClassifier.matches(n.getEmployee()))
+                .filter(n -> canViewQuiet(current, n.getEmployee()))
+                .filter(n -> statuses.contains(n.getStatus()))
+                .map(this::toMap)
+                .toList();
+    }
+
+    /** Lịch sử phiếu đã duyệt / từ chối ở bước của người xem. */
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('ADMIN','HR2','HEAD_NURSING','DIRECTOR')")
+    public List<Map<String, Object>> listHistory() {
+        UserAccount current = employeeService.currentUser();
+        return nursingEvaluationRepository.findHistoryWithDetails(
+                        Set.of(NursingEvaluationStatus.DRAFT, NursingEvaluationStatus.CANCELLED),
+                        Set.of(
+                                NursingEvaluationStatus.APPROVED,
+                                NursingEvaluationStatus.NURSING_HEAD_REJECTED,
+                                NursingEvaluationStatus.HR_REJECTED,
+                                NursingEvaluationStatus.DIRECTOR_REJECTED))
+                .stream()
+                .filter(n -> NursingBlockClassifier.matches(n.getEmployee()))
+                .filter(n -> canViewQuiet(current, n.getEmployee()))
+                .filter(n -> {
+                    if (current.getRole() == UserRole.ADMIN) {
+                        return n.getHeadReviewedAt() != null
+                                || n.getHrReviewedAt() != null
+                                || n.getDirectorReviewedAt() != null
+                                || n.getStatus() == NursingEvaluationStatus.APPROVED
+                                || n.getStatus() == NursingEvaluationStatus.NURSING_HEAD_REJECTED
+                                || n.getStatus() == NursingEvaluationStatus.HR_REJECTED
+                                || n.getStatus() == NursingEvaluationStatus.DIRECTOR_REJECTED;
+                    }
+                    if (current.getRole() == UserRole.HEAD_NURSING) {
+                        return n.getHeadReviewedAt() != null;
+                    }
+                    if (EmployeeService.isHr2Role(current)) {
+                        return n.getHrReviewedAt() != null;
+                    }
+                    if (ApprovalAuthority.isDirectorApprover(current)) {
+                        return n.getDirectorReviewedAt() != null
+                                || n.getStatus() == NursingEvaluationStatus.APPROVED
+                                || n.getStatus() == NursingEvaluationStatus.DIRECTOR_REJECTED;
+                    }
+                    return false;
+                })
+                .map(this::toMap)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     public Map<String, Object> getRecordDetail(Long evaluationId) {
         NursingEvaluation n = nursingEvaluationRepository.findDetailById(evaluationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bản đánh giá"));
-        Map<String, Object> m = toRow(n);
-        Employee e = n.getEmployee();
-        m.put("fullName", e.getFullName());
-        m.put("departmentName", e.getDepartment().getName());
-        m.put("employeeCode", e.getEmployeeCode());
-        Object scores = m.get("scores");
-        if (scores instanceof Map<?, ?> sm) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> sc = (Map<String, Object>) scores;
-            if (sc.containsKey(META_CHANNEL_EVALUATORS)) {
-                m.put("channelEvaluators", sc.remove(META_CHANNEL_EVALUATORS));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đánh giá"));
+        UserAccount current = employeeService.currentUser();
+        assertCanView(n.getEmployee());
+        if (isSelfViewerOnly(current, n.getEmployee())
+                && n.getStatus() != NursingEvaluationStatus.APPROVED) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Chỉ xem được phiếu đánh giá sau khi Giám đốc duyệt xong");
+        }
+        return toMap(n);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
+    @Transactional
+    public Map<String, Object> submit(NursingEvaluationSubmitRequest req) {
+        UserAccount actor = employeeService.currentUser();
+        Employee emp = employeeService.requireEmployeeEntity(req.getEmployeeId());
+        assertCanCreate(actor, emp);
+        if (EmployeeService.isHeadRole(actor)) {
+            employeeService.assertCanAccessEmployee(emp);
+        }
+
+        JsonNode template = templateService.getTemplate(req.getTemplateCode());
+        JsonNode groups = template.get("criteriaGroups");
+        if (groups == null || !groups.isArray()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Mẫu đánh giá không hợp lệ");
+        }
+
+        Map<String, Set<BigDecimal>> allowed = buildAllowedPoints(groups);
+        Map<String, Object> scores = new LinkedHashMap<>();
+        for (JsonNode g : groups) {
+            if (isCouncilCriterion(g)) {
+                continue;
+            }
+            String cid = g.get("id").asText();
+            boolean optionalExtra = isBonusCriterion(g) || isPenaltyCriterion(g);
+            BigDecimal val = req.getScores() != null ? req.getScores().get(cid) : null;
+            if (val == null) {
+                if (optionalExtra) {
+                    val = BigDecimal.ZERO;
+                } else {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Thiếu điểm cho tiêu chí: " + cid);
+                }
+            }
+            val = val.setScale(2, RoundingMode.HALF_UP);
+            Set<BigDecimal> allowedPts = allowed.get(cid);
+            if (allowedPts == null || !containsPoint(allowedPts, val)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Điểm không hợp lệ cho " + cid + ": " + val);
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("points", val);
+            if (req.getNotes() != null && req.getNotes().get(cid) != null
+                    && !req.getNotes().get(cid).isBlank()) {
+                row.put("note", req.getNotes().get(cid).trim());
+            }
+            scores.put(cid, row);
+        }
+
+        ScoreAgg agg = computeScore(groups, scores, template);
+        Optional<NursingEvaluation> existing = nursingEvaluationRepository
+                .findByEmployeeAndPeriodYearAndPeriodMonthAndTemplateCode(
+                        emp, req.getPeriodYear(), req.getPeriodMonth(), req.getTemplateCode());
+
+        NursingEvaluation row = existing.orElseGet(NursingEvaluation::new);
+        if (existing.isPresent()) {
+            NursingEvaluationStatus st = row.getStatus();
+            if (st == NursingEvaluationStatus.APPROVED
+                    || st == NursingEvaluationStatus.PENDING_DIRECTOR
+                    || st == NursingEvaluationStatus.PENDING_HR
+                    || st == NursingEvaluationStatus.PENDING_NURSING_HEAD) {
+                boolean creator = row.getEvaluator() != null
+                        && row.getEvaluator().getId().equals(actor.getId());
+                if (!(actor.getRole() == UserRole.ADMIN
+                        || (creator && (st == NursingEvaluationStatus.PENDING_NURSING_HEAD
+                        || st == NursingEvaluationStatus.DRAFT
+                        || st == NursingEvaluationStatus.NURSING_HEAD_REJECTED)))) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST,
+                            "Phiếu đang chờ duyệt hoặc đã duyệt — thu hồi trước khi sửa");
+                }
+            }
+            if (st == NursingEvaluationStatus.CANCELLED
+                    || st == NursingEvaluationStatus.NURSING_HEAD_REJECTED) {
+                row.setEvaluatorSignaturePath(null);
+                row.setEvaluatorSignedAt(null);
+                row.setHeadReviewer(null);
+                row.setHeadReviewedAt(null);
+                row.setHeadComment(null);
+                row.setHeadSignaturePath(null);
+                row.setHrReviewer(null);
+                row.setHrReviewedAt(null);
+                row.setHrComment(null);
+                row.setHrSignaturePath(null);
+                row.setDirectorReviewer(null);
+                row.setDirectorReviewedAt(null);
+                row.setDirectorComment(null);
+                row.setDirectorSignaturePath(null);
             }
         }
-        return m;
+
+        row.setEmployee(emp);
+        row.setEvaluator(actor);
+        row.setPeriodYear(req.getPeriodYear());
+        row.setPeriodMonth(req.getPeriodMonth());
+        row.setTemplateCode(req.getTemplateCode());
+        try {
+            row.setScoresJson(objectMapper.writeValueAsString(scores));
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Không lưu được điểm");
+        }
+        row.setComments(blankToNull(req.getComments()));
+        row.setTotalScore(agg.total());
+        row.setOverallGrade(agg.grade());
+        row.setTotalTruongKhoa(agg.total());
+        row.setGradeTruongKhoa(agg.grade());
+        row.setTotalDdt(null);
+        row.setGradeDdt(null);
+        row.setTotalSelf(null);
+        row.setGradeSelf(null);
+
+        boolean submit = Boolean.TRUE.equals(req.getSubmitForReview());
+        if (submit) {
+            // Trưởng khoa / ĐDT lập + ký → gửi Trưởng phòng Điều dưỡng
+            row.setStatus(NursingEvaluationStatus.PENDING_NURSING_HEAD);
+            row = nursingEvaluationRepository.save(row);
+            row.setEvaluatorSignaturePath(
+                    approvalSignatureService.snapshotForApproval(actor, "nursing-eval", row.getId(), "evaluator"));
+            row.setEvaluatorSignedAt(Instant.now());
+            row = nursingEvaluationRepository.save(row);
+            notifyNursingHeadsPending(row);
+        } else {
+            row.setStatus(NursingEvaluationStatus.DRAFT);
+            row.setEvaluatorSignaturePath(null);
+            row.setEvaluatorSignedAt(null);
+            row = nursingEvaluationRepository.save(row);
+        }
+        return toMap(row);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Transactional
+    public Map<String, Object> nursingHeadReview(Long id, NursingEvaluationReviewRequest body) {
+        UserAccount reviewer = employeeService.currentUser();
+        NursingEvaluation row = nursingEvaluationRepository.findDetailById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đánh giá"));
+        if (reviewer.getRole() == UserRole.HEAD_NURSING
+                && !NursingBlockClassifier.matches(row.getEmployee())) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Chỉ duyệt phiếu đánh giá trong khối Điều dưỡng");
+        }
+        boolean reached = row.getStatus() == NursingEvaluationStatus.PENDING_NURSING_HEAD
+                || row.getHeadReviewedAt() != null;
+        if (!reached || row.getStatus() == NursingEvaluationStatus.CANCELLED) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Phiếu không thể duyệt ở bước Trưởng phòng Điều dưỡng");
+        }
+        NursingEvaluationStatus previous = row.getStatus();
+        row.setHeadReviewer(reviewer);
+        row.setHeadReviewedAt(Instant.now());
+        row.setHeadComment(blankToNull(body.getComment()));
+        row.setHeadSignaturePath(
+                approvalSignatureService.snapshotForApproval(
+                        reviewer, "nursing-eval", row.getId(), "nursing-head"));
+        boolean approved = Boolean.TRUE.equals(body.getApproved());
+        if (!approved) {
+            row.setStatus(NursingEvaluationStatus.NURSING_HEAD_REJECTED);
+            nursingEvaluationRepository.save(row);
+            notificationService.notifyNursingEvaluationResult(row, false, "Trưởng phòng Điều dưỡng");
+            return toMap(row);
+        }
+        if (previous == NursingEvaluationStatus.PENDING_NURSING_HEAD
+                || previous == NursingEvaluationStatus.NURSING_HEAD_REJECTED) {
+            row.setStatus(NursingEvaluationStatus.PENDING_HR);
+        }
+        nursingEvaluationRepository.save(row);
+        if (row.getStatus() == NursingEvaluationStatus.PENDING_HR) {
+            notifyHrPending(row);
+        }
+        return toMap(row);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','HR2')")
+    @Transactional
+    public Map<String, Object> hrReview(Long id, NursingEvaluationReviewRequest body) {
+        UserAccount reviewer = ensureHrOrAdmin();
+        NursingEvaluation row = nursingEvaluationRepository.findDetailById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đánh giá"));
+        boolean reached = row.getStatus() == NursingEvaluationStatus.PENDING_HR
+                || row.getHrReviewedAt() != null;
+        if (!reached || row.getStatus() == NursingEvaluationStatus.CANCELLED) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Phiếu không thể duyệt ở bước HCNS");
+        }
+        NursingEvaluationStatus previous = row.getStatus();
+        row.setHrReviewer(reviewer);
+        row.setHrReviewedAt(Instant.now());
+        row.setHrComment(blankToNull(body.getComment()));
+        row.setHrSignaturePath(
+                approvalSignatureService.snapshotForApproval(reviewer, "nursing-eval", row.getId(), "hr"));
+        boolean approved = Boolean.TRUE.equals(body.getApproved());
+        if (!approved) {
+            row.setStatus(NursingEvaluationStatus.HR_REJECTED);
+            nursingEvaluationRepository.save(row);
+            notificationService.notifyNursingEvaluationResult(row, false, "HCNS");
+            return toMap(row);
+        }
+        if (previous == NursingEvaluationStatus.PENDING_HR
+                || previous == NursingEvaluationStatus.HR_REJECTED) {
+            row.setStatus(NursingEvaluationStatus.PENDING_DIRECTOR);
+        }
+        nursingEvaluationRepository.save(row);
+        if (row.getStatus() == NursingEvaluationStatus.PENDING_DIRECTOR) {
+            notifyDirectorsPending(row);
+        }
+        return toMap(row);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','DIRECTOR')")
+    @Transactional
+    public Map<String, Object> directorReview(Long id, NursingEvaluationReviewRequest body) {
+        UserAccount reviewer = ensureDirectorOrAdmin();
+        NursingEvaluation row = nursingEvaluationRepository.findDetailById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đánh giá"));
+        boolean reached = row.getStatus() == NursingEvaluationStatus.PENDING_DIRECTOR
+                || row.getDirectorReviewedAt() != null;
+        if (!reached || row.getStatus() == NursingEvaluationStatus.CANCELLED) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Phiếu không thể duyệt ở bước Giám đốc");
+        }
+        row.setDirectorReviewer(reviewer);
+        row.setDirectorReviewedAt(Instant.now());
+        row.setDirectorComment(blankToNull(body.getComment()));
+        row.setDirectorSignaturePath(
+                approvalSignatureService.snapshotForApproval(reviewer, "nursing-eval", row.getId(), "director"));
+        boolean approved = Boolean.TRUE.equals(body.getApproved());
+        if (!approved) {
+            row.setStatus(NursingEvaluationStatus.DIRECTOR_REJECTED);
+            nursingEvaluationRepository.save(row);
+            notificationService.notifyNursingEvaluationResult(row, false, "Giám đốc");
+            return toMap(row);
+        }
+        row.setStatus(NursingEvaluationStatus.APPROVED);
+        nursingEvaluationRepository.save(row);
+        notificationService.notifyNursingEvaluationResult(row, true, "Giám đốc");
+        return toMap(row);
+    }
+
+    @Transactional
+    public Map<String, Object> cancel(Long id) {
+        UserAccount actor = employeeService.currentUser();
+        NursingEvaluation row = nursingEvaluationRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đánh giá"));
+        boolean canCancel = actor.getRole() == UserRole.ADMIN
+                || (row.getEvaluator() != null && row.getEvaluator().getId().equals(actor.getId()));
+        if (!canCancel) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền thu hồi phiếu này");
+        }
+        if (row.getStatus() == NursingEvaluationStatus.CANCELLED) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Phiếu đã thu hồi rồi");
+        }
+        row.setStatus(NursingEvaluationStatus.CANCELLED);
+        nursingEvaluationRepository.save(row);
+        return toMap(row);
+    }
+
+    private void assertCanCreate(UserAccount actor, Employee emp) {
+        if (!NursingBlockClassifier.matches(emp)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Chỉ đánh giá nhân viên khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa");
+        }
+        if (actor.getRole() == UserRole.ADMIN || EmployeeService.isHeadRole(actor)) {
+            return;
+        }
+        throw new ApiException(HttpStatus.FORBIDDEN,
+                "Chỉ Trưởng khoa / ĐDT khoa (khối Điều dưỡng) được lập phiếu đánh giá");
+    }
+
+    private void assertCanView(Employee emp) {
+        UserAccount current = employeeService.currentUser();
+        if (!canViewQuiet(current, emp)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem phiếu đánh giá");
+        }
     }
 
     /**
-     * Phần 70 điểm trong báo cáo: trung bình hai cột khi Trưởng khoa và ĐDT đều đã chấm đủ;
-     * nếu chỉ một bên chấm (vẫn đạt tổng /70) thì dùng điểm cột đó để cộng với Hội đồng 30.
+     * Người xem chỉ với tư cách chính chủ hồ sơ (không phải quyền quản lý).
+     * Nhân viên chỉ được xem phiếu đã APPROVED.
      */
-    private static BigDecimal deptSeventyForSummary(BigDecimal totalTruongKhoa, BigDecimal totalDdt) {
-        if (totalTruongKhoa != null && totalDdt != null) {
-            return totalTruongKhoa.add(totalDdt).divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
+    private boolean isSelfViewerOnly(UserAccount current, Employee emp) {
+        if (current == null || emp == null) {
+            return false;
         }
-        if (totalTruongKhoa != null) {
-            return totalTruongKhoa.setScale(2, RoundingMode.HALF_UP);
+        if (current.getRole() == UserRole.ADMIN
+                || current.getRole() == UserRole.HR
+                || EmployeeService.isHr2Role(current)
+                || current.getRole() == UserRole.HEAD_NURSING
+                || ApprovalAuthority.isDirectorApprover(current)) {
+            return false;
         }
-        if (totalDdt != null) {
-            return totalDdt.setScale(2, RoundingMode.HALF_UP);
+        if (EmployeeService.isHeadRole(current)) {
+            try {
+                employeeService.assertCanAccessEmployee(emp);
+                return false;
+            } catch (ApiException ignored) {
+                // không thuộc khoa — chỉ còn quyền tự xem
+            }
+        }
+        var self = employeeService.linkedEmployee(current);
+        return self.isPresent() && self.get().getId().equals(emp.getId());
+    }
+
+    private boolean canViewQuiet(UserAccount current, Employee emp) {
+        if (current == null) {
+            return false;
+        }
+        if (current.getRole() == UserRole.ADMIN
+                || current.getRole() == UserRole.HR
+                || EmployeeService.isHr2Role(current)
+                || ApprovalAuthority.isDirectorApprover(current)) {
+            return NursingBlockClassifier.matches(emp);
+        }
+        if (current.getRole() == UserRole.HEAD_NURSING) {
+            return NursingBlockClassifier.matches(emp);
+        }
+        if (EmployeeService.isHeadRole(current)) {
+            try {
+                employeeService.assertCanAccessEmployee(emp);
+                return NursingBlockClassifier.matches(emp);
+            } catch (ApiException e) {
+                return false;
+            }
+        }
+        var self = employeeService.linkedEmployee(current);
+        return self.isPresent() && self.get().getId().equals(emp.getId());
+    }
+
+    private UserAccount ensureHrOrAdmin() {
+        UserAccount u = employeeService.currentUser();
+        if (!EmployeeService.isHr2Role(u) && u.getRole() != UserRole.ADMIN) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ HCNS/ADMIN được duyệt bước này");
+        }
+        return u;
+    }
+
+    private UserAccount ensureDirectorOrAdmin() {
+        UserAccount u = employeeService.currentUser();
+        if (!ApprovalAuthority.isDirectorApprover(u)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ Giám đốc/ADMIN được duyệt bước này");
+        }
+        return u;
+    }
+
+    private void notifyNursingHeadsPending(NursingEvaluation row) {
+        for (UserAccount u : userAccountRepository.findByRoleIn(
+                List.of(UserRole.HEAD_NURSING, UserRole.ADMIN))) {
+            if (!u.isEnabled()) {
+                continue;
+            }
+            if (u.getRole() == UserRole.ADMIN
+                    || employeeService.shouldReceiveNursingHeadPendingNotification(u, row.getEmployee())) {
+                notificationService.notifyNursingEvaluationPendingNursingHead(u, row);
+            }
+        }
+    }
+
+    private void notifyHrPending(NursingEvaluation row) {
+        for (UserAccount u : userAccountRepository.findByRoleIn(List.of(UserRole.HR2, UserRole.HEAD_HR, UserRole.ADMIN))) {
+            if (u.isEnabled()) {
+                notificationService.notifyNursingEvaluationPendingHr(u, row);
+            }
+        }
+    }
+
+    private void notifyDirectorsPending(NursingEvaluation row) {
+        for (UserAccount u : userAccountRepository.findByDirectorApprovalEnabledTrueAndEnabledTrue()) {
+            if (u.isEnabled()) {
+                notificationService.notifyNursingEvaluationPendingDirector(u, row);
+            }
+        }
+    }
+
+    private record ScoreAgg(BigDecimal total, String grade) {
+    }
+
+    private ScoreAgg computeScore(JsonNode groups, Map<String, Object> scores, JsonNode template) {
+        BigDecimal base = BigDecimal.ZERO;
+        BigDecimal bonus = BigDecimal.ZERO;
+        BigDecimal penalty = BigDecimal.ZERO;
+        BigDecimal maxBase = BigDecimal.ZERO;
+        for (JsonNode g : groups) {
+            if (isCouncilCriterion(g)) {
+                continue;
+            }
+            String cid = g.get("id").asText();
+            BigDecimal pts = pointsOf(scores.get(cid));
+            if (isBonusCriterion(g)) {
+                bonus = bonus.add(pts != null ? pts : BigDecimal.ZERO);
+            } else if (isPenaltyCriterion(g)) {
+                penalty = penalty.add(pts != null ? pts : BigDecimal.ZERO);
+            } else {
+                if (pts == null) {
+                    pts = BigDecimal.ZERO;
+                }
+                base = base.add(pts);
+                maxBase = maxBase.add(maxPointsFromGroup(g));
+            }
+        }
+        if (template.has("baseMaxPoints") && !template.get("baseMaxPoints").isNull()) {
+            maxBase = BigDecimal.valueOf(template.get("baseMaxPoints").asDouble());
+        }
+        BigDecimal total = base.add(bonus).subtract(penalty).setScale(2, RoundingMode.HALF_UP);
+        if (total.compareTo(BigDecimal.ZERO) < 0) {
+            total = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        BigDecimal gradeMax = maxBase.setScale(2, RoundingMode.HALF_UP);
+        if (gradeMax.compareTo(BigDecimal.ZERO) <= 0) {
+            gradeMax = new BigDecimal("90.00");
+        }
+        return new ScoreAgg(total, gradeFromTotalScaled(total.min(gradeMax), gradeMax));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static BigDecimal pointsOf(Object rowObj) {
+        if (rowObj instanceof Map<?, ?> raw) {
+            return toBigDecimalOrNull(((Map<String, Object>) raw).get("points"));
         }
         return null;
     }
 
     private Map<String, Object> toSummaryRow(NursingEvaluation n) {
-        Employee e = n.getEmployee();
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("evaluationId", n.getId());
-        m.put("employeeId", e.getId());
-        m.put("employeeCode", e.getEmployeeCode());
-        m.put("fullName", e.getFullName());
-        m.put("departmentName", e.getDepartment().getName());
+        m.put("employeeId", n.getEmployee().getId());
+        m.put("employeeCode", n.getEmployee().getEmployeeCode());
+        m.put("fullName", n.getEmployee().getFullName());
+        m.put("departmentName",
+                n.getEmployee().getDepartment() != null ? n.getEmployee().getDepartment().getName() : "");
         m.put("periodYear", n.getPeriodYear());
         m.put("periodMonth", n.getPeriodMonth());
-        m.put("totalTruongKhoa", n.getTotalTruongKhoa()); // /70
-        m.put("totalDdt", n.getTotalDdt()); // /70
-        m.put("gradeTruongKhoa", n.getGradeTruongKhoa());
-        m.put("gradeDdt", n.getGradeDdt());
-        m.put("evaluatorUsername", n.getEvaluator().getUsername());
-        BigDecimal tk = n.getTotalTruongKhoa();
-        BigDecimal ddt = n.getTotalDdt();
-        BigDecimal deptAvg70 = deptSeventyForSummary(tk, ddt);
-        m.put("deptAvg70", deptAvg70);
-
-        HrAgg hd = computeCouncilAgg(templateService.getTemplate(String.valueOf(n.getTemplateCode())), n.getScoresJson());
-        m.put("hdTotal30", hd.total30);
-        m.put("hdGrade", hd.grade30);
-
-        if (deptAvg70 != null && hd.total30 != null) {
-            BigDecimal total100 = deptAvg70.add(hd.total30).setScale(2, RoundingMode.HALF_UP);
-            m.put("total100", total100);
-            m.put("overallGrade", gradeFromTotalScaled(total100, new BigDecimal("100.00")));
-        } else {
-            m.put("total100", null);
-            m.put("overallGrade", null);
-        }
+        m.put("status", n.getStatus() != null ? n.getStatus().name() : null);
+        m.put("totalScore", n.getTotalScore());
+        m.put("overallGrade", n.getOverallGrade());
+        m.put("total100", n.getTotalScore());
+        m.put("evaluatorUsername", n.getEvaluator() != null ? n.getEvaluator().getUsername() : "");
+        // legacy fields for old summary UI
+        m.put("totalTruongKhoa", n.getTotalScore());
+        m.put("totalDdt", null);
+        m.put("gradeTruongKhoa", n.getOverallGrade());
+        m.put("gradeDdt", null);
+        m.put("deptAvg70", n.getTotalScore());
+        m.put("hdTotal30", null);
+        m.put("hdGrade", null);
         return m;
     }
 
-    private Map<String, Object> persistEvaluation(Employee emp, UserAccount evaluator, int year, int month,
-                                                  String templateCode, Map<String, Object> merged,
-                                                  String comments, JsonNode groups) {
-        stripLegacySelf(merged);
-        String json;
+    private Map<String, Object> toMap(NursingEvaluation n) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", n.getId());
+        m.put("employeeId", n.getEmployee().getId());
+        m.put("employeeCode", n.getEmployee().getEmployeeCode());
+        m.put("employeeName", n.getEmployee().getFullName());
+        m.put("fullName", n.getEmployee().getFullName());
+        m.put("departmentName",
+                n.getEmployee().getDepartment() != null ? n.getEmployee().getDepartment().getName() : "");
+        m.put("positionTitle",
+                n.getEmployee().getPosition() != null ? n.getEmployee().getPosition().getTitle() : "");
+        m.put("periodYear", n.getPeriodYear());
+        m.put("periodMonth", n.getPeriodMonth());
+        m.put("templateCode", n.getTemplateCode());
+        m.put("status", n.getStatus() != null ? n.getStatus().name() : null);
+        m.put("totalScore", n.getTotalScore());
+        m.put("overallGrade", n.getOverallGrade());
+        m.put("comments", n.getComments());
+        m.put("evaluatorUsername", n.getEvaluator() != null ? n.getEvaluator().getUsername() : "");
+        m.put("requestedByUsername", n.getEvaluator() != null ? n.getEvaluator().getUsername() : "");
+        m.put("evaluatorSignedAt",
+                n.getEvaluatorSignedAt() != null ? n.getEvaluatorSignedAt().toString() : null);
+        m.put("evaluatorSignatureUrl", sigUrl(n.getId(), "evaluator", n.getEvaluatorSignaturePath()));
         try {
-            json = objectMapper.writeValueAsString(merged);
-        } catch (Exception ex) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Không serialize điểm");
-        }
-
-        NursingEvaluation entity = nursingEvaluationRepository
-                .findByEmployeeAndPeriodYearAndPeriodMonthAndTemplateCode(emp, year, month, templateCode)
-                .orElse(NursingEvaluation.builder()
-                        .employee(emp)
-                        .evaluator(evaluator)
-                        .periodYear(year)
-                        .periodMonth(month)
-                        .templateCode(templateCode)
-                        .build());
-        entity.setEvaluator(evaluator);
-        entity.setScoresJson(json);
-        if (comments != null && !comments.isBlank()) {
-            entity.setComments(comments);
-        }
-        applyTotalsFromMerged(entity, groups, merged);
-        entity = nursingEvaluationRepository.save(entity);
-        return toRow(entity);
-    }
-
-    private void applyTotalsFromMerged(NursingEvaluation entity, JsonNode groups,
-                                       Map<String, Object> merged) {
-        entity.setTotalSelf(null);
-        entity.setGradeSelf(null);
-        // Tổng tối đa kênh khoa/phòng = I–V + điểm thưởng VI
-        BigDecimal maxDept = maxTotal70(groups).add(maxBonusTotal(groups)).setScale(2, RoundingMode.HALF_UP);
-        for (String channel : DEPT_CHANNELS) {
-            BigDecimal baseSum = BigDecimal.ZERO;
-            boolean baseComplete = true;
-            for (JsonNode g : groups) {
-                if (isCouncilCriterion(g) || isBonusCriterion(g)) {
-                    continue;
-                }
-                String cid = g.get("id").asText();
-                Map<String, Object> row = scoreRow(merged, cid);
-                BigDecimal v = getChannelPoint(row, channel);
-                if (v == null) {
-                    baseComplete = false;
-                    break;
-                }
-                baseSum = baseSum.add(v);
-            }
-            BigDecimal bonusSum = BigDecimal.ZERO;
-            for (JsonNode g : groups) {
-                if (!isBonusCriterion(g)) {
-                    continue;
-                }
-                String cid = g.get("id").asText();
-                Map<String, Object> row = scoreRow(merged, cid);
-                BigDecimal v = getChannelPoint(row, channel);
-                bonusSum = bonusSum.add(v != null ? v : BigDecimal.ZERO);
-            }
-            if (!baseComplete) {
-                if (CH_TRUONG_KHOA.equals(channel)) {
-                    entity.setTotalTruongKhoa(null);
-                    entity.setGradeTruongKhoa(null);
-                } else {
-                    entity.setTotalDdt(null);
-                    entity.setGradeDdt(null);
-                }
-            } else {
-                BigDecimal sum = baseSum.add(bonusSum).setScale(2, RoundingMode.HALF_UP);
-                if (CH_TRUONG_KHOA.equals(channel)) {
-                    entity.setTotalTruongKhoa(sum);
-                    entity.setGradeTruongKhoa(gradeFromTotalScaled(sum, maxDept));
-                } else {
-                    entity.setTotalDdt(sum);
-                    entity.setGradeDdt(gradeFromTotalScaled(sum, maxDept));
-                }
-            }
-        }
-    }
-
-    private static void stripLegacySelf(Map<String, Object> merged) {
-        for (Map.Entry<String, Object> e : merged.entrySet()) {
-            if (META_CHANNEL_EVALUATORS.equals(e.getKey())) {
-                continue;
-            }
-            if (e.getValue() instanceof Map<?, ?> raw) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> row = (Map<String, Object>) raw;
-                row.remove("self");
-            }
-        }
-    }
-
-    private String evaluatorDisplayName(UserAccount user) {
-        if (user == null) {
-            return "";
-        }
-        return employeeRepository.findByUserUsername(user.getUsername())
-                .map(Employee::getFullName)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .orElse(user.getUsername());
-    }
-
-    private void touchChannelEvaluator(Map<String, Object> merged, String channel, UserAccount user) {
-        Object existing = merged.get(META_CHANNEL_EVALUATORS);
-        Map<String, Object> meta;
-        if (existing instanceof Map<?, ?>) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> m = (Map<String, Object>) existing;
-            meta = m;
-        } else {
-            meta = new LinkedHashMap<>();
-            merged.put(META_CHANNEL_EVALUATORS, meta);
-        }
-        Map<String, Object> info = new LinkedHashMap<>();
-        info.put("username", user != null ? user.getUsername() : "");
-        info.put("displayName", user != null ? evaluatorDisplayName(user) : "");
-        info.put("savedAt", Instant.now().toString());
-        meta.put(channel, info);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> ensureScoreRow(Map<String, Object> merged, String cid) {
-        Object o = merged.get(cid);
-        if (o instanceof Map<?, ?> raw) {
-            return (Map<String, Object>) raw;
-        }
-        Map<String, Object> row = new LinkedHashMap<>();
-        merged.put(cid, row);
-        return row;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> scoreRow(Map<String, Object> merged, String cid) {
-        Object o = merged.get(cid);
-        if (o instanceof Map<?, ?> raw) {
-            return (Map<String, Object>) raw;
-        }
-        return null;
-    }
-
-    /**
-     * Đọc JSON lưu trữ: giữ điểm (truongKhoa, ddt, hd) và ghi chú; giữ meta người chấm.
-     */
-    private Map<String, Object> readMergedScores(String json) {
-        if (json == null || json.isBlank()) {
-            return new LinkedHashMap<>();
-        }
-        try {
-            Map<String, Map<String, Object>> raw = objectMapper.readValue(json, new TypeReference<>() {
-            });
-            Map<String, Object> out = new LinkedHashMap<>();
-            for (Map.Entry<String, Map<String, Object>> e : raw.entrySet()) {
-                if (META_CHANNEL_EVALUATORS.equals(e.getKey())) {
-                    Map<String, Object> preserved = new LinkedHashMap<>();
-                    if (e.getValue() != null) {
-                        preserved.putAll(e.getValue());
-                    }
-                    out.put(e.getKey(), preserved);
-                    continue;
-                }
-                Map<String, Object> cleaned = new LinkedHashMap<>();
-                if (e.getValue() != null) {
-                    for (Map.Entry<String, Object> c : e.getValue().entrySet()) {
-                        String k = c.getKey();
-                        if ("self".equals(k)) {
-                            continue;
-                        }
-                        Object v = c.getValue();
-                        if (v == null) {
-                            continue;
-                        }
-                        if (Set.of(CH_TRUONG_KHOA, CH_DDT, CH_HD).contains(k)) {
-                            BigDecimal p = toBigDecimalOrNull(v);
-                            if (p != null) {
-                                cleaned.put(k, p);
-                            }
-                        } else if (NOTE_TRUONG_KHOA.equals(k) || NOTE_DDT.equals(k) || NOTE_HD.equals(k)) {
-                            String s = String.valueOf(v).trim();
-                            if (!s.isEmpty()) {
-                                cleaned.put(k, s);
-                            }
-                        }
-                    }
-                }
-                out.put(e.getKey(), cleaned);
-            }
-            return out;
-        } catch (Exception ex) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Dữ liệu điểm lưu trữ không hợp lệ");
-        }
-    }
-
-    private static BigDecimal getChannelPoint(Map<String, Object> row, String channel) {
-        if (row == null) {
-            return null;
-        }
-        return toBigDecimalOrNull(row.get(channel));
-    }
-
-    private static BigDecimal toBigDecimalOrNull(Object o) {
-        if (o == null) {
-            return null;
-        }
-        try {
-            return new BigDecimal(o.toString()).setScale(2, RoundingMode.HALF_UP);
+            m.put("scores", objectMapper.readValue(n.getScoresJson(),
+                    new TypeReference<Map<String, Object>>() {
+                    }));
         } catch (Exception e) {
-            return null;
+            m.put("scores", Map.of());
         }
+        m.put("createdAt", n.getCreatedAt() != null ? n.getCreatedAt().toString() : null);
+        m.put("updatedAt", n.getUpdatedAt() != null ? n.getUpdatedAt().toString() : null);
+
+        m.put("headReviewerUsername",
+                n.getHeadReviewer() != null ? n.getHeadReviewer().getUsername() : null);
+        m.put("headComment", n.getHeadComment());
+        m.put("headReviewedAt", n.getHeadReviewedAt() != null ? n.getHeadReviewedAt().toString() : null);
+        m.put("headSignatureUrl", sigUrl(n.getId(), "nursing-head", n.getHeadSignaturePath()));
+
+        m.put("hrReviewerUsername", n.getHrReviewer() != null ? n.getHrReviewer().getUsername() : null);
+        m.put("hrComment", n.getHrComment());
+        m.put("hrReviewedAt", n.getHrReviewedAt() != null ? n.getHrReviewedAt().toString() : null);
+        m.put("hrSignatureUrl", sigUrl(n.getId(), "hr", n.getHrSignaturePath()));
+
+        m.put("directorReviewerUsername",
+                n.getDirectorReviewer() != null ? n.getDirectorReviewer().getUsername() : null);
+        m.put("directorComment", n.getDirectorComment());
+        m.put("directorReviewedAt",
+                n.getDirectorReviewedAt() != null ? n.getDirectorReviewedAt().toString() : null);
+        m.put("directorSignatureUrl", sigUrl(n.getId(), "director", n.getDirectorSignaturePath()));
+
+        // legacy
+        m.put("totalTruongKhoa", n.getTotalScore());
+        m.put("gradeTruongKhoa", n.getOverallGrade());
+        return m;
     }
 
-    private static void copyNoteIfPresent(Map<String, Object> src, Map<String, Object> row, String noteKey) {
-        if (src == null || !src.containsKey(noteKey)) {
-            return;
+    private static String sigUrl(Long id, String role, String path) {
+        if (path == null || path.isBlank()) {
+            return null;
         }
-        Object v = src.get(noteKey);
-        if (v == null) {
-            return;
-        }
-        String s = String.valueOf(v).trim();
-        if (!s.isEmpty()) {
-            row.put(noteKey, s);
-        }
+        return "/j1-api/v1/approval-signatures/nursing-eval/" + id + "/" + role;
     }
 
     private Map<String, Set<BigDecimal>> buildAllowedPoints(JsonNode groups) {
-        Map<String, Set<BigDecimal>> allowedByCriterion = new LinkedHashMap<>();
+        Map<String, Set<BigDecimal>> out = new LinkedHashMap<>();
         for (JsonNode g : groups) {
-            String id = g.get("id").asText();
-            Set<BigDecimal> pts = new HashSet<>();
+            if (isCouncilCriterion(g)) {
+                continue;
+            }
+            String cid = g.get("id").asText();
+            Set<BigDecimal> pts = new LinkedHashSet<>();
             if (g.has("options") && g.get("options").isArray()) {
-                for (JsonNode opt : g.get("options")) {
-                    if (opt.has("points")) {
-                        pts.add(BigDecimal.valueOf(opt.get("points").asDouble()).setScale(2, RoundingMode.HALF_UP));
+                for (JsonNode o : g.get("options")) {
+                    if (o.has("points")) {
+                        pts.add(BigDecimal.valueOf(o.get("points").asDouble())
+                                .setScale(2, RoundingMode.HALF_UP));
                     }
                 }
             }
-            allowedByCriterion.put(id, pts);
+            out.put(cid, pts);
         }
-        return allowedByCriterion;
-    }
-
-    private void assertCanViewNursing(Employee target) {
-        UserAccount current = employeeService.currentUser();
-        if (!canViewNursingEvalQuiet(current, target)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem đánh giá");
-        }
-    }
-
-    private boolean canViewNursingEvalQuiet(UserAccount current, Employee target) {
-        if (current == null || target == null) {
-            return false;
-        }
-        switch (current.getRole()) {
-            case ADMIN, HR -> {
-                return true;
-            }
-            case EMPLOYEE -> {
-                Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
-                return self != null && self.getId().equals(target.getId());
-            }
-            case HEAD_DEPARTMENT, HEAD_NURSING -> {
-                return true;
-            }
-            default -> {
-                return false;
-            }
-        }
-    }
-
-    private boolean mergedHasAnyChannelScore(String scoresJson, String channel) {
-        if (scoresJson == null || scoresJson.isBlank()) {
-            return false;
-        }
-        Map<String, Object> merged = readMergedScores(scoresJson);
-        for (Map.Entry<String, Object> e : merged.entrySet()) {
-            if (META_CHANNEL_EVALUATORS.equals(e.getKey())) {
-                continue;
-            }
-            String cid = e.getKey();
-            if (CH_HD.equals(channel)) {
-                if (!cid.startsWith("HD_")) {
-                    continue;
-                }
-            } else {
-                if (cid.startsWith("HD_")) {
-                    continue;
-                }
-            }
-            Map<String, Object> row = scoreRow(merged, cid);
-            if (getChannelPoint(row, channel) != null) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void assertCanSubmitChannel(UserAccount current, Employee target, String channel) {
-        switch (current.getRole()) {
-            case ADMIN -> {
-            }
-            case HEAD_DEPARTMENT -> {
-                if (!CH_TRUONG_KHOA.equals(channel)) {
-                    throw new ApiException(HttpStatus.FORBIDDEN, "Trưởng khoa chỉ chấm kênh Trưởng khoa");
-                }
-                Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
-                if (self == null) {
-                    throw new ApiException(HttpStatus.FORBIDDEN,
-                            "Tài khoản trưởng khoa cần gắn hồ sơ nhân viên để nhập điểm");
-                }
-            }
-            case HEAD_NURSING -> {
-                if (!CH_DDT.equals(channel)) {
-                    throw new ApiException(HttpStatus.FORBIDDEN, "Điều dưỡng trưởng chỉ chấm kênh ĐDT");
-                }
-                Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
-                if (self == null) {
-                    throw new ApiException(HttpStatus.FORBIDDEN,
-                            "Tài khoản Điều dưỡng trưởng cần gắn hồ sơ nhân viên để nhập điểm");
-                }
-            }
-            case HR -> {
-                if (!CH_HD.equals(channel)) {
-                    throw new ApiException(HttpStatus.FORBIDDEN, "Hội đồng chỉ chấm phần 30 điểm (Hội đồng)");
-                }
-            }
-            case EMPLOYEE -> throw new ApiException(HttpStatus.FORBIDDEN, "Vai trò này không nhập điểm trên phiếu");
-            default -> throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền nhập điểm");
-        }
+        return out;
     }
 
     private static boolean isCouncilCriterion(JsonNode g) {
@@ -705,27 +740,16 @@ public class NursingEvaluationService {
 
     private static boolean isBonusCriterion(JsonNode g) {
         if (g == null) return false;
+        if (g.has("bonus") && g.get("bonus").asBoolean(false)) return true;
         String id = g.has("id") ? g.get("id").asText("") : "";
         return id.startsWith("VI_");
     }
 
-    private static BigDecimal maxTotal70(JsonNode groups) {
-        BigDecimal sum = BigDecimal.ZERO;
-        for (JsonNode g : groups) {
-            if (isCouncilCriterion(g) || isBonusCriterion(g)) continue;
-            sum = sum.add(maxPointsFromGroup(g));
-        }
-        return sum.setScale(2, RoundingMode.HALF_UP);
-    }
-
-    /** Tổng điểm tối đa phần thưởng VI_* (thường 12). */
-    private static BigDecimal maxBonusTotal(JsonNode groups) {
-        BigDecimal sum = BigDecimal.ZERO;
-        for (JsonNode g : groups) {
-            if (!isBonusCriterion(g)) continue;
-            sum = sum.add(maxPointsFromGroup(g));
-        }
-        return sum.setScale(2, RoundingMode.HALF_UP);
+    private static boolean isPenaltyCriterion(JsonNode g) {
+        if (g == null) return false;
+        if (g.has("penalty") && g.get("penalty").asBoolean(false)) return true;
+        String id = g.has("id") ? g.get("id").asText("") : "";
+        return id.startsWith("VII_");
     }
 
     private static BigDecimal maxPointsFromGroup(JsonNode g) {
@@ -742,35 +766,6 @@ public class NursingEvaluationService {
         return BigDecimal.ZERO;
     }
 
-    private record HrAgg(BigDecimal total30, String grade30) {
-    }
-
-    private HrAgg computeCouncilAgg(JsonNode template, String scoresJson) {
-        JsonNode groups = template.get("criteriaGroups");
-        if (groups == null || !groups.isArray()) {
-            return new HrAgg(null, null);
-        }
-        Map<String, Object> merged = readMergedScores(scoresJson);
-        BigDecimal sum = BigDecimal.ZERO;
-        boolean complete = true;
-        BigDecimal max30 = BigDecimal.ZERO;
-        for (JsonNode g : groups) {
-            if (!isCouncilCriterion(g)) continue;
-            String cid = g.get("id").asText();
-            BigDecimal v = getChannelPoint(scoreRow(merged, cid), CH_HD);
-            if (v == null) {
-                complete = false;
-                break;
-            }
-            sum = sum.add(v);
-            max30 = max30.add(maxPointsFromGroup(g));
-        }
-        if (!complete) return new HrAgg(null, null);
-        sum = sum.setScale(2, RoundingMode.HALF_UP);
-        max30 = max30.setScale(2, RoundingMode.HALF_UP);
-        return new HrAgg(sum, gradeFromTotalScaled(sum, max30));
-    }
-
     private static boolean containsPoint(Set<BigDecimal> allowed, BigDecimal val) {
         for (BigDecimal a : allowed) {
             if (a.compareTo(val) == 0) {
@@ -780,55 +775,37 @@ public class NursingEvaluationService {
         return false;
     }
 
-    public static String gradeFromTotal(BigDecimal total) {
-        if (total == null) {
-            return "Chưa đạt";
+    private static BigDecimal toBigDecimalOrNull(Object o) {
+        if (o == null) return null;
+        if (o instanceof BigDecimal bd) return bd;
+        if (o instanceof Number n) {
+            return BigDecimal.valueOf(n.doubleValue()).setScale(2, RoundingMode.HALF_UP);
         }
-        double v = total.doubleValue();
-        if (v >= 90) {
-            return "Xuất sắc";
-        }
-        if (v >= 80) {
-            return "Tốt";
-        }
-        if (v >= 65) {
-            return "Khá";
-        }
-        return "Chưa đạt";
-    }
-
-    private static String gradeFromTotalScaled(BigDecimal total, BigDecimal maxTotal) {
-        if (total == null || maxTotal == null || maxTotal.signum() <= 0) {
-            return "Chưa đạt";
-        }
-        double pct = total.divide(maxTotal, 6, RoundingMode.HALF_UP).doubleValue() * 100.0;
-        if (pct >= 90) return "Xuất sắc";
-        if (pct >= 80) return "Tốt";
-        if (pct >= 65) return "Khá";
-        return "Chưa đạt";
-    }
-
-    // (đã thay bằng maxTotal70() + computeHrAgg())
-
-    private Map<String, Object> toRow(NursingEvaluation n) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", n.getId());
-        m.put("employeeId", n.getEmployee().getId());
-        m.put("periodYear", n.getPeriodYear());
-        m.put("periodMonth", n.getPeriodMonth());
-        m.put("templateCode", n.getTemplateCode());
-        m.put("totalTruongKhoa", n.getTotalTruongKhoa());
-        m.put("totalDdt", n.getTotalDdt());
-        m.put("gradeTruongKhoa", n.getGradeTruongKhoa());
-        m.put("gradeDdt", n.getGradeDdt());
-        m.put("comments", n.getComments());
-        m.put("evaluatorUsername", n.getEvaluator().getUsername());
-        m.put("createdAt", n.getCreatedAt().toString());
         try {
-            m.put("scores", objectMapper.readValue(n.getScoresJson(), Map.class));
-        } catch (Exception ignored) {
-            m.put("scores", Map.of());
+            return new BigDecimal(o.toString().trim()).setScale(2, RoundingMode.HALF_UP);
+        } catch (Exception e) {
+            return null;
         }
-        return m;
+    }
+
+    public static String gradeFromTotalScaled(BigDecimal total, BigDecimal maxTotal) {
+        if (total == null || maxTotal == null || maxTotal.compareTo(BigDecimal.ZERO) <= 0) {
+            return "Chưa đạt";
+        }
+        BigDecimal pct = total.multiply(new BigDecimal("100"))
+                .divide(maxTotal, 2, RoundingMode.HALF_UP);
+        if (pct.compareTo(new BigDecimal("90")) >= 0) return "Xuất sắc";
+        if (pct.compareTo(new BigDecimal("80")) >= 0) return "Tốt";
+        if (pct.compareTo(new BigDecimal("65")) >= 0) return "Khá";
+        return "Chưa đạt";
+    }
+
+    private static String text(JsonNode n, String field) {
+        return n.has(field) ? n.get(field).asText() : "";
+    }
+
+    private static String blankToNull(String s) {
+        if (s == null || s.isBlank()) return null;
+        return s.trim();
     }
 }

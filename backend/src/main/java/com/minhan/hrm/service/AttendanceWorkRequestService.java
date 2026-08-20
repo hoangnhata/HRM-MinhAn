@@ -12,7 +12,10 @@ import com.minhan.hrm.repository.AttendanceRecordRepository;
 import com.minhan.hrm.repository.AttendanceWorkRequestRepository;
 import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
+import com.minhan.hrm.security.ApprovalAuthority;
+import com.minhan.hrm.service.support.RequestEditSupport;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,8 +24,11 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,23 +37,50 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AttendanceWorkRequestService {
 
     private static final EnumSet<AttendanceRequestStatus> PENDING_HEAD = EnumSet.of(AttendanceRequestStatus.PENDING_HEAD);
+    private static final EnumSet<AttendanceRequestStatus> PENDING_NURSING_HEAD =
+            EnumSet.of(AttendanceRequestStatus.PENDING_NURSING_HEAD);
     private static final EnumSet<AttendanceRequestStatus> PENDING_HR = EnumSet.of(AttendanceRequestStatus.PENDING_HR);
+    private static final EnumSet<AttendanceRequestStatus> PENDING_DIRECTOR = EnumSet.of(AttendanceRequestStatus.PENDING_DIRECTOR);
     private static final EnumSet<AttendanceRequestStatus> HEAD_HISTORY = EnumSet.of(
             AttendanceRequestStatus.HEAD_REJECTED,
+            AttendanceRequestStatus.PENDING_NURSING_HEAD,
+            AttendanceRequestStatus.NURSING_HEAD_REJECTED,
             AttendanceRequestStatus.PENDING_HR,
             AttendanceRequestStatus.HR_REJECTED,
+            AttendanceRequestStatus.PENDING_DIRECTOR,
+            AttendanceRequestStatus.DIRECTOR_REJECTED,
+            AttendanceRequestStatus.APPROVED,
+            AttendanceRequestStatus.APPROVED_NO_FINE);
+    private static final EnumSet<AttendanceRequestStatus> NURSING_HEAD_HISTORY = EnumSet.of(
+            AttendanceRequestStatus.NURSING_HEAD_REJECTED,
+            AttendanceRequestStatus.PENDING_HR,
+            AttendanceRequestStatus.HR_REJECTED,
+            AttendanceRequestStatus.PENDING_DIRECTOR,
+            AttendanceRequestStatus.DIRECTOR_REJECTED,
             AttendanceRequestStatus.APPROVED,
             AttendanceRequestStatus.APPROVED_NO_FINE);
     private static final EnumSet<AttendanceRequestStatus> HR_HISTORY = EnumSet.of(
             AttendanceRequestStatus.HR_REJECTED,
+            AttendanceRequestStatus.PENDING_DIRECTOR,
+            AttendanceRequestStatus.DIRECTOR_REJECTED,
+            AttendanceRequestStatus.APPROVED,
+            AttendanceRequestStatus.APPROVED_NO_FINE);
+    private static final EnumSet<AttendanceRequestStatus> DIRECTOR_HISTORY = EnumSet.of(
+            AttendanceRequestStatus.DIRECTOR_REJECTED,
             AttendanceRequestStatus.APPROVED,
             AttendanceRequestStatus.APPROVED_NO_FINE);
     private static final EnumSet<UserRole> HEAD_ROLES = EnumSet.of(
-            UserRole.ADMIN, UserRole.HEAD_DEPARTMENT, UserRole.HEAD_NURSING);
-    private static final EnumSet<UserRole> HR_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.HR);
+            UserRole.ADMIN, UserRole.HEAD_DEPARTMENT, UserRole.HEAD_HR);
+    private static final EnumSet<UserRole> NURSING_HEAD_ROLES = EnumSet.of(
+            UserRole.ADMIN, UserRole.HEAD_NURSING);
+    private static final EnumSet<UserRole> HR_APPROVER_ROLES = EnumSet.of(
+            UserRole.ADMIN, UserRole.HR2, UserRole.HEAD_HR);
+    private static final EnumSet<UserRole> HR_MANAGER_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.HR);
+    private static final EnumSet<UserRole> DIRECTOR_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.DIRECTOR);
     /** Hệ số công điều động ngoài ca: 1 giờ thực tế = 1.5 giờ công. */
     public static final BigDecimal DEPLOYMENT_COEFFICIENT = new BigDecimal("1.5");
     /** Điều động cả ca sáng trong ca — tối đa 1 công (tỷ lệ theo giờ nếu làm một phần ca). */
@@ -58,35 +91,54 @@ public class AttendanceWorkRequestService {
     private final AttendanceWorkRequestRepository requestRepository;
     private final AttendanceRecordRepository attendanceRecordRepository;
     private final EmployeeRepository employeeRepository;
+    private final EmployeeLinkService employeeLinkService;
     private final EmployeeService employeeService;
     private final AttendanceDayProcessor dayProcessor;
     private final NotificationService notificationService;
     private final UserAccountRepository userAccountRepository;
     private final AttendanceShiftScheduleService shiftScheduleService;
+    private final ApprovalSignatureService approvalSignatureService;
+    private final ContinuousShiftService continuousShiftService;
 
     @Transactional
     public Map<String, Object> submit(AttendanceWorkRequestSubmitDto dto) {
+        if (dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Đơn công tác đã ngừng sử dụng; vui lòng tạo đơn đi Hội thảo");
+        }
         if (dto.getRequestType() == AttendanceRequestType.DEPLOYMENT) {
             return createDeployment(dto);
         }
-        Employee emp = employeeRepository.findByUserUsername(employeeService.currentUser().getUsername())
-                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Tài khoản chưa gắn hồ sơ nhân viên"));
-        validateSubmit(dto, emp);
+        Employee emp = dto.getRequestType() == AttendanceRequestType.EXPLANATION
+                ? resolveExplanationEmployee(dto)
+                : employeeService.requireLinkedEmployee();
+        validateSubmit(dto, emp, null);
         AttendanceShiftScope scope = dto.getShiftScope();
         if (dto.getRequestType() == AttendanceRequestType.LEAVE
                 || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
                 || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
             scope = AttendanceShiftScope.FULL_DAY;
         }
+        boolean continuousDay = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
+        AttendanceUpdateKind updateKind = dto.getUpdateKind();
+        if ((dto.getRequestType() == AttendanceRequestType.UPDATE
+                || dto.getRequestType() == AttendanceRequestType.EXPLANATION)
+                && continuousDay) {
+            scope = AttendanceShiftScope.FULL_DAY;
+            if (dto.getRequestType() == AttendanceRequestType.UPDATE) {
+                updateKind = AttendanceUpdateKind.FULL_DAY_SUPPLEMENT;
+            }
+        }
         boolean ranged = dto.getRequestType() == AttendanceRequestType.LEAVE
                 || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
                 || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP;
         Integer forgotFineUnits = null;
-        if (dto.getRequestType() == AttendanceRequestType.UPDATE && dto.getUpdateKind() != null) {
+        if (dto.getRequestType() == AttendanceRequestType.UPDATE && updateKind != null) {
             AttendanceRecord existing = attendanceRecordRepository
                     .findByEmployeeAndWorkDate(emp, dto.getWorkDate())
                     .orElse(null);
-            forgotFineUnits = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(dto.getUpdateKind(), existing);
+            forgotFineUnits = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
+                    updateKind, existing, continuousDay);
         }
         AttendanceWorkRequest req = AttendanceWorkRequest.builder()
                 .employee(emp)
@@ -96,7 +148,7 @@ public class AttendanceWorkRequestService {
                         ? (dto.getEndDate() != null ? dto.getEndDate() : dto.getWorkDate())
                         : null)
                 .shiftScope(scope)
-                .updateKind(dto.getUpdateKind())
+                .updateKind(updateKind)
                 .reason(dto.getReason().trim())
                 .location(dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP
                         && dto.getLocation() != null
@@ -116,21 +168,204 @@ public class AttendanceWorkRequestService {
                 .forgotFineUnits(forgotFineUnits)
                 .status(AttendanceRequestStatus.PENDING_HEAD)
                 .build();
+        if (dto.getRequestType() == AttendanceRequestType.EXPLANATION) {
+            snapshotExplanationOriginalPunches(req, emp, dto);
+        }
         req = requestRepository.save(req);
         notifyHeadNewRequest(req);
         return toMap(req);
     }
 
+    @Transactional
+    public Map<String, Object> update(Long id, AttendanceWorkRequestSubmitDto dto) {
+        if (dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Đơn công tác đã ngừng sử dụng; vui lòng tạo đơn hội thảo");
+        }
+        UserAccount actor = employeeService.currentUser();
+        AttendanceWorkRequest req = requestRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn"));
+        ensureCanEditWorkRequest(actor, req);
+        if (dto.getRequestType() != req.getRequestType()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Không được đổi loại đơn");
+        }
+        Employee emp = req.getEmployee();
+        if (dto.getEmployeeId() != null && !dto.getEmployeeId().equals(emp.getId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Không được đổi nhân viên");
+        }
+        dto.setEmployeeId(emp.getId());
+
+        if (req.getRequestType() == AttendanceRequestType.DEPLOYMENT) {
+            validateDeploymentTimes(dto, id);
+            applyDeploymentFields(req, dto);
+            req = requestRepository.save(req);
+            return toMap(req);
+        }
+
+        validateSubmit(dto, emp, id);
+        applyWorkRequestFields(req, dto, emp);
+        req = requestRepository.save(req);
+        return toMap(req);
+    }
+
+    private void ensureCanEditWorkRequest(UserAccount actor, AttendanceWorkRequest req) {
+        RequestEditSupport.ensurePendingStatus(req.getStatus(), "đơn công");
+        if (actor.getRole() == UserRole.ADMIN) {
+            return;
+        }
+        if (req.getRequestType() == AttendanceRequestType.DEPLOYMENT) {
+            if (req.getHeadReviewer() != null && req.getHeadReviewer().getId().equals(actor.getId())) {
+                return;
+            }
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Chỉ người lập đơn điều động hoặc ADMIN được chỉnh sửa");
+        }
+        Employee linked = employeeLinkService.findLinkedEmployee(actor).orElse(null);
+        if (linked != null && linked.getId().equals(req.getEmployee().getId())) {
+            return;
+        }
+        throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ người lập đơn hoặc ADMIN được chỉnh sửa");
+    }
+
+    private void applyWorkRequestFields(
+            AttendanceWorkRequest req, AttendanceWorkRequestSubmitDto dto, Employee emp) {
+        AttendanceShiftScope scope = dto.getShiftScope();
+        if (dto.getRequestType() == AttendanceRequestType.LEAVE
+                || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
+            scope = AttendanceShiftScope.FULL_DAY;
+        }
+        boolean continuousDay = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
+        AttendanceUpdateKind updateKind = dto.getUpdateKind();
+        if ((dto.getRequestType() == AttendanceRequestType.UPDATE
+                || dto.getRequestType() == AttendanceRequestType.EXPLANATION)
+                && continuousDay) {
+            scope = AttendanceShiftScope.FULL_DAY;
+            if (dto.getRequestType() == AttendanceRequestType.UPDATE) {
+                updateKind = AttendanceUpdateKind.FULL_DAY_SUPPLEMENT;
+            }
+        }
+        boolean ranged = dto.getRequestType() == AttendanceRequestType.LEAVE
+                || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP;
+        Integer forgotFineUnits = null;
+        if (dto.getRequestType() == AttendanceRequestType.UPDATE && updateKind != null) {
+            AttendanceRecord existing = attendanceRecordRepository
+                    .findByEmployeeAndWorkDate(emp, dto.getWorkDate())
+                    .orElse(null);
+            forgotFineUnits = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
+                    updateKind, existing, continuousDay);
+        }
+        req.setWorkDate(dto.getWorkDate());
+        req.setEndDate(ranged
+                ? (dto.getEndDate() != null ? dto.getEndDate() : dto.getWorkDate())
+                : null);
+        req.setShiftScope(scope);
+        req.setUpdateKind(updateKind);
+        req.setReason(dto.getReason().trim());
+        req.setLocation(dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP
+                && dto.getLocation() != null
+                ? dto.getLocation().trim()
+                : null);
+        req.setRequestedStart(dto.getRequestedStart());
+        req.setRequestedEnd(dto.getRequestedEnd());
+        req.setRequestedAfternoonStart(dto.getRequestedAfternoonStart());
+        req.setRequestedAfternoonEnd(dto.getRequestedAfternoonEnd());
+        req.setExplanationKind(dto.getExplanationKind());
+        req.setExplainedTime(dto.getExplainedTime());
+        req.setExplainedDepartureTime(dto.getExplainedDepartureTime());
+        req.setExplainedMorningIn(dto.getExplainedMorningIn());
+        req.setExplainedMorningOut(dto.getExplainedMorningOut());
+        req.setExplainedAfternoonIn(dto.getExplainedAfternoonIn());
+        req.setExplainedAfternoonOut(dto.getExplainedAfternoonOut());
+        req.setForgotFineUnits(forgotFineUnits);
+        if (dto.getRequestType() == AttendanceRequestType.EXPLANATION) {
+            snapshotExplanationOriginalPunches(req, emp, dto);
+        }
+    }
+
+    private void applyDeploymentFields(AttendanceWorkRequest req, AttendanceWorkRequestSubmitDto dto) {
+        AttendanceShiftScope scope = dto.getShiftScope() != null
+                ? dto.getShiftScope()
+                : AttendanceShiftScope.FULL_DAY;
+        req.setWorkDate(dto.getWorkDate());
+        req.setShiftScope(scope);
+        req.setReason(dto.getReason().trim());
+        req.setRequestedStart(dto.getRequestedStart());
+        req.setRequestedEnd(dto.getRequestedEnd());
+        req.setRequestedAfternoonStart(dto.getRequestedAfternoonStart());
+        req.setRequestedAfternoonEnd(dto.getRequestedAfternoonEnd());
+    }
+
+    private Employee resolveExplanationEmployee(AttendanceWorkRequestSubmitDto dto) {
+        UserAccount creator = employeeService.currentUser();
+        if (creator.getRole() == UserRole.ADMIN) {
+            if (dto.getEmployeeId() == null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "ADMIN cần chọn nhân viên để tạo đơn giải trình");
+            }
+            return employeeRepository.findById(dto.getEmployeeId())
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
+                            "Không tìm thấy nhân viên"));
+        }
+        // Mọi vai trò có hồ sơ NV liên kết đều giải trình được công của chính mình
+        // (EMPLOYEE, HEAD_DEPARTMENT, HEAD_NURSING, …).
+        Employee self = employeeService.requireLinkedEmployee();
+        if (dto.getEmployeeId() != null && !dto.getEmployeeId().equals(self.getId())) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Chỉ được tạo đơn giải trình cho chính mình");
+        }
+        return self;
+    }
+
+    /** Ghi lại giờ máy chấm gốc của các mốc đang giải trình để hiển thị trước → sau. */
+    private void snapshotExplanationOriginalPunches(
+            AttendanceWorkRequest req, Employee emp, AttendanceWorkRequestSubmitDto dto) {
+        AttendanceRecord rec = attendanceRecordRepository
+                .findByEmployeeAndWorkDate(emp, dto.getWorkDate())
+                .orElse(null);
+        if (rec == null) {
+            return;
+        }
+        LocalTime morningIn = rec.getMorningCheckIn() != null ? rec.getMorningCheckIn() : rec.getCheckIn();
+        LocalTime afternoonOut = rec.getAfternoonCheckOut() != null ? rec.getAfternoonCheckOut() : rec.getCheckOut();
+        if (dto.getExplainedMorningIn() != null) {
+            req.setOriginalMorningIn(morningIn);
+        }
+        if (dto.getExplainedMorningOut() != null) {
+            req.setOriginalMorningOut(rec.getMorningCheckOut());
+        }
+        if (dto.getExplainedAfternoonIn() != null) {
+            req.setOriginalAfternoonIn(rec.getAfternoonCheckIn());
+        }
+        if (dto.getExplainedAfternoonOut() != null) {
+            req.setOriginalAfternoonOut(afternoonOut);
+        }
+        // Legacy 1-mốc: đi muộn / về sớm
+        if (dto.getExplainedTime() != null
+                && dto.getExplainedMorningIn() == null
+                && dto.getExplainedAfternoonIn() == null) {
+            if (dto.getExplanationKind() == ExplanationKind.EARLY_DEPARTURE) {
+                req.setOriginalAfternoonOut(afternoonOut);
+            } else {
+                req.setOriginalMorningIn(morningIn);
+            }
+        }
+        if (dto.getExplainedDepartureTime() != null && dto.getExplainedAfternoonOut() == null) {
+            req.setOriginalAfternoonOut(afternoonOut);
+        }
+    }
+
     /**
-     * Trưởng phòng / điều dưỡng trưởng / ADMIN / HR tạo đơn điều động cho nhân viên —
-     * áp dụng ngay (hệ số 1.5) và gửi thông báo cho nhân viên.
+     * Trưởng phòng (hoặc ADMIN) tạo đơn điều động cho nhân viên.
+     * Luồng: trưởng lập → (khối ĐD: Trưởng phòng Điều dưỡng) → HCNS2 → Giám đốc.
      */
     @Transactional
     public Map<String, Object> createDeployment(AttendanceWorkRequestSubmitDto dto) {
         UserAccount creator = employeeService.currentUser();
-        if (!HEAD_ROLES.contains(creator.getRole()) && !HR_ROLES.contains(creator.getRole())) {
+        if (!HEAD_ROLES.contains(creator.getRole())) {
             throw new ApiException(HttpStatus.FORBIDDEN,
-                    "Chỉ trưởng phòng / điều dưỡng trưởng / HCNS được tạo đơn điều động");
+                    "Chỉ trưởng phòng / điều dưỡng trưởng được tạo đơn điều động");
         }
         if (dto.getEmployeeId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cần chọn nhân viên điều động");
@@ -138,7 +373,7 @@ public class AttendanceWorkRequestService {
         Employee target = employeeRepository.findById(dto.getEmployeeId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không tìm thấy nhân viên"));
         assertCanDeploy(creator, target);
-        validateDeploymentTimes(dto);
+        validateDeploymentTimes(dto, null);
 
         LocalTime start = dto.getRequestedStart();
         LocalTime end = dto.getRequestedEnd();
@@ -149,6 +384,7 @@ public class AttendanceWorkRequestService {
                 ? dto.getShiftScope()
                 : AttendanceShiftScope.FULL_DAY;
 
+        boolean nursingBlock = NursingBlockClassifier.matches(target);
         AttendanceWorkRequest req = AttendanceWorkRequest.builder()
                 .employee(target)
                 .requestType(AttendanceRequestType.DEPLOYMENT)
@@ -160,16 +396,26 @@ public class AttendanceWorkRequestService {
                 .requestedEnd(end)
                 .requestedAfternoonStart(dto.getRequestedAfternoonStart())
                 .requestedAfternoonEnd(dto.getRequestedAfternoonEnd())
-                .status(AttendanceRequestStatus.APPROVED)
+                .status(nursingBlock
+                        ? AttendanceRequestStatus.PENDING_NURSING_HEAD
+                        : AttendanceRequestStatus.PENDING_HR)
                 .headReviewer(creator)
                 .headReviewedAt(Instant.now())
-                .headComment("Điều động bởi " + (creator.getUsername() != null ? creator.getUsername() : "lãnh đạo"))
+                .headComment("Trưởng khoa/phòng lập phiếu điều động")
                 .build();
         req = requestRepository.save(req);
-        applyApprovedDeployment(req);
-        String creatorLabel = creator.getUsername() != null ? creator.getUsername() : "Lãnh đạo";
+        if (nursingBlock) {
+            notifyNursingHeadNewRequest(req);
+        } else {
+            notifyHrNewRequest(req);
+        }
         if (target.getUser() != null) {
-            notificationService.notifyStaffDeployment(target.getUser(), req, creatorLabel);
+            notificationService.notifyStaffDeployment(
+                    target.getUser(),
+                    req,
+                    employeeLinkService.findLinkedEmployee(creator)
+                            .map(Employee::getFullName)
+                            .orElse(creator.getUsername()));
         }
         return toMap(req);
     }
@@ -178,14 +424,14 @@ public class AttendanceWorkRequestService {
         if (creator.getRole() == UserRole.ADMIN || creator.getRole() == UserRole.HR) {
             return;
         }
-        Employee self = employeeRepository.findByUser(creator)
+        Employee self = employeeLinkService.findLinkedEmployee(creator)
                 .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "Tài khoản chưa gắn hồ sơ nhân viên"));
         if (!self.getDepartment().getId().equals(target.getDepartment().getId())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ điều động nhân viên cùng khoa/phòng");
         }
     }
 
-    private void validateDeploymentTimes(AttendanceWorkRequestSubmitDto dto) {
+    private void validateDeploymentTimes(AttendanceWorkRequestSubmitDto dto, Long excludeId) {
         if (dto.getReason() == null || dto.getReason().isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cần nhập nội dung điều động");
         }
@@ -237,14 +483,67 @@ public class AttendanceWorkRequestService {
             }
         }
 
-        List<AttendanceWorkRequest> existing = requestRepository.findByEmployeeIdAndWorkDateAndRequestType(
-                dto.getEmployeeId(), dto.getWorkDate(), AttendanceRequestType.DEPLOYMENT);
-        boolean open = existing.stream().anyMatch(r ->
-                r.getStatus() == AttendanceRequestStatus.APPROVED
-                        || r.getStatus() == AttendanceRequestStatus.PENDING_HEAD
-                        || r.getStatus() == AttendanceRequestStatus.PENDING_HR);
-        if (open) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Nhân viên đã có đơn điều động trong ngày này");
+        List<AttendanceWorkRequest> existing = requestRepository.findByEmployeeIdAndWorkDateBetween(
+                dto.getEmployeeId(), dto.getWorkDate().minusDays(1), dto.getWorkDate().plusDays(1));
+        boolean overlapsExistingDeployment = existing.stream()
+                .filter(r -> excludeId == null || !r.getId().equals(excludeId))
+                .filter(r -> r.getRequestType() == AttendanceRequestType.DEPLOYMENT)
+                .filter(AttendanceWorkRequestService::isOpenDeployment)
+                .flatMap(r -> deploymentIntervals(r).stream())
+                .anyMatch(existingInterval -> deploymentIntervals(dto).stream()
+                        .anyMatch(requestedInterval -> requestedInterval.overlaps(existingInterval)));
+        if (overlapsExistingDeployment) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Khung giờ điều động bị trùng với đơn điều động đang chờ duyệt hoặc đã duyệt");
+        }
+    }
+
+    private static boolean isOpenDeployment(AttendanceWorkRequest request) {
+        return request.getStatus() == AttendanceRequestStatus.APPROVED
+                || request.getStatus() == AttendanceRequestStatus.PENDING_HEAD
+                || request.getStatus() == AttendanceRequestStatus.PENDING_NURSING_HEAD
+                || request.getStatus() == AttendanceRequestStatus.PENDING_HR
+                || request.getStatus() == AttendanceRequestStatus.PENDING_DIRECTOR;
+    }
+
+    private static List<DeploymentInterval> deploymentIntervals(AttendanceWorkRequestSubmitDto dto) {
+        return deploymentIntervals(dto.getWorkDate(), dto.getRequestedStart(), dto.getRequestedEnd(),
+                dto.getRequestedAfternoonStart(), dto.getRequestedAfternoonEnd());
+    }
+
+    private static List<DeploymentInterval> deploymentIntervals(AttendanceWorkRequest request) {
+        return deploymentIntervals(request.getWorkDate(), request.getRequestedStart(), request.getRequestedEnd(),
+                request.getRequestedAfternoonStart(), request.getRequestedAfternoonEnd());
+    }
+
+    private static List<DeploymentInterval> deploymentIntervals(
+            LocalDate workDate,
+            LocalTime start,
+            LocalTime end,
+            LocalTime afternoonStart,
+            LocalTime afternoonEnd) {
+        List<DeploymentInterval> intervals = new java.util.ArrayList<>();
+        addDeploymentInterval(intervals, workDate, start, end);
+        addDeploymentInterval(intervals, workDate, afternoonStart, afternoonEnd);
+        return intervals;
+    }
+
+    private static void addDeploymentInterval(
+            List<DeploymentInterval> intervals, LocalDate workDate, LocalTime start, LocalTime end) {
+        if (workDate == null || start == null || end == null || start.equals(end)) {
+            return;
+        }
+        LocalDateTime intervalStart = workDate.atTime(start);
+        LocalDateTime intervalEnd = workDate.atTime(end);
+        if (!end.isAfter(start)) {
+            intervalEnd = intervalEnd.plusDays(1);
+        }
+        intervals.add(new DeploymentInterval(intervalStart, intervalEnd));
+    }
+
+    private record DeploymentInterval(LocalDateTime start, LocalDateTime end) {
+        private boolean overlaps(DeploymentInterval other) {
+            return start.isBefore(other.end) && other.start.isBefore(end);
         }
     }
 
@@ -456,15 +755,14 @@ public class AttendanceWorkRequestService {
                         return true;
                     }
                     return "ABSENT".equals(st) || "LEAVE".equals(st) || "UNPAID_LEAVE".equals(st)
-                            || "BUSINESS_TRIP".equals(st);
+                            || "BUSINESS_TRIP".equals(st) || "SEMINAR".equals(st);
                 })
                 .orElse(true);
     }
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> myRequests() {
-        Employee emp = employeeRepository.findByUserUsername(employeeService.currentUser().getUsername())
-                .orElse(null);
+        Employee emp = employeeService.linkedEmployee().orElse(null);
         if (emp == null) {
             return List.of();
         }
@@ -476,13 +774,67 @@ public class AttendanceWorkRequestService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> pendingForReviewer() {
         UserAccount user = employeeService.currentUser();
-        if (HEAD_ROLES.contains(user.getRole())) {
-            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HEAD).stream()
+        if (ApprovalAuthority.isDirectorApprover(user) && user.getRole() != UserRole.ADMIN) {
+            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_DIRECTOR).stream()
                     .map(this::toMap)
                     .collect(Collectors.toList());
         }
-        if (HR_ROLES.contains(user.getRole())) {
+        if (user.getRole() == UserRole.HEAD_NURSING) {
+            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_NURSING_HEAD).stream()
+                    .filter(r -> r.getRequestType() == AttendanceRequestType.DEPLOYMENT)
+                    .filter(r -> NursingBlockClassifier.matches(r.getEmployee()))
+                    .map(this::toMap)
+                    .collect(Collectors.toList());
+        }
+        if (user.getRole() == UserRole.HEAD_HR) {
+            List<Map<String, Object>> headPending = filterPendingForHeadScope(
+                    requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HEAD).stream()
+                            .map(this::toMap)
+                            .collect(Collectors.toList()),
+                    user);
+            List<Map<String, Object>> hrPending = requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HR)
+                    .stream()
+                    .map(this::toMap)
+                    .collect(Collectors.toList());
+            return mergeRequestMaps(headPending, hrPending);
+        }
+        if (HEAD_ROLES.contains(user.getRole()) && !HR_APPROVER_ROLES.contains(user.getRole())) {
+            return filterPendingForHeadScope(
+                    requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HEAD).stream()
+                            .map(this::toMap)
+                            .collect(Collectors.toList()),
+                    user);
+        }
+        if (EmployeeService.isHr2Role(user)) {
             return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HR).stream()
+                    .map(this::toMap)
+                    .collect(Collectors.toList());
+        }
+        // ADMIN: gộp tất cả hàng đợi đang chờ
+        if (user.getRole() == UserRole.ADMIN) {
+            EnumSet<AttendanceRequestStatus> all = EnumSet.of(
+                    AttendanceRequestStatus.PENDING_HEAD,
+                    AttendanceRequestStatus.PENDING_NURSING_HEAD,
+                    AttendanceRequestStatus.PENDING_HR,
+                    AttendanceRequestStatus.PENDING_DIRECTOR);
+            return requestRepository.findByStatusInOrderByCreatedAtAsc(all).stream()
+                    .map(this::toMap)
+                    .collect(Collectors.toList());
+        }
+        if (HEAD_ROLES.contains(user.getRole())) {
+            return filterPendingForHeadScope(
+                    requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HEAD).stream()
+                            .map(this::toMap)
+                            .collect(Collectors.toList()),
+                    user);
+        }
+        if (HR_APPROVER_ROLES.contains(user.getRole())) {
+            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HR).stream()
+                    .map(this::toMap)
+                    .collect(Collectors.toList());
+        }
+        if (DIRECTOR_ROLES.contains(user.getRole())) {
+            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_DIRECTOR).stream()
                     .map(this::toMap)
                     .collect(Collectors.toList());
         }
@@ -492,21 +844,58 @@ public class AttendanceWorkRequestService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> reviewHistoryForReviewer() {
         UserAccount user = employeeService.currentUser();
+        if (user.getRole() == UserRole.HEAD_NURSING) {
+            return requestRepository.findByStatusInOrderByUpdatedAtDesc(NURSING_HEAD_HISTORY).stream()
+                    .filter(r -> r.getRequestType() == AttendanceRequestType.DEPLOYMENT)
+                    .filter(r -> NursingBlockClassifier.matches(r.getEmployee()))
+                    .filter(r -> r.getNursingHeadReviewedAt() != null
+                            || r.getStatus() == AttendanceRequestStatus.NURSING_HEAD_REJECTED)
+                    .map(this::toMap)
+                    .collect(Collectors.toList());
+        }
         EnumSet<AttendanceRequestStatus> statuses;
         if (user.getRole() == UserRole.ADMIN) {
             statuses = EnumSet.copyOf(HEAD_HISTORY);
+            statuses.addAll(NURSING_HEAD_HISTORY);
             statuses.addAll(HR_HISTORY);
+            statuses.addAll(DIRECTOR_HISTORY);
+        } else if (user.getRole() == UserRole.HEAD_HR) {
+            statuses = EnumSet.copyOf(HEAD_HISTORY);
+            statuses.addAll(HR_HISTORY);
+        } else if (ApprovalAuthority.isDirectorApprover(user)) {
+            statuses = DIRECTOR_HISTORY;
         } else if (HEAD_ROLES.contains(user.getRole())) {
             statuses = HEAD_HISTORY;
-        } else if (HR_ROLES.contains(user.getRole())) {
+        } else if (HR_APPROVER_ROLES.contains(user.getRole())) {
             statuses = HR_HISTORY;
         } else {
             throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem lịch sử duyệt");
         }
-        return requestRepository.findByStatusInOrderByUpdatedAtDesc(statuses).stream()
-                .limit(100)
+        List<Map<String, Object>> rows = requestRepository.findByStatusInOrderByUpdatedAtDesc(statuses).stream()
                 .map(this::toMap)
                 .collect(Collectors.toList());
+        if (user.getRole() == UserRole.HEAD_HR) {
+            List<Map<String, Object>> headRows = filterPendingForHeadScope(
+                    rows.stream()
+                            .filter(r -> {
+                                Object status = r.get("status");
+                                return status != null && HEAD_HISTORY.stream()
+                                        .anyMatch(s -> s.name().equals(String.valueOf(status)));
+                            })
+                            .collect(Collectors.toList()),
+                    user);
+            List<Map<String, Object>> hrRows = rows.stream()
+                    .filter(r -> {
+                        Object status = r.get("status");
+                        return status != null && HR_HISTORY.stream()
+                                .anyMatch(s -> s.name().equals(String.valueOf(status)));
+                    })
+                    .collect(Collectors.toList());
+            return mergeRequestMaps(headRows, hrRows);
+        }
+        return HEAD_ROLES.contains(user.getRole()) && user.getRole() != UserRole.ADMIN
+                ? filterPendingForHeadScope(rows, user)
+                : rows;
     }
 
     @Transactional
@@ -515,62 +904,158 @@ public class AttendanceWorkRequestService {
         if (!HEAD_ROLES.contains(reviewer.getRole())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ Ban giám đốc / Trưởng phòng duyệt bước 1");
         }
-        AttendanceWorkRequest req = requirePendingHead(id);
+        AttendanceWorkRequest req = requestRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn"));
+        boolean hasReachedHead = req.getStatus() == AttendanceRequestStatus.PENDING_HEAD
+                || req.getHeadReviewedAt() != null;
+        if (!hasReachedHead || req.getStatus() == AttendanceRequestStatus.WITHDRAWN) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Đơn không thể thay đổi quyết định ở bước lãnh đạo");
+        }
+        AttendanceRequestStatus previousStatus = req.getStatus();
+        employeeService.assertCanAccessEmployee(req.getEmployee());
         req.setHeadReviewer(reviewer);
         req.setHeadReviewedAt(Instant.now());
         req.setHeadComment(dto.getComment());
+        req.setHeadSignaturePath(
+                approvalSignatureService.snapshotForApproval(reviewer, "attendance", req.getId(), "head"));
         if (Boolean.FALSE.equals(dto.getApproved())) {
+            if (isApprovedStatus(previousStatus)) {
+                revokeAppliedAttendanceEffect(req);
+            }
             req.setStatus(AttendanceRequestStatus.HEAD_REJECTED);
             requestRepository.save(req);
             notificationService.notifyAttendanceRequestResult(req.getEmployee().getUser(), req, false);
             return toMap(req);
         }
-        req.setStatus(AttendanceRequestStatus.PENDING_HR);
+        if (previousStatus == AttendanceRequestStatus.PENDING_HEAD
+                || previousStatus == AttendanceRequestStatus.HEAD_REJECTED) {
+            if (req.getRequestType() == AttendanceRequestType.DEPLOYMENT
+                    && NursingBlockClassifier.matches(req.getEmployee())) {
+                req.setStatus(AttendanceRequestStatus.PENDING_NURSING_HEAD);
+            } else {
+                req.setStatus(AttendanceRequestStatus.PENDING_HR);
+            }
+        }
         requestRepository.save(req);
-        notifyHrNewRequest(req);
+        if (req.getStatus() == AttendanceRequestStatus.PENDING_NURSING_HEAD) {
+            notifyNursingHeadNewRequest(req);
+        } else if (req.getStatus() == AttendanceRequestStatus.PENDING_HR) {
+            notifyHrNewRequest(req);
+        }
+        return toMap(req);
+    }
+
+    @Transactional
+    public Map<String, Object> nursingHeadReview(Long id, AttendanceReviewDto dto) {
+        UserAccount reviewer = employeeService.currentUser();
+        if (!NURSING_HEAD_ROLES.contains(reviewer.getRole())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ Trưởng phòng Điều dưỡng / ADMIN duyệt bước này");
+        }
+        AttendanceWorkRequest req = requestRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn"));
+        if (req.getRequestType() != AttendanceRequestType.DEPLOYMENT) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Bước Trưởng phòng Điều dưỡng chỉ áp dụng cho đơn điều động");
+        }
+        boolean hasReachedNursingHead = req.getStatus() == AttendanceRequestStatus.PENDING_NURSING_HEAD
+                || req.getNursingHeadReviewedAt() != null;
+        if (!hasReachedNursingHead || req.getStatus() == AttendanceRequestStatus.WITHDRAWN) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Đơn không thể thay đổi quyết định ở bước Trưởng phòng Điều dưỡng");
+        }
+        AttendanceRequestStatus previousStatus = req.getStatus();
+        if (reviewer.getRole() == UserRole.HEAD_NURSING
+                && !NursingBlockClassifier.matches(req.getEmployee())) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Chỉ duyệt điều động nhân sự khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa");
+        }
+        employeeService.assertCanAccessEmployee(req.getEmployee());
+        req.setNursingHeadReviewer(reviewer);
+        req.setNursingHeadReviewedAt(Instant.now());
+        req.setNursingHeadComment(dto.getComment());
+        req.setNursingHeadSignaturePath(
+                approvalSignatureService.snapshotForApproval(reviewer, "attendance", req.getId(), "nursing-head"));
+        if (Boolean.FALSE.equals(dto.getApproved())) {
+            if (isApprovedStatus(previousStatus)) {
+                revokeAppliedAttendanceEffect(req);
+            }
+            req.setStatus(AttendanceRequestStatus.NURSING_HEAD_REJECTED);
+            requestRepository.save(req);
+            notificationService.notifyAttendanceRequestResult(req.getEmployee().getUser(), req, false);
+            return toMap(req);
+        }
+        applyDeploymentTimeCorrection(req, dto);
+        if (previousStatus == AttendanceRequestStatus.PENDING_NURSING_HEAD
+                || previousStatus == AttendanceRequestStatus.NURSING_HEAD_REJECTED) {
+            req.setStatus(AttendanceRequestStatus.PENDING_HR);
+        }
+        requestRepository.save(req);
+        if (req.getStatus() == AttendanceRequestStatus.PENDING_HR) {
+            notifyHrNewRequest(req);
+        }
         return toMap(req);
     }
 
     @Transactional
     public Map<String, Object> hrReview(Long id, AttendanceReviewDto dto) {
         UserAccount reviewer = employeeService.currentUser();
-        if (!HR_ROLES.contains(reviewer.getRole())) {
+        if (!HR_APPROVER_ROLES.contains(reviewer.getRole())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ HCNS duyệt bước 2");
         }
         AttendanceWorkRequest req = requestRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn"));
-        if (req.getStatus() != AttendanceRequestStatus.PENDING_HR) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Đơn không ở trạng thái chờ HCNS");
+        boolean hasReachedHr = req.getStatus() == AttendanceRequestStatus.PENDING_HR
+                || req.getHrReviewedAt() != null;
+        if (!hasReachedHr || req.getStatus() == AttendanceRequestStatus.WITHDRAWN) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Đơn không thể thay đổi quyết định ở bước HCNS");
         }
+        AttendanceRequestStatus previousStatus = req.getStatus();
         req.setHrReviewer(reviewer);
         req.setHrReviewedAt(Instant.now());
         req.setHrComment(dto.getComment());
+        req.setHrSignaturePath(
+                approvalSignatureService.snapshotForApproval(reviewer, "attendance", req.getId(), "hr"));
         if (Boolean.FALSE.equals(dto.getApproved())) {
+            if (isApprovedStatus(previousStatus)) {
+                revokeAppliedAttendanceEffect(req);
+            }
             req.setStatus(AttendanceRequestStatus.HR_REJECTED);
             requestRepository.save(req);
             notificationService.notifyAttendanceRequestResult(req.getEmployee().getUser(), req, false);
             return toMap(req);
         }
-        boolean waive = Boolean.TRUE.equals(dto.getWaiveForgotFine());
-        if (req.getRequestType() == AttendanceRequestType.UPDATE) {
-            req.setHrWaiveForgotFine(waive);
-            req.setStatus(waive ? AttendanceRequestStatus.APPROVED_NO_FINE : AttendanceRequestStatus.APPROVED);
-            applyApprovedUpdate(req);
-        } else if (req.getRequestType() == AttendanceRequestType.LEAVE) {
+
+        if (req.getRequestType() == AttendanceRequestType.DEPLOYMENT) {
+            applyDeploymentTimeCorrection(req, dto);
+        }
+
+        // Các loại cần bước Giám đốc cuối: cập nhật công, giải trình, các đơn nghỉ và điều động.
+        if (req.getRequestType() == AttendanceRequestType.UPDATE
+                || req.getRequestType() == AttendanceRequestType.EXPLANATION
+                || req.getRequestType() == AttendanceRequestType.LEAVE
+                || req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                || req.getRequestType() == AttendanceRequestType.DEPLOYMENT) {
+            if (previousStatus == AttendanceRequestStatus.PENDING_HR
+                    || previousStatus == AttendanceRequestStatus.HR_REJECTED) {
+                req.setStatus(AttendanceRequestStatus.PENDING_DIRECTOR);
+            }
+            requestRepository.save(req);
+            if (req.getStatus() == AttendanceRequestStatus.PENDING_DIRECTOR) {
+                notifyDirectorNewRequest(req);
+            }
+            return toMap(req);
+        }
+
+        if (req.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
             req.setStatus(AttendanceRequestStatus.APPROVED);
-            applyApprovedLeave(req);
-        } else if (req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) {
-            req.setStatus(AttendanceRequestStatus.APPROVED);
-            applyApprovedUnpaidLeave(req);
-        } else if (req.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
-            req.setStatus(AttendanceRequestStatus.APPROVED);
-            applyApprovedBusinessTrip(req);
-        } else if (req.getRequestType() == AttendanceRequestType.DEPLOYMENT) {
-            req.setStatus(AttendanceRequestStatus.APPROVED);
-            applyApprovedDeployment(req);
+            if (previousStatus != AttendanceRequestStatus.APPROVED
+                    && previousStatus != AttendanceRequestStatus.APPROVED_NO_FINE) {
+                applyApprovedBusinessTrip(req);
+            }
         } else {
             req.setStatus(AttendanceRequestStatus.APPROVED);
-            applyApprovedExplanation(req);
         }
         requestRepository.save(req);
         notificationService.notifyAttendanceRequestResult(req.getEmployee().getUser(), req, true);
@@ -578,26 +1063,301 @@ public class AttendanceWorkRequestService {
     }
 
     @Transactional
-    public Map<String, Object> withdraw(Long id) {
-        Employee emp = requireSelfEmployee();
+    public Map<String, Object> directorReview(Long id, AttendanceReviewDto dto) {
+        UserAccount reviewer = employeeService.currentUser();
+        if (!ApprovalAuthority.isDirectorApprover(reviewer)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ Giám đốc duyệt bước cuối");
+        }
         AttendanceWorkRequest req = requestRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn"));
-        if (!req.getEmployee().getId().equals(emp.getId())) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ người gửi đơn mới được thu hồi");
-        }
-        if (req.getStatus() != AttendanceRequestStatus.PENDING_HEAD
-                && req.getStatus() != AttendanceRequestStatus.PENDING_HR) {
+        boolean hasReachedDirector = req.getStatus() == AttendanceRequestStatus.PENDING_DIRECTOR
+                || req.getDirectorReviewedAt() != null;
+        if (!hasReachedDirector || req.getStatus() == AttendanceRequestStatus.WITHDRAWN) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "Chỉ thu hồi được đơn đang chờ duyệt (chưa được HCNS duyệt)");
+                    "Đơn không thể thay đổi quyết định ở bước Giám đốc");
+        }
+        AttendanceRequestStatus previousStatus = req.getStatus();
+        if (req.getRequestType() != AttendanceRequestType.UPDATE
+                && req.getRequestType() != AttendanceRequestType.EXPLANATION
+                && req.getRequestType() != AttendanceRequestType.LEAVE
+                && req.getRequestType() != AttendanceRequestType.UNPAID_LEAVE
+                && req.getRequestType() != AttendanceRequestType.DEPLOYMENT) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Loại đơn này không cần Giám đốc duyệt");
+        }
+        req.setDirectorReviewer(reviewer);
+        req.setDirectorReviewedAt(Instant.now());
+        req.setDirectorComment(dto.getComment());
+        req.setDirectorSignaturePath(
+                approvalSignatureService.snapshotForApproval(reviewer, "attendance", req.getId(), "director"));
+        if (Boolean.FALSE.equals(dto.getApproved())) {
+            if (isApprovedStatus(previousStatus)) {
+                revokeAppliedAttendanceEffect(req);
+            }
+            req.setStatus(AttendanceRequestStatus.DIRECTOR_REJECTED);
+            requestRepository.save(req);
+            notificationService.notifyAttendanceRequestResult(req.getEmployee().getUser(), req, false);
+            return toMap(req);
+        }
+        boolean waive = Boolean.TRUE.equals(dto.getWaiveForgotFine());
+        req.setHrWaiveForgotFine(waive);
+        boolean alreadyApproved = previousStatus == AttendanceRequestStatus.APPROVED
+                || previousStatus == AttendanceRequestStatus.APPROVED_NO_FINE
+                || attendanceEffectAlreadyApplied(req);
+        if (req.getRequestType() == AttendanceRequestType.UPDATE) {
+            req.setStatus(waive ? AttendanceRequestStatus.APPROVED_NO_FINE : AttendanceRequestStatus.APPROVED);
+            if (!alreadyApproved) {
+                applyApprovedUpdate(req);
+            }
+        } else if (req.getRequestType() == AttendanceRequestType.EXPLANATION) {
+            req.setStatus(waive ? AttendanceRequestStatus.APPROVED_NO_FINE : AttendanceRequestStatus.APPROVED);
+            if (!alreadyApproved) {
+                applyApprovedExplanation(req, waive);
+            }
+        } else if (req.getRequestType() == AttendanceRequestType.LEAVE) {
+            req.setStatus(AttendanceRequestStatus.APPROVED);
+            if (!alreadyApproved) {
+                applyApprovedLeave(req);
+            }
+        } else if (req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) {
+            req.setStatus(AttendanceRequestStatus.APPROVED);
+            if (!alreadyApproved) {
+                applyApprovedUnpaidLeave(req);
+            }
+        } else {
+            req.setStatus(AttendanceRequestStatus.APPROVED);
+            if (!attendanceEffectAlreadyApplied(req)) {
+                applyApprovedDeployment(req);
+            }
+            if (req.getEmployee().getUser() != null) {
+                notificationService.notifyStaffDeployment(
+                        req.getEmployee().getUser(), req, "đã được Giám đốc phê duyệt");
+            }
+        }
+        requestRepository.save(req);
+        notificationService.notifyAttendanceRequestResult(req.getEmployee().getUser(), req, true);
+        return toMap(req);
+    }
+
+    /** Trưởng phòng ĐD / HCNS chốt lại giờ điều động trước khi chuyển bước tiếp theo. */
+    private void applyDeploymentTimeCorrection(
+            AttendanceWorkRequest req, AttendanceReviewDto dto) {
+        LocalTime start = dto.getRequestedStart() != null
+                ? dto.getRequestedStart() : req.getRequestedStart();
+        LocalTime end = dto.getRequestedEnd() != null
+                ? dto.getRequestedEnd() : req.getRequestedEnd();
+        if (start == null || end == null || start.equals(end)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Khung giờ điều động không hợp lệ");
+        }
+
+        boolean hasAfternoonRequest = dto.getRequestedAfternoonStart() != null
+                || dto.getRequestedAfternoonEnd() != null
+                || req.getRequestedAfternoonStart() != null
+                || req.getRequestedAfternoonEnd() != null;
+        LocalTime afternoonStart = dto.getRequestedAfternoonStart() != null
+                ? dto.getRequestedAfternoonStart() : req.getRequestedAfternoonStart();
+        LocalTime afternoonEnd = dto.getRequestedAfternoonEnd() != null
+                ? dto.getRequestedAfternoonEnd() : req.getRequestedAfternoonEnd();
+        if (hasAfternoonRequest
+                && (afternoonStart == null || afternoonEnd == null || afternoonStart.equals(afternoonEnd))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Khung giờ điều động buổi chiều không hợp lệ");
+        }
+
+        req.setRequestedStart(start);
+        req.setRequestedEnd(end);
+        if (hasAfternoonRequest) {
+            req.setRequestedAfternoonStart(afternoonStart);
+            req.setRequestedAfternoonEnd(afternoonEnd);
+        }
+    }
+
+    private static final EnumSet<AttendanceRequestStatus> APPROVED_EFFECT_STATUSES = EnumSet.of(
+            AttendanceRequestStatus.APPROVED,
+            AttendanceRequestStatus.APPROVED_NO_FINE);
+
+    /**
+     * Sau đồng bộ máy chấm công: áp lại hiệu lực đơn đã duyệt (giải trình / cập nhật công / nghỉ…).
+     * Đơn vẫn còn trong DB; chỉ bảng công bị ghi đè bởi dữ liệu máy.
+     */
+    @Transactional
+    public int reapplyApprovedEffectsAfterPunchSync(
+            LocalDate from, LocalDate to, Collection<Long> employeeIds) {
+        if (from == null || to == null || to.isBefore(from)) {
+            return 0;
+        }
+        List<AttendanceWorkRequest> requests;
+        if (employeeIds == null || employeeIds.isEmpty()) {
+            requests = requestRepository.findApprovedOverlapping(from, to, APPROVED_EFFECT_STATUSES);
+        } else {
+            requests = requestRepository.findApprovedOverlappingForEmployees(
+                    from, to, employeeIds, APPROVED_EFFECT_STATUSES);
+        }
+        return forceReapplyApproved(requests);
+    }
+
+    /**
+     * Khôi phục hiệu lực mọi đơn công đã duyệt trong khoảng ngày (ADMIN/HR).
+     * Dùng khi đồng bộ trước đó đã ghi đè bảng công.
+     */
+    @Transactional
+    public Map<String, Object> reapplyApprovedEffectsInRange(LocalDate from, LocalDate to) {
+        if (from == null || to == null || to.isBefore(from)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Khoảng ngày không hợp lệ");
+        }
+        int reapplied = reapplyApprovedEffectsAfterPunchSync(from, to, null);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("from", from.toString());
+        result.put("to", to.toString());
+        result.put("reapplied", reapplied);
+        return result;
+    }
+
+    private int forceReapplyApproved(List<AttendanceWorkRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return 0;
+        }
+        List<AttendanceWorkRequest> ordered = requests.stream()
+                .sorted(java.util.Comparator
+                        .comparingInt((AttendanceWorkRequest r) -> reapplyPriority(r.getRequestType()))
+                        .thenComparing(AttendanceWorkRequest::getWorkDate)
+                        .thenComparing(AttendanceWorkRequest::getId))
+                .toList();
+        int ok = 0;
+        for (AttendanceWorkRequest req : ordered) {
+            try {
+                forceReapplyOne(req);
+                ok++;
+            } catch (Exception e) {
+                // Không chặn cả batch — đơn lỗi ghi log để xử lý riêng
+                log.warn("Không áp lại đơn công id={} type={}: {}",
+                        req.getId(), req.getRequestType(), e.getMessage());
+            }
+        }
+        return ok;
+    }
+
+    private static int reapplyPriority(AttendanceRequestType type) {
+        return switch (type) {
+            case LEAVE, UNPAID_LEAVE, BUSINESS_TRIP -> 0;
+            case UPDATE -> 1;
+            case EXPLANATION -> 2;
+            case DEPLOYMENT -> 3;
+        };
+    }
+
+    private void forceReapplyOne(AttendanceWorkRequest req) {
+        boolean waive = req.isHrWaiveForgotFine()
+                || req.getStatus() == AttendanceRequestStatus.APPROVED_NO_FINE;
+        switch (req.getRequestType()) {
+            case UPDATE -> applyApprovedUpdate(req);
+            case EXPLANATION -> applyApprovedExplanation(req, waive);
+            case LEAVE -> applyApprovedLeave(req);
+            case UNPAID_LEAVE -> applyApprovedUnpaidLeave(req);
+            case BUSINESS_TRIP -> applyApprovedBusinessTrip(req);
+            case DEPLOYMENT -> {
+                // OT/điều động trong ca đã được applyToRecord đọc lại từ ghi chú [DD:…] / [DDTC:…]
+                // Chỉ áp lại khi marker đã mất (tránh cộng trùng công).
+                if (!attendanceEffectAlreadyApplied(req)) {
+                    applyApprovedDeployment(req);
+                }
+            }
+        }
+    }
+
+    /**
+     * Khi sửa quyết định nhiều lần, không cộng lại công/giờ đã được áp dụng ở lần duyệt trước.
+     * Trạng thái đơn có thể đã đổi sang từ chối, vì vậy cần nhận biết bằng dấu vết trên bảng công.
+     */
+    private boolean attendanceEffectAlreadyApplied(AttendanceWorkRequest req) {
+        AttendanceRecord rec = attendanceRecordRepository
+                .findByEmployeeAndWorkDate(req.getEmployee(), req.getWorkDate())
+                .orElse(null);
+        if (rec == null) {
+            return false;
+        }
+        String note = rec.getNote() != null ? rec.getNote() : "";
+        return switch (req.getRequestType()) {
+            case UPDATE -> note.contains("Cập nhật công theo đơn đã duyệt");
+            case EXPLANATION -> note.contains("Giải trình đã duyệt");
+            case LEAVE -> "LEAVE".equals(rec.getStatus()) || note.contains("Nghỉ phép đã duyệt");
+            case UNPAID_LEAVE -> "UNPAID_LEAVE".equals(rec.getStatus())
+                    || note.contains("Nghỉ không lương đã duyệt");
+            case BUSINESS_TRIP -> "BUSINESS_TRIP".equals(rec.getStatus())
+                    || note.contains("Công tác đã duyệt");
+            case DEPLOYMENT -> req.getId() != null && note.contains("[DD:" + req.getId() + "]");
+        };
+    }
+
+    private static boolean isApprovedStatus(AttendanceRequestStatus status) {
+        return status == AttendanceRequestStatus.APPROVED
+                || status == AttendanceRequestStatus.APPROVED_NO_FINE;
+    }
+
+    /** Bỏ phần công đã áp dụng khi cấp duyệt đổi quyết định từ duyệt sang không duyệt. */
+    private void revokeAppliedAttendanceEffect(AttendanceWorkRequest req) {
+        LocalDate to = req.getEndDate() != null ? req.getEndDate() : req.getWorkDate();
+        for (LocalDate date = req.getWorkDate(); !date.isAfter(to); date = date.plusDays(1)) {
+            AttendanceRecord rec = attendanceRecordRepository
+                    .findByEmployeeAndWorkDate(req.getEmployee(), date)
+                    .orElse(null);
+            if (rec == null) {
+                continue;
+            }
+
+            List<LocalTime> punches = new java.util.ArrayList<>(dayProcessor.resolvePunches(rec));
+            if (req.getRequestType() == AttendanceRequestType.UPDATE) {
+                punches.remove(req.getRequestedStart());
+                punches.remove(req.getRequestedEnd());
+                punches.remove(req.getRequestedAfternoonStart());
+                punches.remove(req.getRequestedAfternoonEnd());
+            } else if (req.getRequestType() == AttendanceRequestType.EXPLANATION) {
+                punches.remove(req.getExplainedTime());
+                punches.remove(req.getExplainedDepartureTime());
+                punches.remove(req.getExplainedMorningIn());
+                punches.remove(req.getExplainedMorningOut());
+                punches.remove(req.getExplainedAfternoonIn());
+                punches.remove(req.getExplainedAfternoonOut());
+            }
+
+            rec.setPunchTimesJson(dayProcessor.writePunches(punches.stream().distinct().sorted().toList()));
+            rec.setStatus("ABSENT");
+            rec.setLateMinutesExempt(false);
+            rec.setOvertimeWorkUnits(java.math.BigDecimal.ZERO);
+            rec.setNote(req.getRequestType() == AttendanceRequestType.DEPLOYMENT
+                    ? removeDeploymentNote(rec.getNote(), req.getId())
+                    : stripProtectedDayNotes(rec.getNote()));
+            dayProcessor.applyToRecord(rec);
+            attendanceRecordRepository.save(rec);
+        }
+    }
+
+    @Transactional
+    public Map<String, Object> withdraw(Long id) {
+        UserAccount actor = employeeService.currentUser();
+        AttendanceWorkRequest req = requestRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn"));
+        if (actor.getRole() != UserRole.ADMIN) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Đơn đã gửi không thể thu hồi. Liên hệ quản trị viên nếu cần xử lý.");
+        }
+        boolean pending = req.getStatus() == AttendanceRequestStatus.PENDING_HEAD
+                || req.getStatus() == AttendanceRequestStatus.PENDING_NURSING_HEAD
+                || req.getStatus() == AttendanceRequestStatus.PENDING_HR
+                || req.getStatus() == AttendanceRequestStatus.PENDING_DIRECTOR;
+        if (req.getStatus() == AttendanceRequestStatus.WITHDRAWN) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Đơn đã thu hồi rồi");
         }
         AttendanceRequestStatus previous = req.getStatus();
+        // ADMIN: mọi trạng thái (đã duyệt / từ chối / chờ) đều thu hồi được — gỡ hiệu lực công nếu đã áp dụng
+        if (!pending) {
+            revokeAppliedAttendanceEffect(req);
+        }
         req.setStatus(AttendanceRequestStatus.WITHDRAWN);
         requestRepository.save(req);
         notificationService.notifyAttendanceRequestWithdrawn(req, previous);
         return toMap(req);
     }
 
-    private void applyApprovedExplanation(AttendanceWorkRequest req) {
+    private void applyApprovedExplanation(AttendanceWorkRequest req, boolean waiveLateFine) {
         AttendanceRecord rec = attendanceRecordRepository
                 .findByEmployeeAndWorkDate(req.getEmployee(), req.getWorkDate())
                 .orElseGet(() -> AttendanceRecord.builder()
@@ -629,7 +1389,6 @@ public class AttendanceWorkRequestService {
         }
 
         if (!applied) {
-            // Legacy: explainedTime / explainedDepartureTime + shiftScope
             LocalTime arrival = req.getExplainedTime();
             LocalTime departure = req.getExplainedDepartureTime();
             if (departure == null && arrival != null && req.getExplanationKind() == ExplanationKind.EARLY_DEPARTURE) {
@@ -652,7 +1411,13 @@ public class AttendanceWorkRequestService {
             }
         }
 
-        rec.setNote(appendNote(rec.getNote(), "Giải trình công đã duyệt — tính phạt theo giờ giải trình"));
+        if (waiveLateFine) {
+            rec.setLateMinutesExempt(true);
+            rec.setLateMinutes(0);
+            rec.setNote(appendNote(rec.getNote(), "Giải trình đã duyệt — Giám đốc miễn phạt muộn/sớm"));
+        } else {
+            rec.setNote(appendNote(rec.getNote(), "Giải trình đã duyệt — tính phạt theo giờ giải trình"));
+        }
         attendanceRecordRepository.save(rec);
     }
 
@@ -672,7 +1437,15 @@ public class AttendanceWorkRequestService {
         } else if (req.getUpdateKind() == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
             scope = AttendanceShiftScope.FULL_DAY;
         }
-        if (req.getUpdateKind() == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
+        boolean continuous = continuousShiftService.isContinuousShift(
+                req.getEmployee().getId(), req.getWorkDate());
+        if (continuous) {
+            LocalTime dayIn = req.getRequestedStart();
+            LocalTime dayOut = req.getRequestedAfternoonEnd() != null
+                    ? req.getRequestedAfternoonEnd()
+                    : req.getRequestedEnd();
+            dayProcessor.applyManualShift(rec, AttendanceShiftScope.FULL_DAY, dayIn, dayOut);
+        } else if (req.getUpdateKind() == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
             dayProcessor.applyManualFullDay(
                     rec,
                     req.getRequestedStart(),
@@ -717,7 +1490,7 @@ public class AttendanceWorkRequestService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Đơn điều động thiếu khung giờ");
         }
         AttendanceRecord rec = attendanceRecordRepository
-                .findByEmployeeAndWorkDate(req.getEmployee(), req.getWorkDate())
+                .findByEmployeeAndWorkDateForUpdate(req.getEmployee(), req.getWorkDate())
                 .orElseGet(() -> AttendanceRecord.builder()
                         .employee(req.getEmployee())
                         .workDate(req.getWorkDate())
@@ -758,11 +1531,42 @@ public class AttendanceWorkRequestService {
             }
         }
 
-        double creditedHours = insideShift
-                ? morningBonus.add(afternoonBonus).doubleValue()
-                : actualHours * DEPLOYMENT_COEFFICIENT.doubleValue();
-        boolean hadWork = !isOffOrEmptyWorkDay(req.getEmployee().getId(), req.getWorkDate());
-        boolean replaceShiftUnits = insideShift && hadWork;
+        if (insideShift) {
+            String morningWindow = req.getShiftScope() == AttendanceShiftScope.AFTERNOON
+                    ? "-"
+                    : start + "-" + end;
+            String afternoonWindow;
+            if (req.getRequestedAfternoonStart() != null && req.getRequestedAfternoonEnd() != null) {
+                afternoonWindow = req.getRequestedAfternoonStart() + "-" + req.getRequestedAfternoonEnd();
+            } else if (req.getShiftScope() == AttendanceShiftScope.AFTERNOON) {
+                afternoonWindow = start + "-" + end;
+            } else {
+                afternoonWindow = "-";
+            }
+            String noteLine = String.format(
+                    "Điều động trong ca ×%.1f: %s — chờ đủ giờ vào/ra "
+                            + "(=%s sáng / =%s chiều / +0 ngoài giờ) [DDTC:S=%s;A=%s]",
+                    DEPLOYMENT_COEFFICIENT.doubleValue(),
+                    timeLabel,
+                    morningBonus.toPlainString(),
+                    afternoonBonus.toPlainString(),
+                    morningWindow,
+                    afternoonWindow);
+            if (req.getReason() != null && !req.getReason().isBlank()) {
+                noteLine += ": " + req.getReason().trim();
+            }
+            rec.setLateMinutesExempt(false);
+            rec.setNote(appendNote(stripProtectedDayNotesKeepingDeployments(rec.getNote()),
+                    deploymentNoteWithId(noteLine, req.getId())));
+            // Đơn duyệt chỉ xác nhận khung điều động. Công được tính bởi bộ xử lý ngày
+            // khi dữ liệu máy chấm công có đủ cặp vào/ra tương ứng.
+            dayProcessor.applyToRecord(rec);
+            attendanceRecordRepository.save(rec);
+            return;
+        }
+
+        double creditedHours = actualHours * DEPLOYMENT_COEFFICIENT.doubleValue();
+        boolean replaceShiftUnits = false;
 
         BigDecimal currentMorning = rec.getMorningWorkUnits() != null
                 ? rec.getMorningWorkUnits() : BigDecimal.ZERO;
@@ -822,7 +1626,8 @@ public class AttendanceWorkRequestService {
         if (req.getReason() != null && !req.getReason().isBlank()) {
             noteLine += ": " + req.getReason().trim();
         }
-        rec.setNote(appendNote(stripProtectedDayNotes(rec.getNote()), noteLine));
+        rec.setNote(appendNote(stripProtectedDayNotesKeepingDeployments(rec.getNote()),
+                deploymentNoteWithId(noteLine, req.getId())));
         attendanceRecordRepository.save(rec);
     }
 
@@ -947,6 +1752,14 @@ public class AttendanceWorkRequestService {
     }
 
     private static String stripProtectedDayNotes(String existing) {
+        return stripProtectedDayNotes(existing, false);
+    }
+
+    private static String stripProtectedDayNotesKeepingDeployments(String existing) {
+        return stripProtectedDayNotes(existing, true);
+    }
+
+    private static String stripProtectedDayNotes(String existing, boolean keepDeployments) {
         if (existing == null || existing.isBlank()) {
             return "";
         }
@@ -957,7 +1770,13 @@ public class AttendanceWorkRequestService {
                     || p.startsWith("Nghỉ phép đã duyệt")
                     || p.startsWith("Nghỉ không lương đã duyệt")
                     || p.startsWith("Công tác đã duyệt")
-                    || p.startsWith("Điều động")) {
+                    || p.startsWith("Hội thảo đã duyệt")
+                    || p.startsWith("Cập nhật công theo đơn đã duyệt")
+                    || p.startsWith("Giải trình đã duyệt")
+                    || (!keepDeployments && p.startsWith("Điều động"))
+                    // Giữ điều động chỉ khi đã gắn mã đơn duyệt [DD:] / [DDTC:]
+                    || (keepDeployments && p.startsWith("Điều động")
+                        && !AttendanceDayProcessor.isApprovedDeploymentNoteSegment(p))) {
                 continue;
             }
             if (sb.length() > 0) {
@@ -966,6 +1785,34 @@ public class AttendanceWorkRequestService {
             sb.append(p);
         }
         return sb.toString();
+    }
+
+    private static String deploymentNoteWithId(String noteLine, Long requestId) {
+        return requestId == null ? noteLine : noteLine + " [DD:" + requestId + "]";
+    }
+
+    private static String removeDeploymentNote(String existing, Long requestId) {
+        if (existing == null || existing.isBlank() || requestId == null) {
+            return stripProtectedDayNotes(existing);
+        }
+        String marker = "[DD:" + requestId + "]";
+        int markerIndex = existing.indexOf(marker);
+        if (markerIndex < 0) {
+            return stripProtectedDayNotes(existing);
+        }
+        int lineStart = existing.lastIndexOf("Điều động", markerIndex);
+        if (lineStart < 0) {
+            return stripProtectedDayNotes(existing);
+        }
+        int lineEnd = markerIndex + marker.length();
+        if (lineEnd < existing.length() && existing.charAt(lineEnd) == ';') {
+            lineEnd++;
+        }
+        while (lineEnd < existing.length() && existing.charAt(lineEnd) == ' ') {
+            lineEnd++;
+        }
+        String before = existing.substring(0, lineStart).replaceFirst(";\\s*$", "");
+        return (before + existing.substring(lineEnd)).trim();
     }
 
     private static String appendNote(String existing, String line) {
@@ -978,7 +1825,7 @@ public class AttendanceWorkRequestService {
         return existing + "; " + line;
     }
 
-    private void validateSubmit(AttendanceWorkRequestSubmitDto dto, Employee emp) {
+    private void validateSubmit(AttendanceWorkRequestSubmitDto dto, Employee emp, Long excludeId) {
         if (dto.getRequestType() == AttendanceRequestType.UPDATE) {
             if (dto.getUpdateKind() == null) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Đơn cập nhật cần chọn loại ca");
@@ -986,7 +1833,13 @@ public class AttendanceWorkRequestService {
             if (dto.getRequestedStart() == null || dto.getRequestedEnd() == null) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Cần nhập thời gian bắt đầu và kết thúc");
             }
-            if (dto.getUpdateKind() == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT
+            boolean continuous = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
+            if (continuous) {
+                if (!dto.getRequestedStart().isBefore(dto.getRequestedEnd())) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST,
+                            "Ca thông tầm: giờ vào phải trước giờ ra");
+                }
+            } else if (dto.getUpdateKind() == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT
                     && (dto.getRequestedAfternoonStart() == null || dto.getRequestedAfternoonEnd() == null)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Bổ sung cả ngày cần nhập khung giờ ca sáng và ca chiều");
             }
@@ -1012,6 +1865,20 @@ public class AttendanceWorkRequestService {
             int requestDays = LeaveEntitlement.calendarDaysInclusive(dto.getWorkDate(), end);
             Map<String, Object> bal = leaveBalanceFor(emp, dto.getWorkDate().getYear());
             int remaining = ((Number) bal.get("remainingDays")).intValue();
+            if (excludeId != null) {
+                remaining += requestRepository.findById(excludeId)
+                        .filter(r -> r.getRequestType() == AttendanceRequestType.LEAVE)
+                        .filter(r -> r.getStatus() == AttendanceRequestStatus.PENDING_HEAD
+                                || r.getStatus() == AttendanceRequestStatus.PENDING_NURSING_HEAD
+                                || r.getStatus() == AttendanceRequestStatus.PENDING_HR
+                                || r.getStatus() == AttendanceRequestStatus.PENDING_DIRECTOR)
+                        .map(r -> {
+                            LocalDate oldFrom = r.getWorkDate();
+                            LocalDate oldTo = r.getEndDate() != null ? r.getEndDate() : oldFrom;
+                            return LeaveEntitlement.calendarDaysInclusive(oldFrom, oldTo);
+                        })
+                        .orElse(0);
+            }
             if (requestDays > remaining) {
                 throw new ApiException(HttpStatus.BAD_REQUEST,
                         String.format(
@@ -1021,13 +1888,13 @@ public class AttendanceWorkRequestService {
                                 requestDays,
                                 bal.get("entitlementDays")));
             }
-            assertNoOverlappingLeaveKinds(emp.getId(), dto.getWorkDate(), end);
+            assertNoOverlappingLeaveKinds(emp.getId(), dto.getWorkDate(), end, excludeId);
         } else if (dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) {
             LocalDate end = dto.getEndDate() != null ? dto.getEndDate() : dto.getWorkDate();
             if (end.isBefore(dto.getWorkDate())) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Ngày kết thúc phải sau hoặc bằng ngày bắt đầu");
             }
-            assertNoOverlappingLeaveKinds(emp.getId(), dto.getWorkDate(), end);
+            assertNoOverlappingLeaveKinds(emp.getId(), dto.getWorkDate(), end, excludeId);
         } else if (dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
             LocalDate end = dto.getEndDate() != null ? dto.getEndDate() : dto.getWorkDate();
             if (end.isBefore(dto.getWorkDate())) {
@@ -1037,25 +1904,32 @@ public class AttendanceWorkRequestService {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Cần nhập địa điểm công tác");
             }
             assertNoOverlappingRangedRequest(emp.getId(), AttendanceRequestType.BUSINESS_TRIP, dto.getWorkDate(), end,
-                    "Khoảng ngày trùng với đơn công tác khác (đang chờ hoặc đã duyệt)");
+                    "Khoảng ngày trùng với đơn công tác khác (đang chờ hoặc đã duyệt)", excludeId);
         } else {
             List<AttendanceWorkRequest> existing = requestRepository.findByEmployeeIdAndWorkDateAndRequestType(
                     emp.getId(), dto.getWorkDate(), dto.getRequestType());
-            boolean open = existing.stream().anyMatch(r ->
+            boolean open = existing.stream()
+                    .filter(r -> excludeId == null || !r.getId().equals(excludeId))
+                    .anyMatch(r ->
                     r.getStatus() == AttendanceRequestStatus.PENDING_HEAD
-                            || r.getStatus() == AttendanceRequestStatus.PENDING_HR);
+                            || r.getStatus() == AttendanceRequestStatus.PENDING_NURSING_HEAD
+                            || r.getStatus() == AttendanceRequestStatus.PENDING_HR
+                            || r.getStatus() == AttendanceRequestStatus.PENDING_DIRECTOR);
             if (open) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Đã có đơn đang chờ duyệt cho ngày này");
             }
         }
     }
 
-    private void assertNoOverlappingLeaveKinds(Long employeeId, LocalDate from, LocalDate to) {
+    private void assertNoOverlappingLeaveKinds(Long employeeId, LocalDate from, LocalDate to, Long excludeId) {
         EnumSet<AttendanceRequestStatus> blocking = EnumSet.of(
                 AttendanceRequestStatus.PENDING_HEAD,
+                AttendanceRequestStatus.PENDING_NURSING_HEAD,
                 AttendanceRequestStatus.PENDING_HR,
+                AttendanceRequestStatus.PENDING_DIRECTOR,
                 AttendanceRequestStatus.APPROVED);
         List<AttendanceWorkRequest> ranged = requestRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId).stream()
+                .filter(r -> excludeId == null || !r.getId().equals(excludeId))
                 .filter(r -> r.getRequestType() == AttendanceRequestType.LEAVE
                         || r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE)
                 .filter(r -> blocking.contains(r.getStatus()))
@@ -1079,12 +1953,16 @@ public class AttendanceWorkRequestService {
             AttendanceRequestType type,
             LocalDate from,
             LocalDate to,
-            String message) {
+            String message,
+            Long excludeId) {
         EnumSet<AttendanceRequestStatus> blocking = EnumSet.of(
                 AttendanceRequestStatus.PENDING_HEAD,
+                AttendanceRequestStatus.PENDING_NURSING_HEAD,
                 AttendanceRequestStatus.PENDING_HR,
+                AttendanceRequestStatus.PENDING_DIRECTOR,
                 AttendanceRequestStatus.APPROVED);
         List<AttendanceWorkRequest> ranged = requestRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId).stream()
+                .filter(r -> excludeId == null || !r.getId().equals(excludeId))
                 .filter(r -> r.getRequestType() == type)
                 .filter(r -> blocking.contains(r.getStatus()))
                 .toList();
@@ -1109,10 +1987,18 @@ public class AttendanceWorkRequestService {
     public Map<String, Object> employeeLeaveBalance(Long employeeId, Integer year) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
         UserAccount current = employeeService.currentUser();
-        if (current.getRole() != UserRole.ADMIN && current.getRole() != UserRole.HR
-                && current.getRole() != UserRole.HEAD_DEPARTMENT && current.getRole() != UserRole.HEAD_NURSING) {
-            Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
-            if (self == null || !self.getId().equals(emp.getId())) {
+        // ADMIN / HCNS / Giám đốc: xem mọi NV. Các role khác: chỉ bản thân (hoặc trong phạm vi quản lý).
+        if (current.getRole() != UserRole.ADMIN
+                && current.getRole() != UserRole.HR
+                && !EmployeeService.isHr2Role(current)
+                && !com.minhan.hrm.security.ApprovalAuthority.isDirectorApprover(current)) {
+            Employee self = employeeLinkService.findLinkedEmployee(current).orElse(null);
+            if (self != null && self.getId().equals(emp.getId())) {
+                // bản thân
+            } else if (EmployeeService.isHeadRole(current)
+                    || current.getRole() == UserRole.HEAD_NURSING) {
+                employeeService.assertCanAccessEmployee(emp);
+            } else {
                 throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem hạn mức phép");
             }
         }
@@ -1124,12 +2010,16 @@ public class AttendanceWorkRequestService {
         LocalDate yearStart = LocalDate.of(year, 1, 1);
         LocalDate yearEnd = LocalDate.of(year, 12, 31);
         LocalDate asOf = LocalDate.now().getYear() == year ? LocalDate.now() : yearEnd;
-        int entitlement = LeaveEntitlement.entitlementDays(emp.getHireDate(), asOf);
+        // Thử việc / thực tập hoặc chưa có thâm niên → tối thiểu 12 ngày phép/năm
+        int entitlement = Math.max(LeaveEntitlement.BASE_DAYS, LeaveEntitlement.entitlementDays(emp.getHireDate(), asOf));
         int years = LeaveEntitlement.yearsOfService(emp.getHireDate(), asOf);
 
         EnumSet<AttendanceRequestStatus> usedStatuses = EnumSet.of(AttendanceRequestStatus.APPROVED);
         EnumSet<AttendanceRequestStatus> pendingStatuses = EnumSet.of(
-                AttendanceRequestStatus.PENDING_HEAD, AttendanceRequestStatus.PENDING_HR);
+                AttendanceRequestStatus.PENDING_HEAD,
+                AttendanceRequestStatus.PENDING_NURSING_HEAD,
+                AttendanceRequestStatus.PENDING_HR,
+                AttendanceRequestStatus.PENDING_DIRECTOR);
 
         int usedDays = sumLeaveDays(emp.getId(), yearStart, yearEnd, usedStatuses);
         int pendingDays = sumLeaveDays(emp.getId(), yearStart, yearEnd, pendingStatuses);
@@ -1171,8 +2061,7 @@ public class AttendanceWorkRequestService {
     }
 
     private Employee requireSelfEmployee() {
-        return employeeRepository.findByUserUsername(employeeService.currentUser().getUsername())
-                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Tài khoản chưa gắn hồ sơ nhân viên"));
+        return employeeService.requireLinkedEmployee();
     }
 
     private AttendanceWorkRequest requirePendingHead(Long id) {
@@ -1185,13 +2074,71 @@ public class AttendanceWorkRequestService {
     }
 
     private void notifyHeadNewRequest(AttendanceWorkRequest req) {
-        userAccountRepository.findByRoleIn(List.of(UserRole.ADMIN, UserRole.HEAD_DEPARTMENT, UserRole.HEAD_NURSING))
+        userAccountRepository.findByRoleIn(List.of(UserRole.ADMIN, UserRole.HEAD_DEPARTMENT, UserRole.HEAD_HR))
+                .stream()
+                .filter(u -> employeeService.shouldReceiveHeadPendingNotification(u, req.getEmployee()))
                 .forEach(u -> notificationService.notifyAttendanceRequestPending(u, req, "HEAD"));
     }
 
+    private void notifyNursingHeadNewRequest(AttendanceWorkRequest req) {
+        userAccountRepository.findByRoleIn(List.of(UserRole.ADMIN, UserRole.HEAD_NURSING))
+                .stream()
+                .filter(u -> employeeService.shouldReceiveNursingHeadPendingNotification(u, req.getEmployee()))
+                .forEach(u -> notificationService.notifyAttendanceRequestPending(u, req, "NURSING_HEAD"));
+    }
+
     private void notifyHrNewRequest(AttendanceWorkRequest req) {
-        userAccountRepository.findByRoleIn(List.of(UserRole.ADMIN, UserRole.HR))
+        userAccountRepository.findByRoleIn(List.of(UserRole.ADMIN, UserRole.HR2, UserRole.HEAD_HR))
                 .forEach(u -> notificationService.notifyAttendanceRequestPending(u, req, "HR"));
+    }
+
+    private void notifyDirectorNewRequest(AttendanceWorkRequest req) {
+        userAccountRepository.findByDirectorApprovalEnabledTrueAndEnabledTrue()
+                .forEach(u -> notificationService.notifyAttendanceRequestPending(u, req, "DIRECTOR"));
+    }
+
+    /**
+     * Trưởng khoa/phòng chỉ thấy đơn của nhân viên trong khoa/phòng mình.
+     * Trưởng bộ phận (workUnitScoped) bị giới hạn tiếp theo đúng bộ phận.
+     */
+    private List<Map<String, Object>> filterPendingForHeadScope(
+            List<Map<String, Object>> rows, UserAccount user) {
+        if (!EmployeeService.isHeadRole(user)) {
+            return rows;
+        }
+        return rows.stream()
+                .filter(row -> {
+                    Object rawId = row.get("employeeId");
+                    if (!(rawId instanceof Number n)) {
+                        return false;
+                    }
+                    Employee emp = employeeRepository.findById(n.longValue()).orElse(null);
+                    if (emp == null) {
+                        return false;
+                    }
+                    return employeeService.matchesHeadScope(user, emp);
+                })
+                .collect(Collectors.toList());
+    }
+
+    private List<Map<String, Object>> mergeRequestMaps(
+            List<Map<String, Object>> first, List<Map<String, Object>> second) {
+        Map<Object, Map<String, Object>> byId = new LinkedHashMap<>();
+        if (first != null) {
+            for (Map<String, Object> row : first) {
+                if (row != null && row.get("id") != null) {
+                    byId.put(row.get("id"), row);
+                }
+            }
+        }
+        if (second != null) {
+            for (Map<String, Object> row : second) {
+                if (row != null && row.get("id") != null) {
+                    byId.putIfAbsent(row.get("id"), row);
+                }
+            }
+        }
+        return new ArrayList<>(byId.values());
     }
 
     private Map<String, Object> toMap(AttendanceWorkRequest r) {
@@ -1199,6 +2146,8 @@ public class AttendanceWorkRequestService {
         m.put("id", r.getId());
         m.put("employeeId", r.getEmployee().getId());
         m.put("employeeName", r.getEmployee().getFullName());
+        m.put("positionTitle", r.getEmployee().getPosition() != null
+                ? r.getEmployee().getPosition().getTitle() : null);
         m.put("department", r.getEmployee().getDepartment().getName());
         m.put("requestType", r.getRequestType().name());
         m.put("workDate", r.getWorkDate().toString());
@@ -1214,12 +2163,27 @@ public class AttendanceWorkRequestService {
         m.put("tripDays", r.getRequestType() == AttendanceRequestType.BUSINESS_TRIP ? rangedDays : 0);
         m.put("shiftScope", r.getShiftScope().name());
         m.put("updateKind", r.getUpdateKind() != null ? r.getUpdateKind().name() : "");
+        if (r.getRequestType() == AttendanceRequestType.UPDATE
+                || r.getRequestType() == AttendanceRequestType.EXPLANATION) {
+            m.put("continuousShift", continuousShiftService.isContinuousShift(
+                    r.getEmployee().getId(), r.getWorkDate()));
+        }
         m.put("reason", r.getReason());
         m.put("location", r.getLocation() != null ? r.getLocation() : "");
         m.put("requestedStart", r.getRequestedStart() != null ? r.getRequestedStart().toString() : "");
         m.put("requestedEnd", r.getRequestedEnd() != null ? r.getRequestedEnd().toString() : "");
         if (r.getRequestType() == AttendanceRequestType.DEPLOYMENT
                 && r.getRequestedStart() != null && r.getRequestedEnd() != null) {
+            List<String> attendancePunchTimes = attendanceRecordRepository
+                    .findByEmployeeAndWorkDate(r.getEmployee(), r.getWorkDate())
+                    .map(dayProcessor::resolvePunches)
+                    .orElseGet(List::of)
+                    .stream()
+                    .sorted()
+                    .distinct()
+                    .map(time -> time.toString().substring(0, 5))
+                    .toList();
+            m.put("attendancePunchTimes", attendancePunchTimes);
             m.put("deploymentCoefficient", DEPLOYMENT_COEFFICIENT.doubleValue());
             if (isInsideShiftDeploymentFromRequest(r)) {
                 AttendanceShiftSchedule sch = shiftScheduleService.forEmployee(r.getEmployee().getId(), r.getWorkDate());
@@ -1253,16 +2217,188 @@ public class AttendanceWorkRequestService {
                 r.getExplainedAfternoonIn() != null ? r.getExplainedAfternoonIn().toString() : "");
         m.put("explainedAfternoonOut",
                 r.getExplainedAfternoonOut() != null ? r.getExplainedAfternoonOut().toString() : "");
+        LocalTime origMIn = r.getOriginalMorningIn();
+        LocalTime origMOut = r.getOriginalMorningOut();
+        LocalTime origAIn = r.getOriginalAfternoonIn();
+        LocalTime origAOut = r.getOriginalAfternoonOut();
+        // Đơn cũ chưa snapshot: lấy giờ máy hiện tại nếu phiếu vẫn đang chờ duyệt
+        boolean pendingExplanation = r.getRequestType() == AttendanceRequestType.EXPLANATION
+                && r.getStatus() != null
+                && r.getStatus().name().startsWith("PENDING_");
+        boolean needOriginal = pendingExplanation && (
+                (origMIn == null && r.getExplainedMorningIn() != null)
+                        || (origMOut == null && r.getExplainedMorningOut() != null)
+                        || (origAIn == null && r.getExplainedAfternoonIn() != null)
+                        || (origAOut == null && r.getExplainedAfternoonOut() != null)
+                        || (origMIn == null && r.getExplainedTime() != null
+                        && r.getExplanationKind() != ExplanationKind.EARLY_DEPARTURE)
+                        || (origAOut == null && (r.getExplainedDepartureTime() != null
+                        || (r.getExplainedTime() != null
+                        && r.getExplanationKind() == ExplanationKind.EARLY_DEPARTURE))));
+        if (needOriginal) {
+            AttendanceRecord rec = attendanceRecordRepository
+                    .findByEmployeeAndWorkDate(r.getEmployee(), r.getWorkDate())
+                    .orElse(null);
+            if (rec != null) {
+                LocalTime morningIn = rec.getMorningCheckIn() != null ? rec.getMorningCheckIn() : rec.getCheckIn();
+                LocalTime afternoonOut = rec.getAfternoonCheckOut() != null
+                        ? rec.getAfternoonCheckOut() : rec.getCheckOut();
+                if (origMIn == null && (r.getExplainedMorningIn() != null
+                        || (r.getExplainedTime() != null
+                        && r.getExplanationKind() != ExplanationKind.EARLY_DEPARTURE))) {
+                    origMIn = morningIn;
+                }
+                if (origMOut == null && r.getExplainedMorningOut() != null) {
+                    origMOut = rec.getMorningCheckOut();
+                }
+                if (origAIn == null && r.getExplainedAfternoonIn() != null) {
+                    origAIn = rec.getAfternoonCheckIn();
+                }
+                if (origAOut == null && (r.getExplainedAfternoonOut() != null
+                        || r.getExplainedDepartureTime() != null
+                        || (r.getExplainedTime() != null
+                        && r.getExplanationKind() == ExplanationKind.EARLY_DEPARTURE))) {
+                    origAOut = afternoonOut;
+                }
+            }
+        }
+        m.put("originalMorningIn", origMIn != null ? origMIn.toString() : "");
+        m.put("originalMorningOut", origMOut != null ? origMOut.toString() : "");
+        m.put("originalAfternoonIn", origAIn != null ? origAIn.toString() : "");
+        m.put("originalAfternoonOut", origAOut != null ? origAOut.toString() : "");
         m.put("status", r.getStatus().name());
         m.put("headComment", r.getHeadComment() != null ? r.getHeadComment() : "");
+        m.put("nursingHeadComment", r.getNursingHeadComment() != null ? r.getNursingHeadComment() : "");
         m.put("hrComment", r.getHrComment() != null ? r.getHrComment() : "");
+        m.put("directorComment", r.getDirectorComment() != null ? r.getDirectorComment() : "");
+        m.put("headSignatureUrl", r.getHeadSignaturePath() != null && !r.getHeadSignaturePath().isBlank()
+                ? "/j1-api/v1/approval-signatures/attendance/" + r.getId() + "/head" : null);
+        m.put("nursingHeadSignatureUrl",
+                r.getNursingHeadSignaturePath() != null && !r.getNursingHeadSignaturePath().isBlank()
+                        ? "/j1-api/v1/approval-signatures/attendance/" + r.getId() + "/nursing-head" : null);
+        m.put("hrSignatureUrl", r.getHrSignaturePath() != null && !r.getHrSignaturePath().isBlank()
+                ? "/j1-api/v1/approval-signatures/attendance/" + r.getId() + "/hr" : null);
+        m.put("directorSignatureUrl", r.getDirectorSignaturePath() != null && !r.getDirectorSignaturePath().isBlank()
+                ? "/j1-api/v1/approval-signatures/attendance/" + r.getId() + "/director" : null);
         m.put("headReviewedAt", r.getHeadReviewedAt() != null ? r.getHeadReviewedAt().toString() : "");
+        m.put("nursingHeadReviewedAt",
+                r.getNursingHeadReviewedAt() != null ? r.getNursingHeadReviewedAt().toString() : "");
+        m.put("headReviewerUsername",
+                r.getHeadReviewer() != null ? r.getHeadReviewer().getUsername() : null);
+        m.put("headReviewerName", accountPersonName(r.getHeadReviewer()));
+        m.put("nursingHeadReviewerUsername",
+                r.getNursingHeadReviewer() != null ? r.getNursingHeadReviewer().getUsername() : null);
+        m.put("nursingHeadReviewerName", accountPersonName(r.getNursingHeadReviewer()));
+        m.put("hrReviewerUsername",
+                r.getHrReviewer() != null ? r.getHrReviewer().getUsername() : null);
+        m.put("hrReviewerName", accountPersonName(r.getHrReviewer()));
+        m.put("directorReviewerUsername",
+                r.getDirectorReviewer() != null ? r.getDirectorReviewer().getUsername() : null);
+        m.put("directorReviewerName", accountPersonName(r.getDirectorReviewer()));
         m.put("hrReviewedAt", r.getHrReviewedAt() != null ? r.getHrReviewedAt().toString() : "");
+        m.put("directorReviewedAt", r.getDirectorReviewedAt() != null ? r.getDirectorReviewedAt().toString() : "");
         m.put("hrWaiveForgotFine", r.isHrWaiveForgotFine());
+        putFlowAssigneeNames(m, r);
         if (r.getRequestType() == AttendanceRequestType.UPDATE) {
             m.put("forgotFineUnits", AttendancePenaltyCalculator.forgotFineUnitsForWorkRequest(r));
         }
         m.put("createdAt", r.getCreatedAt().toString());
+        m.put("requestedByUsername", resolveRequestedByUsername(r));
         return m;
+    }
+
+    private String resolveRequestedByUsername(AttendanceWorkRequest r) {
+        if (r.getRequestType() == AttendanceRequestType.DEPLOYMENT && r.getHeadReviewer() != null) {
+            return r.getHeadReviewer().getUsername();
+        }
+        Employee emp = r.getEmployee();
+        if (emp.getUser() != null) {
+            return emp.getUser().getUsername();
+        }
+        return null;
+    }
+
+    /** Tên người nhận / đã duyệt từng bước — ưu tiên người đã ký, không thì người đang được gửi tới. */
+    private void putFlowAssigneeNames(Map<String, Object> m, AttendanceWorkRequest r) {
+        Employee emp = r.getEmployee();
+        m.put("flowSubmitterName", emp.getFullName());
+        m.put("flowHeadName", firstNonBlank(
+                accountPersonName(r.getHeadReviewer()),
+                joinPersonNames(resolveHeadAssignees(emp))));
+        m.put("flowNursingHeadName", firstNonBlank(
+                accountPersonName(r.getNursingHeadReviewer()),
+                joinPersonNames(resolveNursingHeadAssignees(emp))));
+        m.put("flowHrName", firstNonBlank(
+                accountPersonName(r.getHrReviewer()),
+                joinPersonNames(resolveHrAssignees())));
+        m.put("flowDirectorName", firstNonBlank(
+                accountPersonName(r.getDirectorReviewer()),
+                joinPersonNames(resolveDirectorAssignees())));
+    }
+
+    private List<UserAccount> resolveHeadAssignees(Employee emp) {
+        return userAccountRepository.findByRoleIn(List.of(UserRole.HEAD_DEPARTMENT, UserRole.HEAD_HR)).stream()
+                .filter(UserAccount::isEnabled)
+                .filter(u -> employeeService.shouldReceiveHeadPendingNotification(u, emp))
+                .toList();
+    }
+
+    private List<UserAccount> resolveNursingHeadAssignees(Employee emp) {
+        return userAccountRepository.findByRoleIn(List.of(UserRole.HEAD_NURSING)).stream()
+                .filter(UserAccount::isEnabled)
+                .filter(u -> employeeService.shouldReceiveNursingHeadPendingNotification(u, emp))
+                .toList();
+    }
+
+    private List<UserAccount> resolveHrAssignees() {
+        return userAccountRepository.findByRoleIn(List.of(UserRole.HR2, UserRole.HEAD_HR)).stream()
+                .filter(UserAccount::isEnabled)
+                .toList();
+    }
+
+    private List<UserAccount> resolveDirectorAssignees() {
+        return userAccountRepository.findByDirectorApprovalEnabledTrueAndEnabledTrue();
+    }
+
+    private static String joinPersonNames(List<UserAccount> users) {
+        if (users == null || users.isEmpty()) {
+            return null;
+        }
+        String joined = users.stream()
+                .map(AttendanceWorkRequestService::accountPersonName)
+                .filter(n -> n != null && !n.isBlank())
+                .distinct()
+                .collect(Collectors.joining(", "));
+        return joined.isBlank() ? null : joined;
+    }
+
+    private static String accountPersonName(UserAccount u) {
+        if (u == null) {
+            return null;
+        }
+        try {
+            Employee linked = u.getEmployee();
+            if (linked != null && linked.getFullName() != null && !linked.getFullName().isBlank()) {
+                return linked.getFullName().trim();
+            }
+        } catch (Exception ignored) {
+            // lazy load có thể fail ngoài session — fallback displayName/username
+        }
+        if (u.getDisplayName() != null && !u.getDisplayName().isBlank()) {
+            return u.getDisplayName().trim();
+        }
+        return u.getUsername();
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v.trim();
+            }
+        }
+        return null;
     }
 }

@@ -48,6 +48,7 @@ public class CheckInOutImportService {
     private final ContinuousShiftService continuousShiftService;
     private final HolidayWorkDayService holidayWorkDayService;
     private final CheckInOutImportBatchService importBatchService;
+    private final AttendanceWorkRequestService attendanceWorkRequestService;
 
     public Map<String, Object> importCheckInOutSql(MultipartFile file) {
         if (file.isEmpty()) {
@@ -126,6 +127,8 @@ public class CheckInOutImportService {
         List<AttendanceRecord> batch = new ArrayList<>(BATCH_SIZE);
         int[] upserted = {0};
         int[] skippedNoEmployee = {0};
+        int[] skippedProtected = {0};
+        Set<Long> touchedEmployeeIds = new HashSet<>();
 
         attendanceDayProcessor.runWithContinuousShiftCache(continuousMonthKeys, () ->
                 attendanceDayProcessor.runWithHolidayCache(holidays, () -> {
@@ -140,17 +143,26 @@ public class CheckInOutImportService {
 
                 List<LocalTime> punchTimes = agg.punches.stream().map(LocalDateTime::toLocalTime).sorted().distinct().toList();
                 LocalTime checkIn = punchTimes.isEmpty() ? null : punchTimes.get(0);
-                LocalTime checkOut = punchTimes.size() < 2 ? checkIn : punchTimes.get(punchTimes.size() - 1);
+                // Một lần chấm duy nhất chỉ là giờ vào, chưa thể xem là giờ ra.
+                LocalTime checkOut = punchTimes.size() < 2 ? null : punchTimes.get(punchTimes.size() - 1);
                 String recKey = emp.getId() + "|" + agg.workDate;
+
+                AttendanceRecord existing = existingByKey.get(recKey);
+                // Nghỉ phép / không lương / công tác đã duyệt — không ghi đè bằng máy chấm công
+                if (existing != null && isSyncProtectedDay(existing)) {
+                    skippedProtected[0]++;
+                    continue;
+                }
 
                 AttendanceRecord rec = existingByKey.computeIfAbsent(recKey,
                         k -> AttendanceRecord.builder().employee(emp).workDate(agg.workDate).build());
                 rec.setCheckIn(checkIn);
                 rec.setCheckOut(checkOut);
-                rec.setNote("Đồng bộ máy chấm công");
+                rec.setNote(appendSyncNote(rec.getNote()));
                 rec.setPunchTimesJson(attendanceDayProcessor.writePunches(punchTimes));
                 attendanceDayProcessor.applyToRecord(rec);
                 batch.add(rec);
+                touchedEmployeeIds.add(emp.getId());
 
                 if (batch.size() >= BATCH_SIZE) {
                     importBatchService.saveBatch(new ArrayList<>(batch));
@@ -165,16 +177,47 @@ public class CheckInOutImportService {
             upserted[0] += batch.size();
         }
 
-        log.info("CheckInOut import: raw={}, days={}, upserted={}, skipped={}",
-                rawRows, aggregates.size(), upserted[0], skippedNoEmployee[0]);
+        int reapplied = 0;
+        if (!touchedEmployeeIds.isEmpty()) {
+            reapplied = attendanceWorkRequestService.reapplyApprovedEffectsAfterPunchSync(
+                    minDate, maxDate, touchedEmployeeIds);
+        }
 
-        return Map.of(
-                "rawPunches", rawRows,
-                "dailyRecords", aggregates.size(),
-                "upserted", upserted[0],
-                "skippedNoEmployee", skippedNoEmployee[0],
-                "unmappedEnrollNumbers", unmappedEnrolls.stream().sorted().limit(50).toList(),
-                "unmappedEnrollCount", unmappedEnrolls.size());
+        log.info("CheckInOut import: raw={}, days={}, upserted={}, skipped={}, protected={}, reapplied={}",
+                rawRows, aggregates.size(), upserted[0], skippedNoEmployee[0], skippedProtected[0], reapplied);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("rawPunches", rawRows);
+        result.put("dailyRecords", aggregates.size());
+        result.put("upserted", upserted[0]);
+        result.put("skippedNoEmployee", skippedNoEmployee[0]);
+        result.put("skippedProtectedDays", skippedProtected[0]);
+        result.put("reappliedApprovedRequests", reapplied);
+        result.put("unmappedEnrollNumbers", unmappedEnrolls.stream().sorted().limit(50).toList());
+        result.put("unmappedEnrollCount", unmappedEnrolls.size());
+        return result;
+    }
+
+    /** Ngày đã khóa bởi đơn nghỉ/công tác — đồng bộ không được ghi đè. */
+    static boolean isSyncProtectedDay(AttendanceRecord rec) {
+        if (rec == null) {
+            return false;
+        }
+        String status = rec.getStatus();
+        return "LEAVE".equals(status)
+                || "UNPAID_LEAVE".equals(status)
+                || "BUSINESS_TRIP".equals(status);
+    }
+
+    static String appendSyncNote(String currentNote) {
+        String syncNote = "Đồng bộ máy chấm công";
+        if (currentNote == null || currentNote.isBlank()) {
+            return syncNote;
+        }
+        if (currentNote.contains(syncNote)) {
+            return currentNote;
+        }
+        return currentNote.trim() + "; " + syncNote;
     }
 
     private ParseResult parseSqlFile(MultipartFile file) {

@@ -37,12 +37,15 @@ public final class EmployeeMapper {
                 .positionTitle(e.getPosition().getTitle())
                 .role(e.getUser().getRole())
                 .status(e.getStatus())
+                .employmentType(e.getEmploymentType() != null ? e.getEmploymentType().name() : "FULL_TIME")
                 .hireDate(e.getHireDate())
                 .probationStartDate(probationStart)
                 .probationMonths(trial ? probationMonths : null)
                 .probationOverdue(trial && probationMonths != null && probationMonths > 3)
                 .insuranceParticipation(insuranceParticipation)
                 .maternityLeave(WorkforceInsurance.isMaternityLeave(insuranceParticipation))
+                .onTraining(e.isOnTraining())
+                .mainDutyAuthorized(e.isMainDutyAuthorized())
                 .build();
     }
 
@@ -105,7 +108,9 @@ public final class EmployeeMapper {
                 .positionTitle(e.getPosition().getTitle())
                 .hireDate(e.getHireDate())
                 .status(e.getStatus())
+                .employmentType(e.getEmploymentType() != null ? e.getEmploymentType().name() : "FULL_TIME")
                 .continuousShift(e.isContinuousShift())
+                .mainDutyAuthorized(e.isMainDutyAuthorized())
                 .salary(salDto)
                 .contracts(cdtos)
                 .workforceProfile(null)

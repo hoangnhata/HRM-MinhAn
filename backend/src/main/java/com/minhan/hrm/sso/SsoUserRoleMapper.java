@@ -13,7 +13,7 @@ public final class SsoUserRoleMapper {
     public static final String APP_CODE_HRM = "HRM";
 
     public static final Set<String> HRM_ROLE_CODES = Set.of(
-            "ADMIN", "EMPLOYEE", "HR", "HEAD_DEPARTMENT", "HEAD_NURSING", "DIRECTOR");
+            "ADMIN", "EMPLOYEE", "HR", "HR2", "HEAD_DEPARTMENT", "HEAD_HR", "HEAD_NURSING", "DIRECTOR");
 
     private SsoUserRoleMapper() {}
 

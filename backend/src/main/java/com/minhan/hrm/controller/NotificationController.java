@@ -50,6 +50,13 @@ public class NotificationController {
         notificationService.markRead(id);
     }
 
+    @PatchMapping("/read-all")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Đánh dấu tất cả thông báo đã đọc")
+    public void markAllRead() {
+        notificationService.markAllRead();
+    }
+
     @PostMapping("/adhoc")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('ADMIN')")

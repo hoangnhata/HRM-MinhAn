@@ -18,15 +18,24 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../components/layout/PageHeader';
+import { useAuth } from '../context/AuthContext';
+import { EmployeeSalarySummaryCard } from '../components/EmployeeSalarySummaryCard';
 import { EmployeeStatusChip } from '../components/EmployeeStatusChip';
 import { MaternityLeaveChip } from '../components/MaternityLeaveChip';
 import * as employeeService from '../services/employeeService';
 import * as documentService from '../services/documentService';
 import api from '../services/api';
 import { WORKFORCE_SECTIONS, workforceFieldLabel } from '../constants/workforceFieldLabels';
+import { formatDateVi, formatMaybeDate } from '../utils/dateFormat';
 import { isMaternityLeaveInsurance } from '../utils/workforceInsurance';
 
-function DetailRow({ label, value }: { label: string; value?: string | null }) {
+function DetailRow({ label, value, date }: { label: string; value?: string | null; date?: boolean }) {
+  const display =
+    value == null || String(value).trim() === ''
+      ? '—'
+      : date
+        ? formatDateVi(value)
+        : formatMaybeDate(value);
   return (
     <Stack
       direction={{ xs: 'column', sm: 'row' }}
@@ -47,7 +56,7 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
         {label}
       </Typography>
       <Typography component="span" variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
-        {value && String(value).trim() !== '' ? value : '—'}
+        {display}
       </Typography>
     </Stack>
   );
@@ -62,6 +71,7 @@ export default function EmployeeDetailPage() {
   const theme = useTheme();
   const { id } = useParams();
   const nav = useNavigate();
+  const { user } = useAuth();
   const [emp, setEmp] = useState<employeeService.EmployeeDetail | null>(null);
   const [docs, setDocs] = useState<documentService.DocMeta[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -72,13 +82,16 @@ export default function EmployeeDetailPage() {
     (async () => {
       try {
         const e = await employeeService.fetchEmployee(Number(id));
-        const d = await documentService.fetchDocuments(Number(id));
-        if (!cancelled) {
-          setEmp(e);
-          setDocs(d);
-        }
+        if (!cancelled) setEmp(e);
       } catch {
         if (!cancelled) setErr('Không tải được hồ sơ (kiểm tra quyền).');
+        return;
+      }
+      try {
+        const d = await documentService.fetchDocuments(Number(id));
+        if (!cancelled) setDocs(d);
+      } catch {
+        if (!cancelled) setDocs([]);
       }
     })();
     return () => {
@@ -116,7 +129,16 @@ export default function EmployeeDetailPage() {
   }
 
   const profile = (emp.workforceProfile ?? {}) as Record<string, unknown>;
-  const trialOnlyView = emp.employeeCode?.toUpperCase().startsWith('TV-') ?? false;
+  const isTrialEmployee =
+    emp.status === 'PROBATION' ||
+    emp.status === 'INTERN' ||
+    (emp.employeeCode?.toUpperCase().startsWith('TV-') ?? false);
+  const isSelf = user?.employeeId != null && user.employeeId === emp.id;
+  const trialOnlyView = isTrialEmployee && !isSelf;
+  const attendanceCode =
+    typeof profile.attendanceCode === 'string' && profile.attendanceCode.trim() !== ''
+      ? profile.attendanceCode.trim()
+      : null;
   const salaryFromNotes =
     typeof profile.workforceNotes === 'string' && profile.workforceNotes.includes('Mức lương:')
       ? profile.workforceNotes.split('Mức lương:').pop()?.split('|')[0]?.trim()
@@ -152,28 +174,43 @@ export default function EmployeeDetailPage() {
       />
 
       <Grid container spacing={2.5}>
-        {trialOnlyView ? (
-          <Grid item xs={12} lg={8}>
+        {isTrialEmployee && (
+          <Grid item xs={12} lg={trialOnlyView ? 8 : 12}>
             <Card variant="outlined" sx={{ borderColor: alpha(theme.palette.primary.main, 0.15) }}>
               <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
                 <Typography variant="subtitle1" fontWeight={700} gutterBottom sx={{ color: 'primary.main' }}>
                   Thông tin thử việc / thực tập
                 </Typography>
                 <DetailRow label="Họ tên" value={emp.fullName} />
-                <DetailRow label="Ngày sinh" value={emp.dateOfBirth} />
+                <DetailRow label="Ngày sinh" value={emp.dateOfBirth} date />
+                <DetailRow
+                  label="Loại"
+                  value={
+                    profile.trialType === 'BOTH'
+                      ? 'Thử việc + Thực hành'
+                      : profile.trialType === 'THUC_HANH' || emp.status === 'INTERN'
+                        ? 'Thực hành / Thực tập'
+                        : 'Thử việc'
+                  }
+                />
                 <DetailRow label="Vị trí" value={emp.positionTitle} />
                 <DetailRow label="Bằng cấp" value={profile.degree as string | undefined} />
                 <DetailRow label="Khoa/Phòng" value={emp.departmentName} />
+                <DetailRow label="Bộ phận" value={profile.workUnitDetail as string | undefined} />
+                <DetailRow label="Số điện thoại" value={emp.phone} />
+                <DetailRow label="Mã chấm công" value={attendanceCode} />
                 <DetailRow label="Mức lương" value={salaryFromNotes} />
                 <DetailRow
                   label="Từ ngày"
                   value={emp.hireDate ?? (profile.probationStartDate as string | undefined)}
+                  date
                 />
                 <DetailRow label="Ghi chú" value={noteOnly} />
               </CardContent>
             </Card>
           </Grid>
-        ) : (
+        )}
+        {!trialOnlyView && (
           <>
         <Grid item xs={12} lg={6}>
           <Card
@@ -190,7 +227,7 @@ export default function EmployeeDetailPage() {
               <DetailRow label="Email" value={emp.email} />
               <DetailRow label="Điện thoại" value={emp.phone} />
               <DetailRow label="Giới tính" value={emp.gender} />
-              <DetailRow label="Ngày sinh" value={emp.dateOfBirth} />
+              <DetailRow label="Ngày sinh" value={emp.dateOfBirth} date />
               <DetailRow label="CCCD/CMND" value={emp.idCardNumber} />
               <DetailRow label="Địa chỉ" value={emp.address} />
             </CardContent>
@@ -210,8 +247,12 @@ export default function EmployeeDetailPage() {
                 Công việc
               </Typography>
               <DetailRow label="Phòng ban" value={emp.departmentName} />
+              <DetailRow
+                label="Bộ phận"
+                value={typeof profile.workUnitDetail === 'string' ? profile.workUnitDetail : undefined}
+              />
               <DetailRow label="Chức vụ" value={emp.positionTitle} />
-              <DetailRow label="Ngày vào làm" value={emp.hireDate} />
+              <DetailRow label="Ngày vào làm" value={emp.hireDate} date />
             </CardContent>
           </Card>
         </Grid>
@@ -233,12 +274,16 @@ export default function EmployeeDetailPage() {
                     {c.contractType}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Ngày ký: {c.startDate}
+                    Ngày ký: {formatDateVi(c.startDate)}
                   </Typography>
                 </Box>
               ))}
             </CardContent>
           </Card>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <EmployeeSalarySummaryCard employeeId={emp.id} />
         </Grid>
 
         {emp.workforceProfile && Object.keys(emp.workforceProfile).length > 0 && (
@@ -299,7 +344,7 @@ export default function EmployeeDetailPage() {
                                     {String(v)}
                                   </Typography>
                                 ) : (
-                                  String(v)
+                                  formatMaybeDate(v)
                                 )}
                               </TableCell>
                             </TableRow>
@@ -327,7 +372,7 @@ export default function EmployeeDetailPage() {
                               {workforceFieldLabel(k)}
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                              {String(profile[k])}
+                              {formatMaybeDate(profile[k])}
                             </TableCell>
                           </TableRow>
                         ))}

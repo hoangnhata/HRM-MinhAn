@@ -1,0 +1,10 @@
+# Profile production — kich hoat: --spring.profiles.active=prod
+minhan:
+  hrm:
+    cors:
+      allowed-origins: "https://erp.benhvienminhan.com"
+    erp-auth:
+      base-url: https://erp.benhvienminhan.com
+      trust-insecure-ssl: false
+    frontend:
+      enabled: false

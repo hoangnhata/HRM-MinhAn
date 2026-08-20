@@ -1,77 +1,38 @@
-# Deploy frontend lên VM 101 — **không cần IIS**
+# Deploy frontend HRM — domain https://erp.benhvienminhan.com
 
-Backend Spring Boot phục vụ luôn file React tại `C:\hrm\www` trên **cùng port 8086**.
+> Hướng dẫn đầy đủ (backend + frontend + proxy): **[DEPLOY.md](./DEPLOY.md)**
 
-## Trên VM 101 (đã giải nén frontend vào C:\hrm\www)
+## Tóm tắt
 
-### Bước 1 — Copy JAR backend mới
+| Thành phần | URL |
+|------------|-----|
+| Frontend | https://erp.benhvienminhan.com/ |
+| API HRM | https://erp.benhvienminhan.com/j1-api |
+| Backend nội bộ | `http://<VM-HRM>:8086` |
 
-Copy `hrm-backend-1.0.0.jar` (bản có `FrontendSpaConfig`) lên `C:\hrm\`.
-
-### Bước 2 — Chạy backend
-
-```bat
-C:\hrm\start-hrm.bat
-```
-
-Đợi log: `Started HrmApplication`
-
-### Bước 3 — Truy cập
-
-| URL | Kỳ vọng |
-|-----|---------|
-| http://192.168.31.101:8086/ | Trang đăng nhập HRM |
-| http://192.168.31.101:8086/actuator/health | `{"status":"UP"}` |
-
-Đăng nhập: `admin` / `Admin@123`
-
-### Firewall (nếu máy khác không vào được)
-
-```powershell
-New-NetFirewallRule -DisplayName "HRM Backend 8086" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8086
-```
-
----
-
-## Trên máy dev (build frontend + backend)
+## Build (máy dev)
 
 ```bat
 cd deploy
 build-frontend.bat
 ```
 
-Build backend:
+Build dùng `VITE_API_URL=/j1-api` (file `frontend/.env.production`).
 
-```bat
-cd backend
-mvn -DskipTests package
-copy target\hrm-backend-1.0.0.jar ..\deploy\
-```
+## Cài trên server
 
-Copy lên VM:
+1. Copy `hrm-frontend-dist.zip` lên server
+2. Giải nén vào thư mục web ERP (có `index.html`, `assets/`, `web.config`)
+3. Đảm bảo IIS/Nginx proxy `/j1-api` → backend port **8086**
+4. Backend chạy `C:\hrm\start-hrm.bat` trên VM HRM
 
-- `deploy\hrm-frontend-dist.zip` → giải nén bằng `install-frontend-on-vm.ps1`
-- `deploy\hrm-backend-1.0.0.jar` → `C:\hrm\`
-- `deploy\start-hrm.bat` → `C:\hrm\`
+## Kiểm tra
 
----
+- https://erp.benhvienminhan.com/ — trang login
+- Đăng nhập → F12 Network → request tới `/j1-api/v1/...`
 
 ## Cập nhật frontend
 
 1. `build-frontend.bat`
-2. Copy zip → VM → `install-frontend-on-vm.ps1`
-3. Restart `start-hrm.bat` (hoặc chỉ F5 trình duyệt nếu chỉ đổi JS/CSS)
-
----
-
-## Phương án IIS (tùy chọn, port 80)
-
-Chỉ dùng nếu muốn URL không có `:8080`. Cần URL Rewrite + ARR.
-
-Link Rewrite **đúng** (link cũ bị 404):
-
-```
-https://download.microsoft.com/download/1/2/8/128E2E22-C1B9-44A4-BE2A-5859ED1D4592/rewrite_amd64_en-US.msi
-```
-
-Chạy `setup-iis-frontend.ps1` (đã sửa link).
+2. Copy zip → giải nén đè thư mục www
+3. `Ctrl+F5` trình duyệt

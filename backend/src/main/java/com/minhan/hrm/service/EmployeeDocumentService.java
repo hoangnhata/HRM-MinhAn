@@ -3,7 +3,6 @@ package com.minhan.hrm.service;
 import com.minhan.hrm.entity.Employee;
 import com.minhan.hrm.entity.EmployeeDocument;
 import com.minhan.hrm.entity.UserAccount;
-import com.minhan.hrm.entity.UserRole;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.EmployeeDocumentRepository;
@@ -33,7 +32,7 @@ public class EmployeeDocumentService {
     private final FileStorageService fileStorageService;
     private final EmployeeService employeeService;
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT')")
     @Transactional
     public void deleteAllForEmployee(Long employeeId) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
@@ -50,7 +49,7 @@ public class EmployeeDocumentService {
         documentRepository.deleteAll(docs);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT')")
     @Transactional
     public Map<String, Object> upload(Long employeeId, MultipartFile file, String docType) {
         employeeService.getById(employeeId); // RBAC
@@ -110,16 +109,6 @@ public class EmployeeDocumentService {
     }
 
     private void assertCanAccessDocuments(Employee target) {
-        UserAccount current = employeeService.currentUser();
-        if (current.getRole() == UserRole.ADMIN
-                || current.getRole() == UserRole.HR
-                || current.getRole() == UserRole.HEAD_DEPARTMENT
-                || current.getRole() == UserRole.HEAD_NURSING) {
-            return;
-        }
-        Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
-        if (self == null || !self.getId().equals(target.getId())) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem tài liệu");
-        }
+        employeeService.assertCanAccessEmployee(target);
     }
 }

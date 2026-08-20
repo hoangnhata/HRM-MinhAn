@@ -7,13 +7,22 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
 public interface YoungChildRequestRepository extends JpaRepository<YoungChildRequest, Long> {
 
-    boolean existsByEmployeeAndPeriodYearAndPeriodMonthAndStatus(
-            Employee employee, int periodYear, int periodMonth, YoungChildRequestStatus status);
+    @Query("""
+            SELECT CASE WHEN COUNT(r) > 0 THEN true ELSE false END FROM YoungChildRequest r
+            WHERE r.employee = :employee AND r.status = :status
+              AND r.startDate <= :endDate AND r.endDate >= :startDate
+            """)
+    boolean existsOverlapping(
+            @Param("employee") Employee employee,
+            @Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate,
+            @Param("status") YoungChildRequestStatus status);
 
     @Query("""
             SELECT r FROM YoungChildRequest r
@@ -38,6 +47,8 @@ public interface YoungChildRequestRepository extends JpaRepository<YoungChildReq
 
     List<YoungChildRequest> findByRequestedBy_IdOrderByCreatedAtDesc(Long userId);
 
+    List<YoungChildRequest> findByEmployee_IdOrderByCreatedAtDesc(Long employeeId);
+
     @Query("""
             SELECT r FROM YoungChildRequest r
             JOIN FETCH r.employee e
@@ -48,6 +59,15 @@ public interface YoungChildRequestRepository extends JpaRepository<YoungChildReq
             """)
     Optional<YoungChildRequest> findByIdWithDetails(@Param("id") Long id);
 
-    Optional<YoungChildRequest> findFirstByEmployee_IdAndPeriodYearAndPeriodMonthAndStatusOrderByCreatedAtDesc(
-            Long employeeId, int periodYear, int periodMonth, YoungChildRequestStatus status);
+    @Query("""
+            SELECT r FROM YoungChildRequest r
+            WHERE r.employee.id = :employeeId AND r.status = :status
+              AND r.startDate <= :toDate AND r.endDate >= :fromDate
+            ORDER BY r.createdAt DESC
+            """)
+    List<YoungChildRequest> findPendingOverlapping(
+            @Param("employeeId") Long employeeId,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate,
+            @Param("status") YoungChildRequestStatus status);
 }

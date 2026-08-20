@@ -6,6 +6,7 @@ import com.minhan.hrm.entity.*;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.*;
+import com.minhan.hrm.service.support.RequestEditSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -32,11 +33,13 @@ public class DepartmentTransferService {
 
     private final DepartmentTransferRequestRepository transferRepository;
     private final EmployeeRepository employeeRepository;
+    private final EmployeeLinkService employeeLinkService;
     private final DepartmentRepository departmentRepository;
     private final PositionRepository positionRepository;
     private final UserAccountRepository userAccountRepository;
     private final EmployeeService employeeService;
     private final NotificationService notificationService;
+    private final ApprovalSignatureService approvalSignatureService;
 
     @Transactional
     public Map<String, Object> create(DepartmentTransferCreateRequest req) {
@@ -80,6 +83,47 @@ public class DepartmentTransferService {
         row = transferRepository.save(row);
 
         notifyDirectorsPending(row);
+        notificationService.notifyDepartmentTransferSubmittedToEmployee(row);
+        return toMap(row);
+    }
+
+    @Transactional
+    public Map<String, Object> update(Long id, DepartmentTransferCreateRequest req) {
+        UserAccount actor = employeeService.currentUser();
+        DepartmentTransferRequest row = transferRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đề nghị luân chuyển"));
+        RequestEditSupport.ensureRequesterOrAdmin(actor, row.getRequestedBy(),
+                "Không có quyền chỉnh sửa đề nghị này");
+        RequestEditSupport.ensurePendingStatus(row.getStatus(), "đề nghị luân chuyển");
+
+        Employee emp = row.getEmployee();
+        if (!emp.getId().equals(req.getEmployeeId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Không đổi nhân viên khi chỉnh sửa đề nghị");
+        }
+        if (transferRepository.findByEmployeeIdOrderByCreatedAtDesc(emp.getId()).stream()
+                .anyMatch(r -> !r.getId().equals(id) && OPEN.contains(r.getStatus()))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Nhân viên đang có đề nghị luân chuyển chờ duyệt hoặc chờ ngày hiệu lực");
+        }
+        Department toDept = departmentRepository.findById(req.getToDepartmentId())
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phòng ban đích"));
+        if (emp.getDepartment() != null && emp.getDepartment().getId().equals(toDept.getId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Phòng ban đích trùng phòng ban hiện tại");
+        }
+        if (req.getEffectiveDate() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Thiếu ngày luân chuyển");
+        }
+        Position toPos = null;
+        if (req.getToPositionId() != null) {
+            toPos = positionRepository.findById(req.getToPositionId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chức vụ đích"));
+        }
+
+        row.setToDepartment(toDept);
+        row.setToPosition(toPos);
+        row.setEffectiveDate(req.getEffectiveDate());
+        row.setReason(req.getReason().trim());
+        row = transferRepository.save(row);
         return toMap(row);
     }
 
@@ -101,15 +145,24 @@ public class DepartmentTransferService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getById(Long id) {
-        ensureCanViewTransfers();
         DepartmentTransferRequest row = transferRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đề nghị luân chuyển"));
+        ensureCanViewRequest(row);
         return toMap(row);
     }
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listByEmployee(Long employeeId) {
+        ensureCanListForEmployee(employeeId);
         return transferRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId).stream()
+                .map(this::toMap)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> listRelatedToMe() {
+        Employee self = requireSelfEmployee();
+        return transferRepository.findByEmployeeIdOrderByCreatedAtDesc(self.getId()).stream()
                 .map(this::toMap)
                 .toList();
     }
@@ -119,14 +172,19 @@ public class DepartmentTransferService {
         UserAccount director = ensureDirectorOrAdmin();
         DepartmentTransferRequest row = transferRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đề nghị luân chuyển"));
-        if (row.getStatus() != DepartmentTransferStatus.PENDING_DIRECTOR) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Đề nghị không còn chờ giám đốc duyệt");
+        if (row.getStatus() != DepartmentTransferStatus.PENDING_DIRECTOR
+                && row.getStatus() != DepartmentTransferStatus.REJECTED
+                && row.getStatus() != DepartmentTransferStatus.APPROVED) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Đề nghị đã áp dụng hoặc đã hủy nên không thể đổi quyết định");
         }
         boolean approved = Boolean.TRUE.equals(body.getApproved());
         row.setDirectorReviewer(director);
         row.setDirectorReviewedAt(Instant.now());
         row.setDirectorComment(body.getComment() != null && !body.getComment().isBlank()
                 ? body.getComment().trim() : null);
+        row.setDirectorSignaturePath(
+                approvalSignatureService.snapshotForApproval(director, "transfer", row.getId(), "director"));
 
         if (!approved) {
             row.setStatus(DepartmentTransferStatus.REJECTED);
@@ -157,9 +215,14 @@ public class DepartmentTransferService {
         if (!canCancel) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền hủy đề nghị này");
         }
-        if (row.getStatus() != DepartmentTransferStatus.PENDING_DIRECTOR
-                && row.getStatus() != DepartmentTransferStatus.APPROVED) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Chỉ hủy được đề nghị đang chờ duyệt hoặc chờ ngày hiệu lực");
+        if (row.getStatus() == DepartmentTransferStatus.CANCELLED) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Đề nghị đã thu hồi rồi");
+        }
+        if (row.getStatus() == DepartmentTransferStatus.APPLIED) {
+            Employee emp = row.getEmployee();
+            emp.setDepartment(row.getFromDepartment());
+            employeeRepository.save(emp);
+            row.setAppliedAt(null);
         }
         row.setStatus(DepartmentTransferStatus.CANCELLED);
         transferRepository.save(row);
@@ -200,10 +263,7 @@ public class DepartmentTransferService {
     }
 
     private void notifyDirectorsPending(DepartmentTransferRequest row) {
-        List<UserAccount> directors = userAccountRepository.findByRoleIn(List.of(UserRole.DIRECTOR));
-        if (directors.isEmpty()) {
-            directors = userAccountRepository.findByRoleIn(List.of(UserRole.ADMIN));
-        }
+        List<UserAccount> directors = userAccountRepository.findByDirectorApprovalEnabledTrueAndEnabledTrue();
         for (UserAccount u : directors) {
             if (!u.isEnabled()) {
                 continue;
@@ -214,7 +274,7 @@ public class DepartmentTransferService {
 
     private UserAccount ensureDirectorOrAdmin() {
         UserAccount u = employeeService.currentUser();
-        if (u.getRole() != UserRole.DIRECTOR && u.getRole() != UserRole.ADMIN) {
+        if (!com.minhan.hrm.security.ApprovalAuthority.isDirectorApprover(u)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ Giám đốc/ADMIN được duyệt luân chuyển");
         }
         return u;
@@ -222,11 +282,49 @@ public class DepartmentTransferService {
 
     private void ensureCanViewTransfers() {
         UserAccount u = employeeService.currentUser();
-        if (u.getRole() != UserRole.DIRECTOR
-                && u.getRole() != UserRole.ADMIN
+        if (!com.minhan.hrm.security.ApprovalAuthority.isDirectorApprover(u)
                 && u.getRole() != UserRole.HR) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem đơn luân chuyển");
         }
+    }
+
+    private void ensureCanViewRequest(DepartmentTransferRequest row) {
+        UserAccount u = employeeService.currentUser();
+        if (u.getRole() == UserRole.HR || com.minhan.hrm.security.ApprovalAuthority.isDirectorApprover(u)) {
+            return;
+        }
+        if (u.getRole() == UserRole.EMPLOYEE) {
+            Long selfId = actorEmployeeId(u);
+            if (selfId != null && row.getEmployee().getId().equals(selfId)) {
+                return;
+            }
+        }
+        throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem đơn luân chuyển");
+    }
+
+    private void ensureCanListForEmployee(Long employeeId) {
+        UserAccount actor = employeeService.currentUser();
+        UserRole role = actor.getRole();
+        if (role == UserRole.HR || com.minhan.hrm.security.ApprovalAuthority.isDirectorApprover(actor)) {
+            return;
+        }
+        if (role == UserRole.EMPLOYEE) {
+            Long selfId = actorEmployeeId(actor);
+            if (selfId != null && selfId.equals(employeeId)) {
+                return;
+            }
+        }
+        throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem đơn luân chuyển");
+    }
+
+    private Employee requireSelfEmployee() {
+        UserAccount actor = employeeService.currentUser();
+        return employeeLinkService.findLinkedEmployee(actor)
+                .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "Tài khoản chưa liên kết nhân viên"));
+    }
+
+    private Long actorEmployeeId(UserAccount actor) {
+        return employeeLinkService.findLinkedEmployee(actor).map(Employee::getId).orElse(null);
     }
 
     private Map<String, Object> toMap(DepartmentTransferRequest r) {
@@ -235,6 +333,8 @@ public class DepartmentTransferService {
         m.put("employeeId", r.getEmployee().getId());
         m.put("employeeCode", r.getEmployee().getEmployeeCode());
         m.put("employeeName", r.getEmployee().getFullName());
+        m.put("positionTitle", r.getEmployee().getPosition() != null
+                ? r.getEmployee().getPosition().getTitle() : null);
         m.put("fromDepartmentId", r.getFromDepartment().getId());
         m.put("fromDepartmentName", r.getFromDepartment().getName());
         m.put("toDepartmentId", r.getToDepartment().getId());
@@ -249,6 +349,8 @@ public class DepartmentTransferService {
                 r.getDirectorReviewer() != null ? r.getDirectorReviewer().getUsername() : null);
         m.put("directorComment", r.getDirectorComment());
         m.put("directorReviewedAt", r.getDirectorReviewedAt() != null ? r.getDirectorReviewedAt().toString() : null);
+        m.put("directorSignatureUrl", r.getDirectorSignaturePath() != null && !r.getDirectorSignaturePath().isBlank()
+                ? "/j1-api/v1/approval-signatures/transfer/" + r.getId() + "/director" : null);
         m.put("appliedAt", r.getAppliedAt() != null ? r.getAppliedAt().toString() : null);
         m.put("createdAt", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
         return m;

@@ -1,6 +1,7 @@
 package com.minhan.hrm.dto.employee;
 
 import com.minhan.hrm.entity.EmployeeStatus;
+import com.minhan.hrm.entity.EmploymentType;
 import com.minhan.hrm.entity.UserRole;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotNull;
@@ -36,4 +37,13 @@ public class EmployeeUpdateRequest {
 
     @NotNull
     private EmployeeStatus status;
+
+    /** true = trực chính (đầy đủ loại ca); false = chỉ trực kèm (TK). Null = giữ nguyên. */
+    private Boolean mainDutyAuthorized;
+
+    /** FULL_TIME (TTG) / PART_TIME (BTG). Null = giữ nguyên. */
+    private EmploymentType employmentType;
+
+    /** Hồ sơ nhân lực mở rộng. */
+    private WorkforceDetailsRequest workforce;
 }

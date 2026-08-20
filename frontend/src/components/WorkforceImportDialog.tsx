@@ -40,7 +40,7 @@ export function WorkforceImportDialog({ open, onClose, onImported }: Props) {
     setErr(null);
     setResult(null);
     if (!file) {
-      setErr('Chọn file .xlsx (TỔNG HỢP THÔNG TIN NHÂN LỰC.BVMA).');
+      setErr('Chọn file .xlsx (NHÂN LỰC BỆNH VIỆN MINH AN).');
       return;
     }
     setLoading(true);
@@ -60,8 +60,25 @@ export function WorkforceImportDialog({ open, onClose, onImported }: Props) {
       <DialogTitle>Import nhân lực từ Excel</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          File mẫu: <strong>TỔNG HỢP THÔNG TIN NHÂN LỰC.BVMA.xlsx</strong> — hỗ trợ sheet{' '}
-          <em>Danh sách NV chính thức</em> và <em>Thử việcThực tập</em>. Hệ thống tự nhận diện sheet và map cột vào hồ sơ.
+          File mẫu: <strong>NHÂN LỰC BỆNH VIỆN MINH AN.xlsx</strong>
+          <br />
+          Hệ thống nhận diện:
+        </Typography>
+        <Box component="ul" sx={{ m: 0, mb: 2, pl: 2.5 }}>
+          <li>
+            <Typography variant="body2" component="span">
+              <em>Danh sách NV chính thức phần mềm</em> — toàn thời gian (TTG) + thâm niên / bậc / lương cơ bản
+            </Typography>
+          </li>
+          <li>
+            <Typography variant="body2" component="span">
+              <em>Thử việcThực tập</em> — thử việc / thực tập (Phòng ban, Bộ phận, SĐT, Mã chấm công)
+            </Typography>
+          </li>
+        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Thâm niên lấy mốc 30/06: hiện tại = mốc + (hôm nay − 30/06) / 365. Không có mốc thì tính từ ngày
+          bắt đầu thang bảng lương. Bậc lương nhảy theo thâm niên (trừ LĐG).
         </Typography>
 
         <Box component="form" id="workforce-import-form" onSubmit={onSubmit}>
@@ -118,12 +135,12 @@ export function WorkforceImportDialog({ open, onClose, onImported }: Props) {
           </Box>
         )}
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
+      <DialogActions>
         <Button onClick={onClose} disabled={loading}>
           Đóng
         </Button>
-        <Button type="submit" form="workforce-import-form" variant="contained" disabled={loading}>
-          Bắt đầu import
+        <Button type="submit" form="workforce-import-form" variant="contained" disabled={loading || !file}>
+          Import
         </Button>
       </DialogActions>
     </Dialog>

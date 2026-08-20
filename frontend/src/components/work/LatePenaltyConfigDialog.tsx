@@ -230,10 +230,10 @@ export function LatePenaltyConfigDialog({ open, onClose, onSaved }: Props) {
         tiers: tiers.map((t) => ({
           sortOrder: t.sortOrder,
           minMinutes: t.minMinutes,
-          maxMinutes: t.requiresDiscipline ? null : t.maxMinutes,
+          maxMinutes: t.requiresDiscipline ? '' : (t.maxMinutes ?? ''),
           amount: t.amount,
           requiresDiscipline: t.requiresDiscipline,
-          note: t.note || null,
+          note: t.note || undefined,
         })),
       });
       onSaved?.();

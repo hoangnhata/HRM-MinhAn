@@ -7,11 +7,23 @@ export type ImportWorkforceResult = {
   sheetsProcessed?: string[];
 };
 
+export type ImportAccompanyingDutyResult = {
+  rowsRead: number;
+  listMatched: number;
+  tkOnlySet: number;
+  preservedAuthorized: number;
+  fullAccessSet: number;
+  errors: Array<{ row: number; message: string; sheet?: string }>;
+  sheetsProcessed?: string[];
+};
+
 export type ImportCheckInOutResult = {
   rawPunches: number;
   dailyRecords: number;
   upserted: number;
   skippedNoEmployee: number;
+  skippedProtectedDays?: number;
+  reappliedApprovedRequests?: number;
   unmappedEnrollCount: number;
   unmappedEnrollNumbers: string[];
   fromDate?: string;
@@ -52,6 +64,15 @@ export async function importWorkforceExcel(file: File) {
   const fd = new FormData();
   fd.append('file', file);
   const { data } = await api.post<ImportWorkforceResult>('/v1/import/workforce', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
+export async function importAccompanyingDutyExcel(file: File) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const { data } = await api.post<ImportAccompanyingDutyResult>('/v1/import/accompanying-duty', fd, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;
@@ -105,11 +126,21 @@ export async function updateCheckInOutSyncSchedule(payload: ChamcongSyncSchedule
   return data;
 }
 
-export async function importSalarySeniorityExcel(file: File) {
-  const fd = new FormData();
-  fd.append('file', file);
-  const { data } = await api.post<SalaryImportResult>('/v1/import/salary-seniority', fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+export type AttendanceCodeSyncResult = {
+  deviceUsers: number;
+  missingBefore: number;
+  updated: number;
+  skippedNoMatch: number;
+  skippedAmbiguous: number;
+  skippedConflict: number;
+  samples: Array<{ employeeId: number; fullName: string; attendanceCode: string; deviceName: string }>;
+  ambiguous: Array<{ employeeId: number; fullName: string; candidates: string[] }>;
+  unmatched: Array<{ employeeId: number; fullName: string }>;
+};
+
+/** Đồng bộ mã chấm công từ chamcong.dbo.UserInfo cho NV còn thiếu mã. */
+export async function syncAttendanceCodesFromDevice() {
+  const { data } = await api.post<AttendanceCodeSyncResult>('/v1/import/attendance-codes/sync', null, {
     timeout: 300000,
   });
   return data;

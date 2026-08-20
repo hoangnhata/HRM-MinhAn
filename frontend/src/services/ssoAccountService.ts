@@ -14,8 +14,13 @@ export type SsoAccountRow = {
   userEnrollNumber?: number | null;
   roleCode?: string | null;
   roleName?: string | null;
+  /** Vai trò ERP — UserAccounts.RoleId */
+  roleId?: number | null;
+  /** Vai trò Tài sản — UserAccounts.roleId_ts */
+  roleIdTs?: number | null;
   fullName?: string | null;
   departmentName?: string | null;
+  workUnitDetail?: string | null;
   hrmEmployeeId?: number | null;
 };
 
@@ -24,11 +29,16 @@ export async function fetchSsoHrmRoles() {
   return data;
 }
 
-export async function fetchSsoAccounts(params?: { q?: string; departmentId?: number }) {
+export async function fetchSsoAccounts(params?: {
+  q?: string;
+  departmentId?: number;
+  workUnit?: string;
+}) {
   const { data } = await api.get<SsoAccountRow[]>('/v1/sso/accounts', {
     params: {
       ...(params?.q?.trim() ? { q: params.q.trim() } : {}),
       ...(params?.departmentId != null ? { departmentId: params.departmentId } : {}),
+      ...(params?.workUnit?.trim() ? { workUnit: params.workUnit.trim() } : {}),
     },
   });
   return data;
@@ -39,6 +49,16 @@ export async function assignSsoHrmRole(accountId: number, roleCode: string) {
   return data;
 }
 
+export async function assignSsoErpRole(accountId: number, roleId: number) {
+  const { data } = await api.put(`/v1/sso/accounts/${accountId}/erp-role`, { roleId });
+  return data;
+}
+
+export async function assignSsoAssetRole(accountId: number, roleIdTs: number) {
+  const { data } = await api.put(`/v1/sso/accounts/${accountId}/asset-role`, { roleIdTs });
+  return data;
+}
+
 /** Nhân viên HRM chưa có tài khoản đăng nhập (UserEnrollNumber = mã chấm công). */
 export type EmployeeAccountCandidate = {
   id: number;
@@ -46,6 +66,13 @@ export type EmployeeAccountCandidate = {
   dept?: string | null;
   phone?: string | null;
   cccd?: string | null;
+  missingPhone?: boolean | null;
+  employeeStatus?: string | null;
+  hrmEmployeeId?: number | null;
+  employeeCode?: string | null;
+  attendanceCode?: string | null;
+  missingAttendanceCode?: boolean | null;
+  employmentType?: string | null;
   roleId?: number | null;
   roleIdTs?: number | null;
 };
@@ -62,6 +89,8 @@ export async function fetchEmployeesWithoutAccount(params?: {
   page?: number;
   limit?: number;
   dept?: string;
+  /** TRIAL | OFFICIAL_TTG | OFFICIAL_BTG | OFFICIAL */
+  trialGroup?: string;
 }) {
   const { data } = await api.get<EmployeeAccountCandidatePage>('/hrm/employees', {
     params: {
@@ -70,6 +99,7 @@ export async function fetchEmployeesWithoutAccount(params?: {
       limit: params?.limit ?? 100,
       ...(params?.search?.trim() ? { search: params.search.trim() } : {}),
       ...(params?.dept?.trim() ? { dept: params.dept.trim() } : {}),
+      ...(params?.trialGroup?.trim() ? { trialGroup: params.trialGroup.trim() } : {}),
     },
   });
   return data;
@@ -77,16 +107,44 @@ export async function fetchEmployeesWithoutAccount(params?: {
 
 export type GrantAccountPayload = {
   password?: string;
+  /** SĐT đăng nhập — lưu vào HRM nếu NV chưa có / khi nhập mới lúc cấp TK */
+  phone?: string;
   /** Vai trò ERP (UserAccounts.RoleId) */
   roleId?: number;
   roleIdTs?: number;
   /** Chức danh HRM — 6 role phần mềm (UserAppRoles) */
   hrmRoleCode?: string;
+  /** Mã chấm công — lưu HRM + UserEnrollNumber SSO */
+  attendanceCode?: string;
 };
 
 export type GrantAccountResult = { message: string; id: string };
 
 export async function grantEmployeeAccount(userEnrollNumber: number, payload: GrantAccountPayload) {
   const { data } = await api.post<GrantAccountResult>(`/hrm/employees/${userEnrollNumber}/account`, payload);
+  return data;
+}
+
+export type SsoWorkforceSyncResult = {
+  scanned: number;
+  accountsCreated: number;
+  accountsUpdated: number;
+  accountsDeactivated: number;
+  accountsOrphansRemoved?: number;
+  profilesOrphansRemoved?: number;
+  publicUpserted: number;
+  privateUpserted: number;
+  relationDeptMatched?: number;
+  relationDeptCreated?: number;
+  skippedNoPhone: number;
+  skippedNoEnroll: number;
+  skippedDuplicatePhone?: number;
+  failed: number;
+  message: string;
+};
+
+/** Đồng bộ nhân lực HRM → SSO (cập nhật TK, xóa TK/hồ sơ không còn trong HRM). */
+export async function syncWorkforceToSso() {
+  const { data } = await api.post<SsoWorkforceSyncResult>('/v1/sso/sync-workforce');
   return data;
 }

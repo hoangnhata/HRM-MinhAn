@@ -1,0 +1,64 @@
+name: hrm_mobile
+description: "HRM Minh An - ung dung di dong noi bo Benh vien Minh An."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Navigation
+  go_router: ^14.8.1
+
+  # Networking
+  dio: ^5.7.0
+
+  # Secure storage for JWT
+  flutter_secure_storage: ^9.2.2
+
+  # Fonts (Inter, matches web)
+  google_fonts: ^6.2.1
+
+  # UI motion, vector brand assets and touch-first list actions
+  flutter_animate: ^4.5.2
+  flutter_svg: ^2.3.0
+  flutter_slidable: ^4.0.3
+
+  # Date/number formatting (vi-VN)
+  intl: ^0.20.2
+
+  # Anh dai dien / chu ky / avatar tai qua API
+  cached_network_image: ^3.4.1
+  image_picker: ^1.1.2
+
+  # Chu ky viet tay (bat buoc thiet lap khi dang nhap lan dau)
+  signature: ^5.5.0
+
+  # Icons
+  cupertino_icons: ^1.0.8
+
+  # Tien ich danh sach (firstOrNull...)
+  collection: ^1.19.1
+  fl_chart: ^1.2.0
+  firebase_core: ^4.13.0
+  firebase_messaging: ^16.5.0
+  flutter_local_notifications: ^22.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/

@@ -6,6 +6,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "young_child_requests")
@@ -24,6 +25,13 @@ public class YoungChildRequest {
     @JoinColumn(name = "employee_id", nullable = false)
     private Employee employee;
 
+    @Column(name = "start_date", nullable = false)
+    private LocalDate startDate;
+
+    @Column(name = "end_date", nullable = false)
+    private LocalDate endDate;
+
+    /** Trường tương thích dữ liệu cũ; lấy theo ngày bắt đầu. */
     @Column(name = "period_year", nullable = false)
     private int periodYear;
 
@@ -54,6 +62,9 @@ public class YoungChildRequest {
 
     @Column(name = "hr_comment", length = 1000)
     private String hrComment;
+
+    @Column(name = "hr_signature_path", length = 500)
+    private String hrSignaturePath;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

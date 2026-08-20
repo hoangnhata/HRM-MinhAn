@@ -26,7 +26,7 @@ public class EmployeeDocumentController {
     private final EmployeeDocumentService documentService;
 
     @DeleteMapping("/employees/{employeeId}")
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT')")
     @Operation(summary = "Xóa toàn bộ PDF đã đính kèm của nhân viên")
     public ResponseEntity<Void> deleteAll(@PathVariable Long employeeId) {
         documentService.deleteAllForEmployee(employeeId);
@@ -34,7 +34,7 @@ public class EmployeeDocumentController {
     }
 
     @PostMapping(value = "/employees/{employeeId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT')")
     @Operation(summary = "Upload PDF cho nhân viên (chỉ PDF)")
     public Map<String, Object> upload(
             @PathVariable Long employeeId,

@@ -17,7 +17,7 @@ call npm install
 if errorlevel 1 exit /b 1
 
 echo.
-echo === Build production (VITE_API_URL=/j1-api) ===
+echo === Build production (VITE_API_URL=/j1-api — erp.benhvienminhan.com) ===
 call npm run build:deploy
 if errorlevel 1 exit /b 1
 

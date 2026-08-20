@@ -3,16 +3,20 @@ package com.minhan.hrm.service;
 import com.minhan.hrm.config.HrmProperties;
 import com.minhan.hrm.dto.account.AccountMeResponse;
 import com.minhan.hrm.dto.account.AccountProfileUpdateRequest;
+import com.minhan.hrm.dto.account.AvatarSaveRequest;
 import com.minhan.hrm.dto.account.ChangePasswordRequest;
+import com.minhan.hrm.dto.account.SignatureSaveRequest;
 import com.minhan.hrm.dto.auth.ErpProfileResponse;
 import com.minhan.hrm.dto.auth.ErpProfileUpdateBody;
 import com.minhan.hrm.dto.auth.ErpProfileUpdateResponse;
 import com.minhan.hrm.entity.Department;
 import com.minhan.hrm.entity.Employee;
 import com.minhan.hrm.entity.UserAccount;
+import com.minhan.hrm.entity.UserRole;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.repository.DepartmentRepository;
 import com.minhan.hrm.repository.EmployeeRepository;
+import com.minhan.hrm.repository.EmployeeWorkforceDetailsRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
 import com.minhan.hrm.security.SecurityUtils;
 import com.minhan.hrm.sso.ErpAuthClient;
@@ -24,12 +28,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -40,10 +47,14 @@ public class AccountService {
 
     private final UserAccountRepository userAccountRepository;
     private final EmployeeRepository employeeRepository;
+    private final EmployeeWorkforceDetailsRepository employeeWorkforceDetailsRepository;
+    private final EmployeeLinkService employeeLinkService;
     private final DepartmentRepository departmentRepository;
     private final PasswordEncoder passwordEncoder;
     private final ErpAuthClient erpAuthClient;
     private final HrmProperties hrmProperties;
+    private final FileStorageService fileStorageService;
+    private final EmployeeService employeeService;
 
     @Transactional
     public AccountMeResponse getMe() {
@@ -51,12 +62,35 @@ public class AccountService {
         return buildMe(u, true);
     }
 
+    /** Ảnh đại diện: ưu tiên file local, không có thì proxy ERP. */
+    @Transactional
+    public ErpAuthClient.AvatarBytes getMyAvatar() {
+        UserAccount u = currentUser();
+        if (u.getAvatarPath() != null && !u.getAvatarPath().isBlank()) {
+            try {
+                Path path = fileStorageService.resolveStoredPath(u.getAvatarPath());
+                if (Files.exists(path)) {
+                    String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                    String ct = name.endsWith(".jpg") || name.endsWith(".jpeg")
+                            ? MediaType.IMAGE_JPEG_VALUE
+                            : MediaType.IMAGE_PNG_VALUE;
+                    return new ErpAuthClient.AvatarBytes(Files.readAllBytes(path), ct);
+                }
+            } catch (ApiException ex) {
+                throw ex;
+            } catch (Exception ex) {
+                log.warn("Không đọc được avatar local userId={}: {}", u.getId(), ex.getMessage());
+            }
+        }
+        return getErpAvatar();
+    }
+
     /** Ảnh đại diện ERP — proxy qua HRM (Bearer) để tránh CORS / path tương đối. */
     @Transactional
     public ErpAuthClient.AvatarBytes getErpAvatar() {
         UserAccount u = currentUser();
         if (u.getErpAccessToken() == null || u.getErpAccessToken().isBlank()) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Chưa liên kết ERP hoặc không có avatar");
+            throw new ApiException(HttpStatus.NOT_FOUND, "Chưa có ảnh đại diện");
         }
         ErpProfileResponse.ErpProfile p = erpAuthClient.getProfile(u.getErpAccessToken()).getProfile();
         String raw = p.getUserAvatar();
@@ -79,6 +113,34 @@ public class AccountService {
     }
 
     @Transactional
+    public AccountMeResponse saveMyAvatar(AvatarSaveRequest req) {
+        UserAccount u = currentUser();
+        DecodedImage decoded = decodeSignatureImage(req.getImageBase64());
+        String oldPath = u.getAvatarPath();
+        String relative = fileStorageService.storeImageBytes(
+                decoded.data(),
+                decoded.contentType(),
+                "avatars/" + u.getId(),
+                "avatar");
+        u.setAvatarPath(relative);
+        userAccountRepository.save(u);
+        if (oldPath != null && !oldPath.isBlank() && !oldPath.equals(relative)) {
+            fileStorageService.deleteStoredFile(oldPath);
+        }
+        return buildMe(u, true);
+    }
+
+    @Transactional
+    public AccountMeResponse deleteMyAvatar() {
+        UserAccount u = currentUser();
+        String old = u.getAvatarPath();
+        u.setAvatarPath(null);
+        userAccountRepository.save(u);
+        fileStorageService.deleteStoredFile(old);
+        return buildMe(u, true);
+    }
+
+    @Transactional
     public AccountMeResponse updateProfile(AccountProfileUpdateRequest req) {
         UserAccount u = currentUser();
 
@@ -88,7 +150,7 @@ public class AccountService {
             updateLocalOnly(u, req);
         }
 
-        employeeRepository.findByUser(u).ifPresent(e -> {
+        employeeLinkService.findLinkedEmployee(u).ifPresent(e -> {
             boolean changed = false;
             if (req.getAddress() != null) {
                 e.setAddress(req.getAddress().trim().isEmpty() ? null : req.getAddress().trim());
@@ -102,8 +164,13 @@ public class AccountService {
                 changed = true;
             }
             if (req.getPhone() != null && (u.getErpAccessToken() == null || u.getErpAccessToken().isBlank())) {
-                e.setPhone(req.getPhone().trim().isEmpty() ? null : req.getPhone().trim());
-                changed = true;
+                if (req.getPhone().trim().isEmpty()) {
+                    e.setPhone(null);
+                    changed = true;
+                } else {
+                    employeeService.syncPhoneAndLoginUsername(e, req.getPhone());
+                    changed = true;
+                }
             }
             if (changed) {
                 employeeRepository.save(e);
@@ -122,6 +189,90 @@ public class AccountService {
         u.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
         u.setMustChangePassword(false);
         userAccountRepository.save(u);
+    }
+
+    public record SignatureBytes(byte[] data, String contentType) {}
+
+    @Transactional(readOnly = true)
+    public SignatureBytes getMySignature() {
+        UserAccount u = currentUser();
+        if (u.getSignaturePath() == null || u.getSignaturePath().isBlank()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Chưa có chữ ký");
+        }
+        try {
+            Path path = fileStorageService.resolveStoredPath(u.getSignaturePath());
+            if (!Files.exists(path)) {
+                throw new ApiException(HttpStatus.NOT_FOUND, "File chữ ký không tồn tại");
+            }
+            String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+            String ct = name.endsWith(".jpg") || name.endsWith(".jpeg")
+                    ? MediaType.IMAGE_JPEG_VALUE
+                    : MediaType.IMAGE_PNG_VALUE;
+            return new SignatureBytes(Files.readAllBytes(path), ct);
+        } catch (ApiException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Không đọc được chữ ký");
+        }
+    }
+
+    @Transactional
+    public AccountMeResponse saveMySignature(SignatureSaveRequest req) {
+        UserAccount u = currentUser();
+        DecodedImage decoded = decodeSignatureImage(req.getImageBase64());
+        String oldPath = u.getSignaturePath();
+        String relative = fileStorageService.storeImageBytes(
+                decoded.data(),
+                decoded.contentType(),
+                "signatures/" + u.getId(),
+                "sign");
+        u.setSignaturePath(relative);
+        userAccountRepository.save(u);
+        if (oldPath != null && !oldPath.isBlank() && !oldPath.equals(relative)) {
+            fileStorageService.deleteStoredFile(oldPath);
+        }
+        return buildMe(u, true);
+    }
+
+    @Transactional
+    public AccountMeResponse deleteMySignature() {
+        UserAccount u = currentUser();
+        String old = u.getSignaturePath();
+        u.setSignaturePath(null);
+        userAccountRepository.save(u);
+        fileStorageService.deleteStoredFile(old);
+        return buildMe(u, true);
+    }
+
+    private record DecodedImage(byte[] data, String contentType) {}
+
+    private static DecodedImage decodeSignatureImage(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Thiếu dữ liệu ảnh chữ ký");
+        }
+        String value = raw.trim();
+        String contentType = MediaType.IMAGE_PNG_VALUE;
+        String b64 = value;
+        if (value.startsWith("data:image")) {
+            int comma = value.indexOf(',');
+            if (comma < 0) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Định dạng ảnh không hợp lệ");
+            }
+            String meta = value.substring(5, comma);
+            if (meta.toLowerCase(Locale.ROOT).contains("jpeg") || meta.toLowerCase(Locale.ROOT).contains("jpg")) {
+                contentType = MediaType.IMAGE_JPEG_VALUE;
+            }
+            b64 = value.substring(comma + 1);
+        }
+        try {
+            byte[] data = Base64.getDecoder().decode(b64);
+            if (data.length < 32) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Ảnh chữ ký không hợp lệ");
+            }
+            return new DecodedImage(data, contentType);
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Ảnh chữ ký base64 không hợp lệ");
+        }
     }
 
     private void updateErpProfile(UserAccount u, AccountProfileUpdateRequest req) {
@@ -164,7 +315,7 @@ public class AccountService {
         }
         userAccountRepository.save(u);
 
-        employeeRepository.findByUser(u).ifPresent(e -> {
+        employeeLinkService.findLinkedEmployee(u).ifPresent(e -> {
             if (fullName != null && !fullName.isBlank() && !fullName.equals(e.getFullName())) {
                 e.setFullName(fullName.trim());
                 employeeRepository.save(e);
@@ -181,11 +332,16 @@ public class AccountService {
         }
         userAccountRepository.save(u);
 
-        employeeRepository.findByUser(u).ifPresent(e -> {
+        employeeLinkService.findLinkedEmployee(u).ifPresent(e -> {
             boolean changed = false;
             if (req.getPhone() != null) {
-                e.setPhone(req.getPhone().trim().isEmpty() ? null : req.getPhone().trim());
-                changed = true;
+                if (req.getPhone().trim().isEmpty()) {
+                    e.setPhone(null);
+                    changed = true;
+                } else {
+                    employeeService.syncPhoneAndLoginUsername(e, req.getPhone());
+                    changed = true;
+                }
             }
             if (req.getAddress() != null) {
                 e.setAddress(req.getAddress().trim().isEmpty() ? null : req.getAddress().trim());
@@ -229,20 +385,32 @@ public class AccountService {
                 .email(u.getEmail())
                 .role(u.getRole().name())
                 .enabled(u.isEnabled())
+                .directorApprovalEnabled(u.isDirectorApprovalEnabled())
+                .reportViewEnabled(u.isReportViewEnabled())
+                .workUnitScoped(u.isWorkUnitScoped())
                 .mustChangePassword(u.isMustChangePassword())
                 .createdAt(u.getCreatedAt().toString())
                 .erpLinked(false);
 
-        Optional<Employee> empOpt = employeeRepository.findByUser(u);
+        Optional<Employee> empOpt = employeeLinkService.findLinkedEmployee(u);
         if (empOpt.isPresent()) {
             Employee e = empOpt.get();
             b.employeeId(e.getId())
                     .fullName(e.getFullName())
                     .phone(e.getPhone())
                     .address(e.getAddress())
+                    .employeeCode(resolveEmployeeCode(e))
                     .departmentName(e.getDepartment() != null ? e.getDepartment().getName() : null)
                     .departmentId(e.getDepartment() != null ? e.getDepartment().getId() : null)
-                    .dateOfBirth(e.getDateOfBirth() != null ? e.getDateOfBirth().toString() : null);
+                    .positionTitle(e.getPosition() != null ? e.getPosition().getTitle() : null)
+                    .workUnitDetail(employeeWorkforceDetailsRepository.findByEmployee(e)
+                            .map(w -> w.getWorkUnitDetail())
+                            .map(String::trim)
+                            .filter(s -> !s.isBlank())
+                            .orElse(null))
+                    .dateOfBirth(e.getDateOfBirth() != null ? e.getDateOfBirth().toString() : null)
+                    .employeeStatus(e.getStatus() != null ? e.getStatus().name() : null)
+                    .canViewSalary(resolveCanViewSalary(u, e));
         } else {
             b.employeeId(null)
                     .fullName(u.getDisplayName() != null && !u.getDisplayName().isBlank()
@@ -250,8 +418,13 @@ public class AccountService {
                             : u.getUsername())
                     .phone("")
                     .address("")
+                    .employeeCode(null)
                     .departmentName(null)
-                    .departmentId(null);
+                    .departmentId(null)
+                    .positionTitle(null)
+                    .workUnitDetail(null)
+                    .employeeStatus(null)
+                    .canViewSalary(true);
         }
 
         if (tryErp && u.getErpAccessToken() != null && !u.getErpAccessToken().isBlank()) {
@@ -271,7 +444,34 @@ public class AccountService {
             }
         }
 
+        boolean hasSig = u.getSignaturePath() != null && !u.getSignaturePath().isBlank();
+        boolean hasAvatar = u.getAvatarPath() != null && !u.getAvatarPath().isBlank();
+        b.hasSignature(hasSig)
+                .signatureUrl(hasSig ? "/j1-api/v1/account/me/signature" : null)
+                .hasAvatar(hasAvatar);
+        if (hasAvatar) {
+            b.userAvatar("/j1-api/v1/account/me/avatar");
+        }
+
         return b.build();
+    }
+
+    private boolean resolveCanViewSalary(UserAccount u, Employee e) {
+        if (u.getRole() == UserRole.ADMIN || u.getRole() == UserRole.HR || u.getRole() == UserRole.DIRECTOR) {
+            return true;
+        }
+        return employeeService.canViewOwnSalary(e);
+    }
+
+    /** Mã NV ưu tiên employeeCode; nếu trống thì dùng CCCD/CMND. */
+    private static String resolveEmployeeCode(Employee e) {
+        if (e.getEmployeeCode() != null && !e.getEmployeeCode().isBlank()) {
+            return e.getEmployeeCode().trim();
+        }
+        if (e.getIdCardNumber() != null && !e.getIdCardNumber().isBlank()) {
+            return e.getIdCardNumber().trim();
+        }
+        return null;
     }
 
     private void mergeErpIntoBuilder(

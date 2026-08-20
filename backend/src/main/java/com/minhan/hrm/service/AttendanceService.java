@@ -8,7 +8,6 @@ import com.minhan.hrm.entity.AttendanceRecord;
 import com.minhan.hrm.entity.AttendanceShiftScope;
 import com.minhan.hrm.entity.AttendanceUpdateKind;
 import com.minhan.hrm.entity.Employee;
-import com.minhan.hrm.entity.UserAccount;
 import com.minhan.hrm.entity.UserRole;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.repository.AttendanceRecordRepository;
@@ -39,6 +38,7 @@ public class AttendanceService {
     private final AttendanceDayProcessor dayProcessor;
     private final ContinuousShiftService continuousShiftService;
     private final HolidayWorkDayService holidayWorkDayService;
+    private final AttendanceWorkRequestService workRequestService;
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listRange(Long employeeId, LocalDate from, LocalDate to) {
@@ -89,7 +89,7 @@ public class AttendanceService {
 
     public static final String QUANG_TRUNG_NOTE_MARKER = "Bổ sung công Quang Trung";
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     @Transactional(readOnly = true)
     public Map<String, Object> getQuangTrungSupplement(Long employeeId, LocalDate workDate) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
@@ -101,10 +101,11 @@ public class AttendanceService {
         return quangTrungView(rec);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     @Transactional
     public Map<String, Object> applyQuangTrungSupplement(Long employeeId, QuangTrungSupplementRequest req) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
+        employeeService.assertCanAccessEmployee(emp);
         validateQuangTrungSupplement(req);
         AttendanceRecord rec = attendanceRecordRepository
                 .findByEmployeeAndWorkDate(emp, req.getWorkDate())
@@ -137,10 +138,11 @@ public class AttendanceService {
         return toMap(rec);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     @Transactional
     public void deleteQuangTrungSupplement(Long employeeId, LocalDate workDate) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
+        employeeService.assertCanAccessEmployee(emp);
         AttendanceRecord rec = attendanceRecordRepository
                 .findByEmployeeAndWorkDate(emp, workDate)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không có công Quang Trung ngày này"));
@@ -428,6 +430,7 @@ public class AttendanceService {
                     }
                 }));
         attendanceRecordRepository.saveAll(all);
+        workRequestService.reapplyApprovedEffectsAfterPunchSync(from, to, employeeIds);
         return all.size();
     }
 
@@ -449,21 +452,16 @@ public class AttendanceService {
                     }
                 }));
         attendanceRecordRepository.saveAll(records);
+        workRequestService.reapplyApprovedEffectsAfterPunchSync(from, to, Set.of(employeeId));
         return records.size();
     }
 
     private void assertCanViewAttendance(Employee target) {
-        UserAccount current = employeeService.currentUser();
-        if (current.getRole() == UserRole.ADMIN
-                || current.getRole() == UserRole.HR
-                || current.getRole() == UserRole.HEAD_DEPARTMENT
-                || current.getRole() == UserRole.HEAD_NURSING) {
+        var current = employeeService.currentUser();
+        if (EmployeeService.isHr2Role(current)) {
             return;
         }
-        Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
-        if (self == null || !self.getId().equals(target.getId())) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem bảng công");
-        }
+        employeeService.assertCanAccessEmployee(target);
     }
 
     private Map<String, Object> toMap(AttendanceRecord r) {

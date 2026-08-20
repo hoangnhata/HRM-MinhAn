@@ -1,0 +1,44 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="32" y1="16" x2="224" y2="240" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#045B57"/>
+      <stop offset="0.52" stop-color="#087A75"/>
+      <stop offset="1" stop-color="#0A8F88"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="128" y1="20" x2="128" y2="150" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(128 128) rotate(90) scale(88)">
+      <stop stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <circle cx="128" cy="128" r="88" fill="url(#glow)"/>
+  <circle cx="128" cy="128" r="78" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="2" fill="none"/>
+
+  <g fill="#FFFFFF" transform="translate(128 62)">
+    <g transform="translate(-64 0)" fill-opacity="0.84">
+      <circle cx="0" cy="0" r="7.5"/>
+      <rect x="-8.5" y="6" width="17" height="11" rx="5.5"/>
+    </g>
+    <g transform="translate(0 0)">
+      <circle cx="0" cy="0" r="7.5"/>
+      <rect x="-8.5" y="6" width="17" height="11" rx="5.5"/>
+    </g>
+    <g transform="translate(64 0)" fill-opacity="0.84">
+      <circle cx="0" cy="0" r="7.5"/>
+      <rect x="-8.5" y="6" width="17" height="11" rx="5.5"/>
+    </g>
+  </g>
+
+  <g transform="translate(128 136) scale(0.84) translate(-141 -130)" fill="#FFFFFF">
+    <path d="M54 172V88h22l24 52 24-52h22v84h-20v-50l-18 42h-12l-18-42v50H54z"/>
+    <path fill-rule="evenodd" d="M156 172L180 88h24l24 84h-22l-4.5-16h-27L170 172h-14zm27-34h18l-9-32-9 32z"/>
+  </g>
+
+  <rect x="89" y="186" width="78" height="5.5" rx="2.75" fill="#B98716"/>
+  <rect width="256" height="256" rx="56" fill="url(#sheen)"/>
+</svg>

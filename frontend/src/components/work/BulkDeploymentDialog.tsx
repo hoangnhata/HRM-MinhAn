@@ -1,4 +1,5 @@
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import {
   Alert,
   Box,
@@ -6,6 +7,7 @@ import {
   Checkbox,
   CircularProgress,
   Grid,
+  InputAdornment,
   List,
   ListItem,
   ListItemIcon,
@@ -27,6 +29,9 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onSaved?: () => void;
+  /** Chỉ dùng cho luồng đặc biệt; giao diện ADMIN hiện cũng phải chọn khoa/phòng. */
+  hospitalWide?: boolean;
+  departmentOptions?: employeeService.DepartmentOption[];
   initialDepartmentId?: number | '';
   initialWorkDate?: string;
   periodYear?: number;
@@ -51,6 +56,16 @@ const ACCENT = '#0f766e';
 const fieldSx = dateTimeFieldSx;
 
 type RowResult = { employeeId: number; employeeName: string; ok: boolean; message: string };
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
+}
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -214,6 +229,8 @@ export function BulkDeploymentDialog({
   open,
   onClose,
   onSaved,
+  hospitalWide = false,
+  departmentOptions,
   initialDepartmentId = '',
   initialWorkDate,
   periodYear,
@@ -227,6 +244,7 @@ export function BulkDeploymentDialog({
   const [departments, setDepartments] = useState<employeeService.DepartmentOption[]>([]);
   const [departmentId, setDepartmentId] = useState<number | ''>('');
   const [employees, setEmployees] = useState<employeeService.EmployeeSummary[]>([]);
+  const [employeeSearch, setEmployeeSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [configByEmp, setConfigByEmp] = useState<Record<number, EmpDeployConfig>>({});
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -248,6 +266,13 @@ export function BulkDeploymentDialog({
   const [results, setResults] = useState<RowResult[] | null>(null);
 
   const schedule = useMemo(() => scheduleForDate(workDate), [workDate]);
+  const filteredEmployees = useMemo(() => {
+    const query = normalizeSearch(employeeSearch);
+    if (!query) return employees;
+    return employees.filter((employee) =>
+      normalizeSearch(`${employee.fullName} ${employee.employeeCode ?? ''} ${employee.departmentName ?? ''}`).includes(query),
+    );
+  }, [employees, employeeSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -258,7 +283,8 @@ export function BulkDeploymentDialog({
     if (minDate && d < minDate) d = minDate;
     if (d > maxDate) d = maxDate;
     setWorkDate(d);
-    setDepartmentId(initialDepartmentId === '' ? '' : Number(initialDepartmentId));
+    setDepartmentId(hospitalWide || initialDepartmentId === '' ? '' : Number(initialDepartmentId));
+    setEmployeeSearch('');
     setSelectedIds(new Set());
     setConfigByEmp({});
     const sch = scheduleForDate(d);
@@ -270,11 +296,19 @@ export function BulkDeploymentDialog({
     setQuickMorningEnd(sch.morningEnd.slice(0, 5));
     setQuickAfternoonStart(sch.afternoonStart.slice(0, 5));
     setQuickAfternoonEnd(sch.afternoonEnd.slice(0, 5));
-    employeeService.fetchDepartments().then(setDepartments).catch(() => setDepartments([]));
-  }, [open, initialDepartmentId, initialWorkDate, minDate, maxDate]);
+    setDepartments(departmentOptions ?? []);
+    employeeService
+      .fetchDepartments()
+      .then((data) => {
+        if (data.length > 0) setDepartments(data);
+      })
+      .catch(() => {
+        if (!departmentOptions?.length) setDepartments([]);
+      });
+  }, [open, hospitalWide, departmentOptions, initialDepartmentId, initialWorkDate, minDate, maxDate]);
 
   useEffect(() => {
-    if (!open || departmentId === '') {
+    if (!open || (!hospitalWide && departmentId === '')) {
       setEmployees([]);
       setSelectedIds(new Set());
       setConfigByEmp({});
@@ -282,7 +316,11 @@ export function BulkDeploymentDialog({
     }
     setEmployeesLoading(true);
     employeeService
-      .fetchEmployees({ page: 0, size: 500, departmentId: Number(departmentId) })
+      .fetchEmployees({
+        page: 0,
+        size: hospitalWide ? 2000 : 500,
+        ...(hospitalWide ? {} : { departmentId: Number(departmentId) }),
+      })
       .then((page) => {
         const list = (page.content ?? []).filter((e) => e.status !== 'TERMINATED');
         setEmployees(list);
@@ -295,7 +333,7 @@ export function BulkDeploymentDialog({
         setConfigByEmp({});
       })
       .finally(() => setEmployeesLoading(false));
-  }, [open, departmentId]);
+  }, [open, hospitalWide, departmentId]);
 
   useEffect(() => {
     const sch = schedule;
@@ -369,7 +407,7 @@ export function BulkDeploymentDialog({
     e.preventDefault();
     setErr(null);
     setResults(null);
-    if (departmentId === '') {
+    if (!hospitalWide && departmentId === '') {
       setErr('Chọn khoa/phòng.');
       return;
     }
@@ -455,32 +493,45 @@ export function BulkDeploymentDialog({
     >
       <InfoBanner>
         Tick NV rồi chỉnh hình thức + giờ từng dòng. «Gán nhanh» áp dụng mẫu cho tất cả đã tick, rồi sửa lại từng
-        người nếu cần. Trong ca có thể chỉ một phần giờ (vd sáng 07:00–09:00).
+        người nếu cần. Trong ca có thể chỉ một phần giờ (vd sáng 07:00–09:00). Nhân viên khối{' '}
+        <strong>ĐD–KTV–HS–Thư ký</strong> sẽ chuyển <strong>Trưởng phòng Điều dưỡng</strong> trước HCNS.
       </InfoBanner>
 
-      <FormSection title="Ngày & khoa/phòng">
+      <FormSection title={hospitalWide ? 'Ngày & phạm vi' : 'Ngày & khoa/phòng'}>
         <Grid container spacing={1.75}>
           <Grid item xs={12} sm={6}>
             <DatePickerField label="Ngày điều động" required value={workDate} onChange={setWorkDate} sx={fieldSx} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField
-              select
-              required
-              fullWidth
-              size="small"
-              label="Khoa / phòng"
-              value={departmentId}
-              onChange={(e) => setDepartmentId(e.target.value === '' ? '' : Number(e.target.value))}
-              sx={fieldSx}
-            >
-              <MenuItem value="">— Chọn —</MenuItem>
-              {departments.map((d) => (
-                <MenuItem key={d.id} value={d.id}>
-                  {d.name}
-                </MenuItem>
-              ))}
-            </TextField>
+            {hospitalWide ? (
+              <TextField
+                fullWidth
+                size="small"
+                label="Phạm vi nhân viên"
+                value="Toàn viện"
+                InputProps={{ readOnly: true }}
+                helperText="Tài khoản ADMIN được chọn nhân viên ở mọi khoa/phòng"
+                sx={fieldSx}
+              />
+            ) : (
+              <TextField
+                select
+                required
+                fullWidth
+                size="small"
+                label="Khoa / phòng"
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value === '' ? '' : Number(e.target.value))}
+                sx={fieldSx}
+              >
+                <MenuItem value="">— Chọn —</MenuItem>
+                {departments.map((d) => (
+                  <MenuItem key={d.id} value={d.id}>
+                    {d.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
           </Grid>
         </Grid>
       </FormSection>
@@ -488,7 +539,7 @@ export function BulkDeploymentDialog({
       <FormSection
         title="Nhân viên & hình thức từng người"
         subtitle={
-          departmentId === ''
+          !hospitalWide && departmentId === ''
             ? 'Chọn khoa/phòng để tải danh sách.'
             : `${selectedIds.size}/${employees.length} đã chọn`
         }
@@ -497,25 +548,42 @@ export function BulkDeploymentDialog({
           <Box sx={{ py: 3, textAlign: 'center' }}>
             <CircularProgress size={28} />
           </Box>
-        ) : departmentId === '' ? (
+        ) : !hospitalWide && departmentId === '' ? (
           <Typography variant="body2" color="text.secondary">
             Chưa chọn khoa/phòng.
           </Typography>
         ) : employees.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
-            Không có nhân viên trong khoa này.
+            {hospitalWide ? 'Không có nhân viên đang làm việc trong viện.' : 'Không có nhân viên trong khoa này.'}
           </Typography>
         ) : (
           <>
+            <TextField
+              fullWidth
+              size="small"
+              label="Tìm nhân viên"
+              placeholder="Nhập tên hoặc mã nhân viên"
+              value={employeeSearch}
+              onChange={(event) => setEmployeeSearch(event.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchOutlinedIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ ...fieldSx, mb: 1.5 }}
+            />
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
               <Button
                 size="small"
                 onClick={() => {
-                  const all = new Set(employees.map((e) => e.id));
+                  const all = new Set(selectedIds);
+                  filteredEmployees.forEach((employee) => all.add(employee.id));
                   setSelectedIds(all);
                   setConfigByEmp((prev) => {
                     const next = { ...prev };
-                    employees.forEach((e) => {
+                    filteredEmployees.forEach((e) => {
                       if (!next[e.id]) next[e.id] = defaultConfig(schedule);
                     });
                     return next;
@@ -523,7 +591,7 @@ export function BulkDeploymentDialog({
                 }}
                 sx={{ borderRadius: 2 }}
               >
-                Chọn tất cả
+                {employeeSearch.trim() ? 'Chọn tất cả kết quả' : 'Chọn tất cả'}
               </Button>
               <Button
                 size="small"
@@ -654,7 +722,15 @@ export function BulkDeploymentDialog({
                 borderRadius: 2,
               }}
             >
-              {employees.map((emp) => {
+              {filteredEmployees.length === 0 && (
+                <ListItem>
+                  <ListItemText
+                    primary="Không tìm thấy nhân viên"
+                    secondary="Kiểm tra lại tên hoặc mã nhân viên."
+                  />
+                </ListItem>
+              )}
+              {filteredEmployees.map((emp) => {
                 const checked = selectedIds.has(emp.id);
                 const cfg = ensureConfig(emp.id);
                 return (
@@ -684,8 +760,8 @@ export function BulkDeploymentDialog({
                         primary={emp.fullName}
                         secondary={
                           checked
-                            ? configSummary(cfg)
-                            : emp.employeeCode || emp.positionTitle || undefined
+                            ? [configSummary(cfg), hospitalWide ? emp.departmentName : null].filter(Boolean).join(' · ')
+                            : [emp.employeeCode, hospitalWide ? emp.departmentName : emp.positionTitle].filter(Boolean).join(' · ') || undefined
                         }
                         primaryTypographyProps={{ fontWeight: checked ? 700 : 500, fontSize: '0.875rem' }}
                       />

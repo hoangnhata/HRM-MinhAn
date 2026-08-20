@@ -18,6 +18,8 @@ public class NotificationDto {
     Long relatedEmployeeId;
     /** Legacy FK — announcement feature removed; kept for existing DB rows */
     Long relatedAnnouncementId;
+    /** ID đơn/phiếu liên quan (công, đề xuất, đánh giá...) — dùng deep-link mobile. */
+    Long relatedRequestId;
     /** Bảng lương/công/lương đột xuất — hiển thị cảnh báo bảo mật phía client */
     boolean sensitive;
     /** Đường dẫn SPA khi bấm thông báo (ví dụ /work?tab=requests). */

@@ -53,6 +53,10 @@ public class EmployeeWorkforceDetails {
     @Column(name = "workforce_notes", columnDefinition = "TEXT")
     private String workforceNotes;
 
+    /** THU_VIEC | THUC_HANH | BOTH — từ cột đánh dấu Excel thử việc / thực hành */
+    @Column(name = "trial_type", length = 32)
+    private String trialType;
+
     @Column(name = "probation_start_date")
     private LocalDate probationStartDate;
 

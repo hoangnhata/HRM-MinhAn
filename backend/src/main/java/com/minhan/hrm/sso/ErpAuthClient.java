@@ -25,11 +25,12 @@ import java.util.Map;
 public class ErpAuthClient {
 
     private final HrmProperties hrmProperties;
+    private final RestClient erpRestClient;
 
     public ErpLoginResponse login(String username, String password) {
         String url = resolveUrl(loginPath());
         try {
-            ErpLoginResponse body = RestClient.create()
+            ErpLoginResponse body = erpRestClient
                     .post()
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -58,7 +59,7 @@ public class ErpAuthClient {
         requireToken(erpAccessToken);
         String url = resolveUrl(profilePath());
         try {
-            ErpProfileResponse body = RestClient.create()
+            ErpProfileResponse body = erpRestClient
                     .get()
                     .uri(url)
                     .accept(MediaType.APPLICATION_JSON)
@@ -83,7 +84,7 @@ public class ErpAuthClient {
         requireToken(erpAccessToken);
         String url = resolveUrl(profilePath());
         try {
-            ErpProfileUpdateResponse res = RestClient.create()
+            ErpProfileUpdateResponse res = erpRestClient
                     .put()
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -126,7 +127,7 @@ public class ErpAuthClient {
 
     private AvatarBytes fetchAvatarOnce(String absoluteUrl, String erpAccessToken) {
         try {
-            RestClient.RequestHeadersSpec<?> request = RestClient.create()
+            RestClient.RequestHeadersSpec<?> request = erpRestClient
                     .get()
                     .uri(absoluteUrl.trim())
                     .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.IMAGE_JPEG, MediaType.IMAGE_PNG, MediaType.ALL);

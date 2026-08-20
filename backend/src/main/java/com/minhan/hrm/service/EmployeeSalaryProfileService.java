@@ -1,6 +1,7 @@
 package com.minhan.hrm.service;
 
 import com.minhan.hrm.dto.salary.ComputedSalaryGradeDto;
+import com.minhan.hrm.dto.salary.EarlyRaiseConversionDto;
 import com.minhan.hrm.dto.salary.EmployeeSalaryProfileDto;
 import com.minhan.hrm.dto.salary.EmployeeSalaryProfileRequest;
 import com.minhan.hrm.entity.*;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,21 +34,24 @@ public class EmployeeSalaryProfileService {
     private final EmployeeService employeeService;
     private final SalaryCalculatorService salaryCalculator;
     private final NotificationService notificationService;
+    private final SalaryAccessService salaryAccessService;
 
     @Transactional
-    public EmployeeSalaryProfileDto getProfile(Long employeeId) {
+    public EmployeeSalaryProfileDto getProfile(Long employeeId, String salaryToken) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
-        assertCanViewSalary(emp);
+        boolean adminUnlocked = assertCanViewSalary(emp, salaryToken);
         EmployeeSalaryProfile profile = profileRepository.findByEmployee(emp).orElse(null);
         if (profile != null && profile.getSalaryCategory() != null) {
             checkAndNotifyGradeIncrease(emp, profile);
         }
-        return buildDto(emp, profile, canEditSalary());
+        return buildDto(emp, profile, adminUnlocked);
     }
 
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
-    public EmployeeSalaryProfileDto upsertProfile(Long employeeId, EmployeeSalaryProfileRequest req) {
+    public EmployeeSalaryProfileDto upsertProfile(
+            Long employeeId, EmployeeSalaryProfileRequest req, String salaryToken) {
+        salaryAccessService.requireAdminGrant(salaryToken);
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
         validateRequest(req);
         EmployeeSalaryProfile profile = profileRepository.findByEmployee(emp).orElseGet(() ->
@@ -62,7 +67,8 @@ public class EmployeeSalaryProfileService {
 
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
-    public int recalculateAll() {
+    public int recalculateAll(String salaryToken) {
+        salaryAccessService.requireAdminGrant(salaryToken);
         int count = 0;
         for (Employee emp : employeeRepository.findAll()) {
             profileRepository.findByEmployee(emp).ifPresent(p -> {
@@ -77,7 +83,8 @@ public class EmployeeSalaryProfileService {
 
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> exportAllProfiles() {
+    public List<Map<String, Object>> exportAllProfiles(String salaryToken) {
+        salaryAccessService.requireAdminGrant(salaryToken);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Employee emp : employeeRepository.findAll()) {
             EmployeeSalaryProfile profile = profileRepository.findByEmployee(emp).orElse(null);
@@ -94,32 +101,33 @@ public class EmployeeSalaryProfileService {
                     "grade", dto.getComputedGrade().getGradeLabel(),
                     "insuranceSalary", dto.getComputedGrade().getInsuranceSalary(),
                     "productSalary", dto.getComputedGrade().getProductSalary(),
-                    "attractionSalary", dto.getProfessionalAttractionSalary(),
+                    "attractionSalary", BigDecimal.ZERO,
                     "totalSalary", dto.getTotalSalary()));
         }
         return rows;
     }
 
     private EmployeeSalaryProfileDto buildDto(Employee emp, EmployeeSalaryProfile profile, boolean canEdit) {
-        LocalDate calcDate = profile != null && profile.getSeniorityAsOfDate() != null
-                ? profile.getSeniorityAsOfDate()
-                : LocalDate.now();
-        BigDecimal yearsOfService = salaryCalculator.calculateWorkingYears(emp.getHireDate(), calcDate);
-        boolean doctor = profile != null && profile.getSalaryCategory() == SalaryCategory.DOCTOR;
-        BigDecimal seniority = profile != null
-                ? salaryCalculator.calculateSalarySeniority(
-                yearsOfService,
-                profile.getPriorRaiseYears(),
-                profile.getDegreeConversionYears(),
-                doctor)
-                : yearsOfService;
+        LocalDate today = LocalDate.now();
+        LocalDate scaleStart = profile != null ? profile.getSalaryScaleStartDate() : null;
+        BigDecimal yearsOfService = salaryCalculator.calculateWorkingYears(scaleStart, today);
+        BigDecimal seniority = salaryCalculator.resolveSeniorityYears(emp, profile, today);
         ComputedSalaryGradeDto grade = profile != null && profile.getSalaryCategory() != null
                 ? salaryCalculator.computeForProfile(emp, profile)
                 : SalaryCalculatorService.emptyGrade();
-        grade = applyImportedSalaries(grade, profile);
-        BigDecimal attraction = profile != null ? profile.getProfessionalAttractionSalary() : BigDecimal.ZERO;
+        // LĐG đã gắn lương import; còn lại: ưu tiên thang bảng lương, fallback lương import.
+        if (profile == null || !profile.isLdg()) {
+            grade = applyImportedSalaries(grade, profile);
+        }
+        BigDecimal attraction = BigDecimal.ZERO;
         BigDecimal total = salaryCalculator.calculateFinalSalary(
                 grade.getInsuranceSalary(), grade.getProductSalary(), attraction);
+        // Bác sỹ: thang chỉ có tổng — nếu chưa tách BH/SP thì dùng tổng thang.
+        if (total.compareTo(BigDecimal.ZERO) <= 0
+                && grade.getScaleSalary() != null
+                && grade.getScaleSalary().compareTo(BigDecimal.ZERO) > 0) {
+            total = grade.getScaleSalary();
+        }
 
         return EmployeeSalaryProfileDto.builder()
                 .employeeId(emp.getId())
@@ -134,8 +142,15 @@ public class EmployeeSalaryProfileService {
                 .yearsOfService(yearsOfService)
                 .seniorityYears(seniority)
                 .degreeConversionYears(profile != null ? profile.getDegreeConversionYears() : BigDecimal.ZERO)
-                .priorRaiseYears(profile != null ? profile.getPriorRaiseYears() : BigDecimal.ZERO)
-                .professionalAttractionSalary(attraction)
+                .priorRaiseYears(profile != null ? salaryCalculator.earlyRaiseYears(profile) : BigDecimal.ZERO)
+                .earlyRaiseConversions(resolveEarlyRaiseList(profile))
+                .professionalAttractionSalary(BigDecimal.ZERO)
+                .salaryScaleStartDate(profile != null ? profile.getSalaryScaleStartDate() : null)
+                .seniorityAsOfDate(profile != null ? profile.getSeniorityAsOfDate() : null)
+                .baseSeniorityYears(profile != null ? profile.getBaseSeniorityYears() : null)
+                .ldg(profile != null && profile.isLdg())
+                .importedInsuranceSalary(profile != null ? profile.getImportedInsuranceSalary() : null)
+                .importedProductSalary(profile != null ? profile.getImportedProductSalary() : null)
                 .computedGrade(grade)
                 .totalSalary(total)
                 .canViewSensitive(true)
@@ -144,7 +159,9 @@ public class EmployeeSalaryProfileService {
     }
 
     /**
-     * Ưu tiên lương import từ Excel thâm niên; nếu không có hoặc không hợp lệ thì dùng thang bảng lương.
+     * Nhân viên thường ưu tiên số tách BH/SP trên thang, thiếu mới dùng số import.
+     * Bác sĩ ưu tiên tổng lương theo bậc; lương cơ bản import giữ nguyên và phần
+     * đảm bảo sản phẩm = tổng theo thang - lương cơ bản.
      */
     private ComputedSalaryGradeDto applyImportedSalaries(
             ComputedSalaryGradeDto grade, EmployeeSalaryProfile profile) {
@@ -153,16 +170,56 @@ public class EmployeeSalaryProfileService {
         }
         BigDecimal insurance = grade.getInsuranceSalary();
         BigDecimal product = grade.getProductSalary();
-        if (SalaryAmounts.isPlausibleSalary(profile.getImportedInsuranceSalary())) {
-            insurance = profile.getImportedInsuranceSalary();
+        boolean doctor = profile.getSalaryCategory() == SalaryCategory.DOCTOR;
+
+        if (doctor) {
+            BigDecimal importedBase = profile.getImportedInsuranceSalary();
+            if (SalaryAmounts.isPlausibleSalary(importedBase)) {
+                insurance = importedBase;
+            }
+            BigDecimal scaleTotal = grade.getScaleSalary() != null
+                    ? grade.getScaleSalary() : BigDecimal.ZERO;
+            if (!SalaryAmounts.isPlausibleSalary(scaleTotal)) {
+                throw new ApiException(HttpStatus.CONFLICT,
+                        "Thang bảng lương bác sĩ chưa có tổng lương hợp lệ cho bậc hiện tại");
+            }
+            if (insurance.compareTo(scaleTotal) > 0) {
+                throw new ApiException(HttpStatus.CONFLICT,
+                        "Lương cơ bản bác sĩ đang lớn hơn tổng lương trong thang bậc");
+            }
+            // Tuyệt đối ưu tiên tổng theo thang. Không dùng lương đảm bảo sản phẩm
+            // import cũ làm fallback vì sẽ khiến tổng lương lệch khỏi bậc hiện tại.
+            product = scaleTotal.subtract(insurance);
+            return ComputedSalaryGradeDto.builder()
+                    .gradeLevel(grade.getGradeLevel())
+                    .gradeLabel(grade.getGradeLabel())
+                    .yearsRange(grade.getYearsRange())
+                    .coefficient(grade.getCoefficient())
+                    .insuranceSalary(insurance)
+                    .productSalary(product)
+                    .scaleSalary(scaleTotal)
+                    .build();
         }
-        if (SalaryAmounts.isPlausibleSalary(profile.getImportedProductSalary())) {
-            product = profile.getImportedProductSalary();
+
+        boolean scaleInsuranceOk = SalaryAmounts.isPlausibleSalary(insurance);
+        boolean scaleProductOk = SalaryAmounts.isPlausibleSalary(product);
+        if (!scaleInsuranceOk) {
+            if (SalaryAmounts.isPlausibleSalary(profile.getImportedInsuranceSalary())) {
+                insurance = profile.getImportedInsuranceSalary();
+            }
+        }
+        if (!scaleProductOk) {
+            if (SalaryAmounts.isPlausibleSalary(profile.getImportedProductSalary())) {
+                product = profile.getImportedProductSalary();
+            }
         }
         if (insurance.equals(grade.getInsuranceSalary()) && product.equals(grade.getProductSalary())) {
             return grade;
         }
-        BigDecimal scaleTotal = insurance.add(product);
+        BigDecimal splitTotal = insurance.add(product);
+        BigDecimal scaleTotal = grade.getScaleSalary() != null && grade.getScaleSalary().compareTo(BigDecimal.ZERO) > 0
+                ? grade.getScaleSalary()
+                : splitTotal;
         return ComputedSalaryGradeDto.builder()
                 .gradeLevel(grade.getGradeLevel())
                 .gradeLabel(grade.getGradeLabel())
@@ -170,7 +227,7 @@ public class EmployeeSalaryProfileService {
                 .coefficient(grade.getCoefficient())
                 .insuranceSalary(insurance)
                 .productSalary(product)
-                .scaleSalary(scaleTotal.compareTo(BigDecimal.ZERO) > 0 ? scaleTotal : grade.getScaleSalary())
+                .scaleSalary(scaleTotal)
                 .build();
     }
 
@@ -220,6 +277,11 @@ public class EmployeeSalaryProfileService {
                 && (req.getDoctorQualificationCode() == null || req.getDoctorQualificationCode().isBlank())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Bác sỹ cần chọn trình độ thang bảng lương");
         }
+        if (req.getSalaryScaleStartDate() == null
+                && req.getBaseSeniorityYears() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Cần chọn ngày bắt đầu tính thang bảng lương hoặc nhập thâm niên mốc 30/06");
+        }
     }
 
     private static void applyRequest(EmployeeSalaryProfile profile, EmployeeSalaryProfileRequest req) {
@@ -237,24 +299,96 @@ public class EmployeeSalaryProfileService {
                 ? req.getDoctorQualificationCode() : null);
         profile.setQualificationNote(req.getQualificationNote());
         profile.setDegreeConversionYears(defaultZero(req.getDegreeConversionYears()));
-        profile.setPriorRaiseYears(defaultZero(req.getPriorRaiseYears()));
-        profile.setProfessionalAttractionSalary(defaultZero(req.getProfessionalAttractionSalary()));
+        applyEarlyRaiseConversions(profile, req);
+        profile.setProfessionalAttractionSalary(BigDecimal.ZERO);
+        profile.setSalaryScaleStartDate(req.getSalaryScaleStartDate());
+        // Form luôn gửi đủ 2 trường mốc; null = bỏ mốc, tính từ ngày bắt đầu thang.
+        // base = 0 kèm ngày bắt đầu thang cũng coi như không có mốc.
+        if (Boolean.TRUE.equals(req.getLdg())) {
+            profile.setBaseSeniorityYears(null);
+            profile.setSeniorityAsOfDate(null);
+        } else if (SalaryCalculatorService.hasSeniorityMilestone(
+                req.getBaseSeniorityYears(), req.getSalaryScaleStartDate())) {
+            profile.setBaseSeniorityYears(req.getBaseSeniorityYears());
+            profile.setSeniorityAsOfDate(
+                    req.getSeniorityAsOfDate() != null
+                            ? req.getSeniorityAsOfDate()
+                            : LocalDate.of(2026, 6, 30));
+        } else {
+            profile.setBaseSeniorityYears(null);
+            profile.setSeniorityAsOfDate(null);
+        }
+        if (req.getLdg() != null) {
+            profile.setLdg(req.getLdg());
+            if (Boolean.TRUE.equals(req.getLdg())) {
+                profile.setFixedGradeLabel(
+                        req.getFixedGradeLabel() != null && !req.getFixedGradeLabel().isBlank()
+                                ? req.getFixedGradeLabel().trim()
+                                : "LĐG");
+            } else {
+                profile.setFixedGradeLabel(null);
+            }
+        }
+        if (req.getImportedInsuranceSalary() != null) {
+            profile.setImportedInsuranceSalary(req.getImportedInsuranceSalary());
+        }
+        if (req.getImportedProductSalary() != null) {
+            profile.setImportedProductSalary(req.getImportedProductSalary());
+        }
     }
 
-    private void assertCanViewSalary(Employee target) {
+    private boolean assertCanViewSalary(Employee target, String salaryToken) {
         UserAccount current = employeeService.currentUser();
-        if (current.getRole() == UserRole.ADMIN || current.getRole() == UserRole.HR) {
-            return;
+        Employee self = employeeService.linkedEmployee(current).orElse(null);
+        if (self != null && self.getId().equals(target.getId())) {
+            if (!employeeService.canViewOwnSalary(self)) {
+                throw new ApiException(HttpStatus.FORBIDDEN,
+                        "Nhân viên thử việc chưa có ngày vào làm chính thức — chưa xem được bảng lương");
+            }
+            return false;
         }
-        Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
+        if (current.getRole() == UserRole.ADMIN || current.getRole() == UserRole.HR) {
+            salaryAccessService.requireAdminGrant(salaryToken);
+            return true;
+        }
         if (self == null || !self.getId().equals(target.getId())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem bảng lương");
         }
+        return false;
     }
 
-    private boolean canEditSalary() {
-        UserRole role = employeeService.currentUser().getRole();
-        return role == UserRole.ADMIN || role == UserRole.HR;
+    private static void applyEarlyRaiseConversions(EmployeeSalaryProfile profile, EmployeeSalaryProfileRequest req) {
+        if (req.getEarlyRaiseConversions() != null) {
+            List<EarlyRaiseConversionDto> cleaned = req.getEarlyRaiseConversions().stream()
+                    .filter(e -> e != null && e.getRaiseDate() != null && e.getYears() != null)
+                    .map(e -> EarlyRaiseConversionDto.builder()
+                            .raiseDate(e.getRaiseDate())
+                            .years(e.getYears().max(BigDecimal.ZERO))
+                            .build())
+                    .sorted(Comparator.comparing(EarlyRaiseConversionDto::getRaiseDate))
+                    .toList();
+            profile.setEarlyRaiseConversions(new ArrayList<>(cleaned));
+            BigDecimal sum = cleaned.stream()
+                    .map(EarlyRaiseConversionDto::getYears)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            profile.setPriorRaiseYears(sum);
+            return;
+        }
+        if (req.getPriorRaiseYears() != null) {
+            profile.setPriorRaiseYears(defaultZero(req.getPriorRaiseYears()));
+        }
+    }
+
+    private static List<EarlyRaiseConversionDto> resolveEarlyRaiseList(EmployeeSalaryProfile profile) {
+        if (profile == null) {
+            return List.of();
+        }
+        if (profile.getEarlyRaiseConversions() != null && !profile.getEarlyRaiseConversions().isEmpty()) {
+            return profile.getEarlyRaiseConversions().stream()
+                    .filter(e -> e != null && e.getRaiseDate() != null)
+                    .toList();
+        }
+        return List.of();
     }
 
     private static BigDecimal defaultZero(BigDecimal v) {

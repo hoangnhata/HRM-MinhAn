@@ -7,6 +7,7 @@ import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.EmployeeSalaryProfileRepository;
 import com.minhan.hrm.repository.SalaryScaleDoctorEntryRepository;
 import com.minhan.hrm.repository.SalaryScaleEntryRepository;
+import com.minhan.hrm.salary.DoctorQualifications;
 import com.minhan.hrm.salary.SalaryAmounts;
 import com.minhan.hrm.salary.SalaryQualifications;
 import lombok.RequiredArgsConstructor;
@@ -132,6 +133,18 @@ public class SalaryImportService {
                 updated += counts[2];
             }
             Sheet bsSheet = wb.getSheet("thang bảng lương bs");
+            if (bsSheet == null) {
+                bsSheet = wb.getSheet("tbl");
+            }
+            if (bsSheet == null) {
+                for (int i = 0; i < wb.getNumberOfSheets(); i++) {
+                    String n = wb.getSheetName(i);
+                    if (n != null && n.toLowerCase(Locale.ROOT).contains("lương bs")) {
+                        bsSheet = wb.getSheetAt(i);
+                        break;
+                    }
+                }
+            }
             if (bsSheet != null) {
                 int[] bs = importDoctorScaleSheet(bsSheet, errors);
                 total += bs[0];
@@ -140,7 +153,7 @@ public class SalaryImportService {
             }
             if (total == 0) {
                 throw new ApiException(HttpStatus.BAD_REQUEST,
-                        "Không đọc được dữ liệu thang lương (cần sheet THANG BẢNG LƯƠNG CHỐT hoặc thang bảng lương bs)");
+                        "Không đọc được dữ liệu thang lương (cần sheet THANG BẢNG LƯƠNG CHỐT, thang bảng lương bs hoặc tbl)");
             }
         } catch (ApiException e) {
             throw e;
@@ -284,47 +297,79 @@ public class SalaryImportService {
         int total = 0;
         int created = 0;
         int updated = 0;
+        int startRow = 0;
         Row header = sheet.getRow(0);
-        if (header == null) {
-            return new int[] {0, 0, 0};
+        if (header != null) {
+            String h0 = cellRaw(header, 0);
+            String h2 = cellRaw(header, 2);
+            String h5 = cellRaw(header, 5);
+            boolean looksHeader = (h0 != null && h0.toLowerCase(Locale.ROOT).contains("bằng"))
+                    || (h2 != null && h2.toLowerCase(Locale.ROOT).contains("bằng"))
+                    || (h5 != null && h5.toLowerCase(Locale.ROOT).contains("thang"));
+            if (looksHeader) {
+                startRow = 1;
+            }
         }
-        for (int r = 1; r <= sheet.getLastRowNum(); r++) {
+        for (int r = startRow; r <= sheet.getLastRowNum(); r++) {
             Row row = sheet.getRow(r);
             if (row == null) {
                 continue;
             }
-            String code = cellRaw(row, 0);
+            String codeCol = cellRaw(row, 0);
             String name = cellRaw(row, 1);
+            String qualFromCol = cellRaw(row, 2);
             String timeLabel = cellRaw(row, 3);
+            String tg = cellRaw(row, 4);
             BigDecimal salaryAmount = parseMoney(cellRaw(row, 5));
-            if (code == null || salaryAmount == null) {
+            if (salaryAmount == null) {
+                // một số file để lương ở cột F index 5; thử cột khác
+                continue;
+            }
+            String noteOrStop = codeCol != null ? codeCol.toLowerCase(Locale.ROOT) : "";
+            if (noteOrStop.contains("tăng") || noteOrStop.contains("bậc 1") || noteOrStop.startsWith("bs ")) {
+                break;
+            }
+            String qualCode = DoctorQualifications.normalize(
+                    qualFromCol != null && !qualFromCol.isBlank() ? qualFromCol : codeCol);
+            if (qualCode == null || salaryAmount == null) {
+                continue;
+            }
+            // Bỏ dòng danh sách tên BS dưới bảng thang
+            if (name != null && name.matches("(?i).*\\d{4}-\\d{2}.*")) {
                 continue;
             }
             total++;
             try {
-                String qualCode = code.replaceAll("\\d.*", "").trim();
-                if (qualCode.isEmpty()) {
-                    qualCode = code;
+                final String timeLabelFinal = timeLabel != null && !timeLabel.isBlank()
+                        ? timeLabel.trim()
+                        : (tg != null ? tg.trim() : "");
+                if (timeLabelFinal.isBlank()) {
+                    continue;
                 }
                 final String qualCodeFinal = qualCode;
-                final String timeLabelFinal = timeLabel != null ? timeLabel : "";
                 final int sortOrder = r;
-                BigDecimal[] range = parseTimeRange(timeLabelFinal.isEmpty() ? cellRaw(row, 4) : timeLabelFinal);
+                BigDecimal[] range = parseDoctorTimeRange(timeLabelFinal, tg);
                 Optional<SalaryScaleDoctorEntry> existing = doctorEntryRepository.findAllByOrderBySortOrderAsc()
                         .stream()
                         .filter(e -> e.getQualificationCode().equalsIgnoreCase(qualCodeFinal)
                                 && e.getTimeLabel().equalsIgnoreCase(timeLabelFinal))
                         .findFirst();
                 SalaryScaleDoctorEntry e = existing.orElseGet(() -> SalaryScaleDoctorEntry.builder()
-                        .qualificationCode(qualCodeFinal.toUpperCase(Locale.ROOT))
-                        .qualificationName(name != null ? name : qualCodeFinal)
+                        .qualificationCode(qualCodeFinal)
+                        .qualificationName(name != null && !name.isBlank()
+                                ? name
+                                : DoctorQualifications.displayName(qualCodeFinal))
                         .timeLabel(timeLabelFinal)
                         .sortOrder(sortOrder)
                         .build());
                 boolean isNew = existing.isEmpty();
+                e.setQualificationName(name != null && !name.isBlank()
+                        ? name
+                        : DoctorQualifications.displayName(qualCodeFinal));
                 e.setYearsMin(range[0]);
                 e.setYearsMax(range[1]);
                 e.setTotalSalary(salaryAmount);
+                e.setSortOrder(sortOrder);
                 doctorEntryRepository.save(e);
                 if (isNew) {
                     created++;
@@ -332,7 +377,7 @@ public class SalaryImportService {
                     updated++;
                 }
             } catch (Exception ex) {
-                errors.add(Map.of("row", r + 1, "message", ex.getMessage()));
+                errors.add(Map.of("row", r + 1, "message", ex.getMessage() != null ? ex.getMessage() : "lỗi"));
             }
         }
         return new int[] {total, created, updated};
@@ -511,18 +556,37 @@ public class SalaryImportService {
     }
 
     private static BigDecimal[] parseTimeRange(String label) {
-        if (label == null) {
+        return parseDoctorTimeRange(label, null);
+    }
+
+    /** Parse khoảng thâm niên BS: «0-2 năm», «0-12 tháng», «thử việc», «10+». */
+    private static BigDecimal[] parseDoctorTimeRange(String label, String tg) {
+        String src = label != null && !label.isBlank() ? label : tg;
+        if (src == null || src.isBlank()) {
             return new BigDecimal[] {BigDecimal.ZERO, null};
         }
-        if (label.contains("10") && label.contains("trở")) {
+        String lower = src.toLowerCase(Locale.ROOT);
+        if (lower.contains("thử") || lower.contains("thu viec")) {
+            return new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO};
+        }
+        if ((lower.contains("10") && lower.contains("trở")) || lower.contains("10+") || lower.trim().equals("10+")) {
             return new BigDecimal[] {BigDecimal.TEN, null};
         }
-        Matcher m = Pattern.compile("(\\d+)\\s*-\\s*(\\d+)").matcher(label);
+        Matcher m = Pattern.compile("(\\d+(?:[.,]\\d+)?)\\s*-\\s*(\\d+(?:[.,]\\d+)?)").matcher(src);
         if (m.find()) {
-            return new BigDecimal[] {
-                new BigDecimal(m.group(1)),
-                new BigDecimal(m.group(2))
-            };
+            BigDecimal from = new BigDecimal(m.group(1).replace(',', '.'));
+            BigDecimal to = new BigDecimal(m.group(2).replace(',', '.'));
+            // «0-12 tháng» → 0–1 năm
+            if (lower.contains("tháng") || lower.contains("thang")) {
+                from = from.divide(BigDecimal.valueOf(12), 3, RoundingMode.HALF_UP);
+                to = to.divide(BigDecimal.valueOf(12), 3, RoundingMode.HALF_UP);
+            }
+            return new BigDecimal[] {from, to};
+        }
+        Matcher single = Pattern.compile("(\\d+(?:[.,]\\d+)?)").matcher(src);
+        if (single.find()) {
+            BigDecimal v = new BigDecimal(single.group(1).replace(',', '.'));
+            return new BigDecimal[] {v, null};
         }
         return new BigDecimal[] {BigDecimal.ZERO, null};
     }

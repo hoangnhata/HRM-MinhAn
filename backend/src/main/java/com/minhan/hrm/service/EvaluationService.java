@@ -60,7 +60,7 @@ public class EvaluationService {
         if (current.getRole() == UserRole.ADMIN) {
             return;
         }
-        Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
+        Employee self = employeeService.linkedEmployee(current).orElse(null);
         if (self == null || !self.getId().equals(target.getId())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem đánh giá");
         }

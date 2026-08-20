@@ -2,8 +2,10 @@ package com.minhan.hrm.repository;
 
 import com.minhan.hrm.entity.AttendanceRecord;
 import com.minhan.hrm.entity.Employee;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -18,6 +20,12 @@ public interface AttendanceRecordRepository extends JpaRepository<AttendanceReco
             Employee employee, LocalDate start, LocalDate end);
 
     Optional<AttendanceRecord> findByEmployeeAndWorkDate(Employee employee, LocalDate workDate);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM AttendanceRecord a WHERE a.employee = :employee AND a.workDate = :workDate")
+    Optional<AttendanceRecord> findByEmployeeAndWorkDateForUpdate(
+            @Param("employee") Employee employee,
+            @Param("workDate") LocalDate workDate);
 
     @Query("SELECT a FROM AttendanceRecord a WHERE a.employee.id IN :employeeIds "
             + "AND a.workDate BETWEEN :from AND :to")

@@ -48,9 +48,11 @@ public interface ProbationConversionRequestRepository extends JpaRepository<Prob
             JOIN FETCH r.employee e
             JOIN FETCH r.requestedBy
             LEFT JOIN FETCH e.department
+            LEFT JOIN FETCH r.nursingHeadReviewer
             LEFT JOIN FETCH r.hrReviewer
             LEFT JOIN FETCH r.directorReviewer
             WHERE r.status NOT IN (
+                com.minhan.hrm.entity.ProbationConversionStatus.PENDING_NURSING_HEAD,
                 com.minhan.hrm.entity.ProbationConversionStatus.PENDING_HR,
                 com.minhan.hrm.entity.ProbationConversionStatus.PENDING_DIRECTOR
             )
@@ -64,6 +66,7 @@ public interface ProbationConversionRequestRepository extends JpaRepository<Prob
             JOIN FETCH r.requestedBy
             LEFT JOIN FETCH e.department
             LEFT JOIN FETCH e.position
+            LEFT JOIN FETCH r.nursingHeadReviewer
             LEFT JOIN FETCH r.hrReviewer
             LEFT JOIN FETCH r.directorReviewer
             WHERE r.id = :id

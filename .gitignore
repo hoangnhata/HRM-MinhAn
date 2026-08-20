@@ -22,7 +22,22 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+*-firebase-adminsdk*.json
+**/GoogleService-Info.plist
+# google-services.json chứa API key — giữ local hoặc secret store
+**/google-services.json
 
 # Uploads / runtime
 uploads/
 **/uploads/
+
+# Local dumps / build artifacts (không đẩy lên git)
+outputs/
+backend/tmpdump/
+deploy/dist/
+deploy/*.zip
+_eval_xlsx_dump.json
+*.xlsx
+*.docx
+*.pptx
+logo.jpg

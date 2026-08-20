@@ -70,6 +70,76 @@ public record AttendanceShiftSchedule(
         return continuousEnd != null ? continuousEnd : afternoonEnd;
     }
 
+    /** Ghi đè khung giờ ca thông tầm theo ngày (giữ ca sáng/chiều). */
+    public AttendanceShiftSchedule withContinuousTimes(LocalTime start, LocalTime end) {
+        if (start == null || end == null) {
+            return this;
+        }
+        return new AttendanceShiftSchedule(
+                morningStart,
+                morningEnd,
+                afternoonStart,
+                afternoonEnd,
+                start,
+                end,
+                morningUnits,
+                afternoonUnits,
+                summer,
+                morningHours,
+                afternoonHours,
+                punchWindows);
+    }
+
+    /** Ghi đè ca sáng–chiều theo ngày (không bật chế độ thông tầm). */
+    public AttendanceShiftSchedule withSplitTimes(
+            LocalTime morningStart,
+            LocalTime morningEnd,
+            LocalTime afternoonStart,
+            LocalTime afternoonEnd,
+            AttendancePunchWindows windows) {
+        if (morningStart == null || morningEnd == null || afternoonStart == null || afternoonEnd == null) {
+            return this;
+        }
+        double mHours = Duration.between(morningStart, morningEnd).toMinutes() / 60.0;
+        double aHours = Duration.between(afternoonStart, afternoonEnd).toMinutes() / 60.0;
+        return new AttendanceShiftSchedule(
+                morningStart,
+                morningEnd,
+                afternoonStart,
+                afternoonEnd,
+                continuousStart,
+                continuousEnd,
+                morningUnits,
+                afternoonUnits,
+                summer,
+                mHours,
+                aHours,
+                windows != null ? windows : punchWindows);
+    }
+
+    public AttendanceShiftSchedule withContinuousTimesAndPunchWindows(
+            LocalTime start,
+            LocalTime end,
+            int checkInBeforeMin,
+            int checkInAfterMin,
+            int checkOutBeforeMin,
+            int checkOutAfterMin) {
+        AttendancePunchWindows current = punchWindows;
+        AttendancePunchWindows windows = new AttendancePunchWindows(
+                checkInBeforeMin,
+                checkInAfterMin,
+                current.morningOutBeforeMin(),
+                current.morningOutAfterMin(),
+                current.afternoonInBeforeMin(),
+                current.afternoonInAfterMin(),
+                checkOutBeforeMin,
+                checkOutAfterMin);
+        return new AttendanceShiftSchedule(
+                morningStart, morningEnd, afternoonStart, afternoonEnd,
+                start, end, morningUnits, afternoonUnits, summer,
+                morningHours, afternoonHours, windows);
+    }
+
     public Map<String, Object> toInfoMap() {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("summer", summer);

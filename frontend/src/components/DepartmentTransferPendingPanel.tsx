@@ -1,23 +1,35 @@
 import HistoryIcon from '@mui/icons-material/History';
-import InboxOutlinedIcon from '@mui/icons-material/InboxOutlined';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import {
   Alert,
   Badge,
   Box,
-  Grid,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Stack,
   Tab,
   Tabs,
   Typography,
-  CircularProgress,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import * as departmentTransferService from '../services/departmentTransferService';
+import {
+  ensureHasSignature,
+  extractApiErrorMessage,
+} from '../services/approvalSignatureService';
 import { DepartmentTransferDetailDialog } from './DepartmentTransferDetailDialog';
-import { DepartmentTransferListCard } from './DepartmentTransferListCard';
+import {
+  applyRequestListFilters,
+  EMPTY_REQUEST_FILTERS,
+  RequestListFilters,
+  type RequestListFilterState,
+} from './requests/RequestListFilters';
+import { RequestListTable, formatRequestSubject, type RequestListRow } from './requests/RequestListTable';
 
 export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () => void }) {
   const theme = useTheme();
@@ -27,15 +39,27 @@ export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () =
   const [pending, setPending] = useState<departmentTransferService.DepartmentTransfer[]>([]);
   const [history, setHistory] = useState<departmentTransferService.DepartmentTransfer[]>([]);
   const [subTab, setSubTab] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [filters, setFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
+  const [confirm, setConfirm] = useState<{
+    requests: departmentTransferService.DepartmentTransfer[];
+    approved: boolean;
+  } | null>(null);
+  const [actionBusyId, setActionBusyId] = useState<number | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const reload = useCallback(() => {
-    setLoading(true);
+    setListLoading(true);
     Promise.all([
-      departmentTransferService.fetchPendingTransfers().catch(() => [] as departmentTransferService.DepartmentTransfer[]),
-      departmentTransferService.fetchTransferHistory().catch(() => [] as departmentTransferService.DepartmentTransfer[]),
+      departmentTransferService
+        .fetchPendingTransfers()
+        .catch(() => [] as departmentTransferService.DepartmentTransfer[]),
+      departmentTransferService
+        .fetchTransferHistory()
+        .catch(() => [] as departmentTransferService.DepartmentTransfer[]),
     ])
       .then(([p, h]) => {
         setPending(p);
@@ -43,33 +67,128 @@ export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () =
         setErr(null);
       })
       .catch(() => setErr('Không tải được danh sách luân chuyển.'))
-      .finally(() => setLoading(false));
+      .finally(() => setListLoading(false));
   }, []);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
+  useEffect(() => {
+    setFilters(EMPTY_REQUEST_FILTERS);
+  }, [subTab]);
+
   const list = subTab === 0 ? pending : history;
 
-  if (loading && pending.length === 0 && history.length === 0) {
-    return (
-      <Box sx={{ py: 4, textAlign: 'center' }}>
-        <CircularProgress size={28} />
-      </Box>
-    );
+  const filtered = useMemo(
+    () =>
+      applyRequestListFilters(list, filters, {
+        searchText: (r) =>
+          [
+            r.employeeName,
+            r.employeeCode,
+            r.fromDepartmentName,
+            r.toDepartmentName,
+            r.reason,
+            r.status,
+          ].join(' '),
+        dateValue: (r) => r.createdAt,
+        statusValue: (r) => r.status,
+        departmentValue: (r) => r.fromDepartmentName || r.toDepartmentName,
+      }),
+    [list, filters],
+  );
+
+  const statusOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of list) {
+      if (!map.has(r.status)) {
+        map.set(
+          r.status,
+          departmentTransferService.TRANSFER_STATUS_LABEL[r.status] || r.status,
+        );
+      }
+    }
+    return [...map.entries()].map(([value, label]) => ({ value, label }));
+  }, [list]);
+
+  const rows: RequestListRow[] = filtered.map((r) => {
+    const reviewable =
+      canReview &&
+      (r.status === 'PENDING_DIRECTOR' || r.status === 'REJECTED' || r.status === 'APPROVED');
+    return {
+      id: r.id,
+      typeLabel: 'Luân chuyển',
+      subject: formatRequestSubject(r.employeeName, r.positionTitle),
+      department: r.fromDepartmentName,
+      summary: `${r.fromDepartmentName} → ${r.toDepartmentName}${
+        r.toPositionTitle ? ` · ${r.toPositionTitle}` : ''
+      } · hiệu lực ${departmentTransferService.formatTransferDate(r.effectiveDate)}`,
+      meta: r.reason?.trim() || undefined,
+      statusLabel: departmentTransferService.TRANSFER_STATUS_LABEL[r.status] || r.status,
+      statusColor: departmentTransferService.transferStatusColor(r.status),
+      dateLabel: departmentTransferService.formatTransferDate(r.effectiveDate),
+      submittedAtLabel: departmentTransferService.formatTransferDate(r.createdAt),
+      pending: r.status === 'PENDING_DIRECTOR',
+      canApprove: reviewable,
+      canReject: reviewable,
+    };
+  });
+
+  const byId = useMemo(() => new Map(list.map((r) => [r.id, r])), [list]);
+
+  async function confirmQuickReview() {
+    if (!confirm || confirm.requests.length === 0) return;
+    const { requests, approved } = confirm;
+    if (requests.length > 1) setBulkBusy(true);
+    else setActionBusyId(requests[0].id);
+    setMsg(null);
+    setErr(null);
+    try {
+      await ensureHasSignature();
+      let ok = 0;
+      let fail = 0;
+      for (const request of requests) {
+        try {
+          await departmentTransferService.directorReviewTransfer(request.id, approved, '');
+          ok += 1;
+        } catch {
+          fail += 1;
+        }
+      }
+      reload();
+      onChanged?.();
+      setMsg(
+        fail === 0
+          ? approved
+            ? `Đã duyệt ${ok} đơn luân chuyển.`
+            : `Đã từ chối ${ok} đơn luân chuyển.`
+          : `Hoàn tất ${ok} đơn, ${fail} đơn lỗi.`,
+      );
+      setConfirm(null);
+    } catch (e) {
+      setErr(extractApiErrorMessage(e, 'Thao tác thất bại.'));
+    } finally {
+      setActionBusyId(null);
+      setBulkBusy(false);
+    }
   }
 
   return (
     <Stack spacing={2}>
       <Typography variant="body2" color="text.secondary">
         Đề nghị luân chuyển do HCNS gửi. Sau khi Giám đốc duyệt, hệ thống chỉ chuyển nhân viên đúng{' '}
-        <strong>ngày hiệu lực</strong>. Bấm thẻ để xem chi tiết đơn.
+        <strong>ngày hiệu lực</strong>. Bấm xem để mở chi tiết đơn.
       </Typography>
 
       {err && (
         <Alert severity="error" onClose={() => setErr(null)}>
           {err}
+        </Alert>
+      )}
+      {msg && (
+        <Alert severity="info" sx={{ borderRadius: 2 }} onClose={() => setMsg(null)}>
+          {msg}
         </Alert>
       )}
 
@@ -125,70 +244,136 @@ export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () =
             />
           </Tabs>
         </Box>
-        {list.length > 0 && (
-          <Typography variant="caption" color="text.secondary" fontWeight={600}>
-            {subTab === 0
-              ? `${pending.length} đơn chờ — bấm thẻ để xem chi tiết${canReview ? ' và duyệt' : ''}`
-              : `${history.length} đơn đã xử lý — bấm «Xem chi tiết» để xem nội dung`}
-          </Typography>
-        )}
       </Stack>
 
-      {list.length === 0 ? (
-        <Box
-          sx={{
-            py: { xs: 5, sm: 6 },
-            px: 2,
-            textAlign: 'center',
-            borderRadius: 3,
-            border: `1px dashed ${alpha(theme.palette.primary.main, 0.22)}`,
-            bgcolor: alpha(theme.palette.primary.main, 0.025),
-          }}
-        >
-          <Box
-            sx={{
-              width: 56,
-              height: 56,
-              mx: 'auto',
-              mb: 1.75,
-              borderRadius: 2.5,
-              display: 'grid',
-              placeItems: 'center',
-              bgcolor: alpha(theme.palette.primary.main, 0.08),
-              color: theme.palette.primary.main,
-            }}
-          >
-            <InboxOutlinedIcon sx={{ fontSize: 28 }} />
-          </Box>
-          <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 0.5 }}>
-            {subTab === 0 ? 'Không có đơn chờ duyệt' : 'Chưa có lịch sử luân chuyển'}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 420, mx: 'auto' }}>
-            {subTab === 0
-              ? 'Khi HCNS gửi đề nghị luân chuyển, đơn sẽ xuất hiện tại đây.'
-              : 'Các đơn đã duyệt, từ chối, đã chuyển hoặc hủy sẽ lưu tại đây.'}
-          </Typography>
-        </Box>
-      ) : (
-        <Grid container spacing={1.75}>
-          {list.map((r) => (
-            <Grid item xs={12} md={6} key={r.id}>
-              <DepartmentTransferListCard transfer={r} onClick={() => setDetailId(r.id)} />
-            </Grid>
-          ))}
-        </Grid>
-      )}
+      <RequestListTable
+        rows={rows}
+        loading={listLoading}
+        emptyTitle={subTab === 0 ? 'Không có đơn chờ duyệt' : 'Chưa có lịch sử luân chuyển'}
+        emptyHint={
+          subTab === 0
+            ? 'Khi HCNS gửi đề nghị luân chuyển, đơn sẽ xuất hiện tại đây.'
+            : 'Các đơn đã duyệt, từ chối, đã chuyển hoặc hủy sẽ lưu tại đây.'
+        }
+        actionBusyId={actionBusyId}
+        bulkBusy={bulkBusy}
+        toolbar={
+          <RequestListFilters
+            value={filters}
+            onChange={setFilters}
+            statusOptions={statusOptions}
+            resultCount={filtered.length}
+          />
+        }
+        onView={(row) => setDetailId(Number(row.id))}
+        onApprove={
+          canReview
+            ? (row) => {
+                const r = byId.get(Number(row.id));
+                if (r) setConfirm({ requests: [r], approved: true });
+              }
+            : undefined
+        }
+        onReject={
+          canReview
+            ? (row) => {
+                const r = byId.get(Number(row.id));
+                if (r) setConfirm({ requests: [r], approved: false });
+              }
+            : undefined
+        }
+        onBulkApprove={
+          canReview
+            ? (selectedRows) => {
+                const list = selectedRows
+                  .map((row) => byId.get(Number(row.id)))
+                  .filter((r): r is departmentTransferService.DepartmentTransfer => Boolean(r));
+                if (list.length) setConfirm({ requests: list, approved: true });
+              }
+            : undefined
+        }
+        onBulkReject={
+          canReview
+            ? (selectedRows) => {
+                const list = selectedRows
+                  .map((row) => byId.get(Number(row.id)))
+                  .filter((r): r is departmentTransferService.DepartmentTransfer => Boolean(r));
+                if (list.length) setConfirm({ requests: list, approved: false });
+              }
+            : undefined
+        }
+      />
 
       <DepartmentTransferDetailDialog
         open={detailId != null}
         transferId={detailId}
         onClose={() => setDetailId(null)}
         canReview={canReview}
+        canCancel={user?.role === 'ADMIN' || user?.role === 'HR'}
         onChanged={() => {
           reload();
           onChanged?.();
         }}
       />
+
+      <Dialog open={confirm != null} onClose={() => !bulkBusy && setConfirm(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>
+          {confirm?.approved
+            ? confirm.requests.length > 1
+              ? 'Xác nhận duyệt hàng loạt'
+              : 'Xác nhận duyệt'
+            : confirm && confirm.requests.length > 1
+              ? 'Xác nhận từ chối hàng loạt'
+              : 'Xác nhận không duyệt'}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            {confirm && confirm.requests.length > 1 ? (
+              <>
+                {confirm.approved ? 'Duyệt' : 'Từ chối'} <strong>{confirm.requests.length}</strong> đơn
+                luân chuyển đã chọn?
+              </>
+            ) : (
+              <>
+                {confirm?.approved ? 'Duyệt' : 'Từ chối'} đơn luân chuyển của{' '}
+                <strong>{confirm?.requests[0]?.employeeName}</strong>?
+                {confirm?.approved ? ' Có thể mở chi tiết nếu cần ghi chú.' : ''}
+              </>
+            )}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirm(null)} disabled={actionBusyId != null || bulkBusy}>
+            Hủy
+          </Button>
+          {confirm && confirm.requests.length === 1 && (
+            <Button
+              variant="outlined"
+              onClick={() => {
+                if (confirm) setDetailId(confirm.requests[0].id);
+                setConfirm(null);
+              }}
+              disabled={actionBusyId != null || bulkBusy}
+            >
+              Xem chi tiết
+            </Button>
+          )}
+          <Button
+            color={confirm?.approved ? 'success' : 'error'}
+            variant="contained"
+            onClick={confirmQuickReview}
+            disabled={actionBusyId != null || bulkBusy}
+          >
+            {confirm?.approved
+              ? confirm.requests.length > 1
+                ? `Duyệt ${confirm.requests.length} đơn`
+                : 'Duyệt'
+              : confirm && confirm.requests.length > 1
+                ? `Từ chối ${confirm.requests.length} đơn`
+                : 'Không duyệt'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

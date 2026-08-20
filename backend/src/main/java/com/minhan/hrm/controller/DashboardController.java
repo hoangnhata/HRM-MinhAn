@@ -2,6 +2,7 @@ package com.minhan.hrm.controller;
 
 import com.minhan.hrm.dto.employee.EmployeeSummaryDto;
 import com.minhan.hrm.service.DashboardService;
+import com.minhan.hrm.service.NursingDashboardService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,11 +23,24 @@ import java.util.Map;
 public class DashboardController {
 
     private final DashboardService dashboardService;
+    private final NursingDashboardService nursingDashboardService;
 
     @GetMapping("/stats")
     @Operation(summary = "Thống kê nhanh (ADMIN)")
     public Map<String, Object> stats() {
         return dashboardService.stats();
+    }
+
+    @GetMapping("/nursing-stats")
+    @Operation(summary = "Tổng quan khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa (HEAD_NURSING)")
+    public Map<String, Object> nursingStats() {
+        return nursingDashboardService.stats();
+    }
+
+    @GetMapping("/nursing/departments/{departmentId}/employees")
+    @Operation(summary = "Danh sách nhân viên khối ĐD theo phòng ban (HEAD_NURSING)")
+    public List<EmployeeSummaryDto> nursingEmployeesByDepartment(@PathVariable Long departmentId) {
+        return nursingDashboardService.employeesInDepartment(departmentId);
     }
 
     @GetMapping("/hires/{year}/{month}/employees")

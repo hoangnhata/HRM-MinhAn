@@ -12,4 +12,8 @@ public class SsoHrmRoleDto {
     String roleCode;
     String roleName;
     String appCode;
+    /** Vai trò ERP — UserAccounts.RoleId */
+    Integer roleId;
+    /** Vai trò Tài sản — UserAccounts.roleId_ts */
+    Integer roleIdTs;
 }

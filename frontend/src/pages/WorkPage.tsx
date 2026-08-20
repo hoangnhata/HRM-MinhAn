@@ -1,15 +1,21 @@
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import GavelIcon from '@mui/icons-material/Gavel';
 import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
+import LocalHospitalOutlinedIcon from '@mui/icons-material/LocalHospitalOutlined';
 import HowToRegOutlinedIcon from '@mui/icons-material/HowToRegOutlined';
+import GroupAddOutlinedIcon from '@mui/icons-material/GroupAddOutlined';
 import NightsStayIcon from '@mui/icons-material/NightsStay';
+import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
+import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import {
   Alert,
   Box,
+  Button,
   Chip,
   Grid,
   LinearProgress,
@@ -25,19 +31,20 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AttendanceExplanationDialog } from '../components/AttendanceExplanationDialog';
 import { AttendanceUpdateRequestDialog } from '../components/AttendanceUpdateRequestDialog';
 import { CheckInOutImportDialog } from '../components/CheckInOutImportDialog';
 import { CheckInOutSyncDialog } from '../components/CheckInOutSyncDialog';
-import { EmployeeFilterPanel } from '../components/EmployeeFilterPanel';
+import { EmployeeFilterPanel, employeeStatusQuery } from '../components/EmployeeFilterPanel';
 import { PageHeader } from '../components/layout/PageHeader';
 import { AttendanceDayDetailDialog } from '../components/work/AttendanceDayDetailDialog';
 import { AttendanceRowActions, rowNeedsUpdate } from '../components/work/AttendanceRowActions';
 import { AttendanceScheduleBanner } from '../components/work/AttendanceScheduleBanner';
 import { AttendanceScheduleEditDialog } from '../components/work/AttendanceScheduleEditDialog';
 import { DeploymentRequestDialog } from '../components/DeploymentRequestDialog';
+import { DepartmentAttendanceMatrixDialog } from '../components/work/DepartmentAttendanceMatrixDialog';
 import { DutyShiftDialog } from '../components/work/DutyShiftDialog';
 import { BulkWorkSupplementDialog } from '../components/work/BulkWorkSupplementDialog';
 import { BulkDeploymentDialog } from '../components/work/BulkDeploymentDialog';
@@ -45,8 +52,11 @@ import { WorkSupplementDialog } from '../components/work/WorkSupplementDialog';
 import { ForgotPenaltyConfigDialog } from '../components/work/ForgotPenaltyConfigDialog';
 import { HolidayWorkConfigDialog } from '../components/work/HolidayWorkConfigDialog';
 import { ContinuousShiftConfigDialog } from '../components/work/ContinuousShiftConfigDialog';
+import { ContinuousShiftTypeDialog } from '../components/work/ContinuousShiftTypeDialog';
 import { LatePenaltyConfigDialog } from '../components/work/LatePenaltyConfigDialog';
 import { WorkAdminToolbar } from '../components/work/WorkAdminToolbar';
+import { YoungChildProposeDialog } from '../components/YoungChildProposeDialog';
+import { ShiftConfigChangeProposeDialog } from '../components/ShiftConfigChangeProposeDialog';
 import { MonthPickerField } from '../components/ui/DateTimeFields';
 import { useAuth } from '../context/AuthContext';
 import * as attSvc from '../services/attendanceService';
@@ -65,6 +75,8 @@ import {
   displayHoursFromUnits,
   type ShiftScheduleInfo,
 } from '../utils/shiftSchedule';
+import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
+import { isNursingBlockTitle } from '../utils/nursingBlock';
 
 const STATUS_CHIP: Record<string, { label: string; color: 'success' | 'warning' | 'default' | 'error' | 'info' }> = {
   PRESENT: { label: 'Đủ công', color: 'success' },
@@ -73,6 +85,7 @@ const STATUS_CHIP: Record<string, { label: string; color: 'success' | 'warning' 
   LEAVE: { label: 'Phép', color: 'info' },
   UNPAID_LEAVE: { label: 'Không lương', color: 'default' },
   BUSINESS_TRIP: { label: 'Công tác', color: 'warning' },
+  SEMINAR: { label: 'Hội thảo', color: 'info' },
   DEPLOYMENT: { label: 'Điều động', color: 'info' },
 };
 
@@ -120,20 +133,6 @@ function shiftHoursLabel(
   );
 }
 
-function continuousHoursLabel(row: Record<string, unknown> | null, sch: ShiftScheduleInfo) {
-  if (!row) return '—';
-  const morningUnits = Number(row.morningWorkUnits ?? 0) || 0;
-  const afternoonUnits = Number(row.afternoonWorkUnits ?? 0) || 0;
-  const totalUnits = morningUnits + afternoonUnits;
-  if (totalUnits <= 0) return '—';
-  const dayHours = continuousShiftHours(sch);
-  const totalShiftUnits = sch.morningUnits + sch.afternoonUnits;
-  const hasPunch = Boolean(row.morningCheckIn || row.afternoonCheckOut);
-  return formatWorkedHours(
-    displayHoursFromUnits(totalUnits, totalShiftUnits, dayHours, sch.effectiveDayHours ?? dayHours, { hasPunch }),
-  );
-}
-
 /** Cột ngoài giờ — công điều động ngoài ca × giờ ngày. */
 function overtimeHoursLabel(
   row: Record<string, unknown> | null,
@@ -162,23 +161,30 @@ const statusChipSx = {
 export default function WorkPage() {
   const theme = useTheme();
   const { user } = useAuth();
+  const location = useLocation();
+  const selfOnly = location.pathname === '/work/me' || location.pathname.endsWith('/work/me');
   const isHrOrAdmin = user?.role === 'ADMIN' || user?.role === 'HR';
-  const isHead =
-    user?.role === 'ADMIN' || user?.role === 'HEAD_DEPARTMENT' || user?.role === 'HEAD_NURSING';
-  const isHeadRole = user?.role === 'HEAD_DEPARTMENT' || user?.role === 'HEAD_NURSING';
-  const canPickEmployee = isHrOrAdmin || isHead;
+  const isHr2Viewer = isHr2Role(user?.role);
+  const isNursingHead = user?.role === 'HEAD_NURSING';
+  const isHeadRole = isHeadDepartmentRole(user?.role);
+  const isHead = user?.role === 'ADMIN' || isHeadRole || isNursingHead;
+  const canPickEmployee = !selfOnly && (isHrOrAdmin || isHr2Viewer || isHead);
+  const ownDepartmentId = user?.departmentId ?? null;
+  const deptFilterLocked = isHeadRole && !isHrOrAdmin && !isHr2Viewer && !isNursingHead && ownDepartmentId != null;
+  const ownWorkUnitDetail = user?.workUnitScoped ? (user.workUnitDetail?.trim() || undefined) : undefined;
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [employees, setEmployees] = useState<employeeService.EmployeeSummary[]>([]);
   const [selected, setSelected] = useState<number | ''>('');
-  const canManageSupplement = isHrOrAdmin && selected !== '';
-  const canManageDutyOnly = isHeadRole && !isHrOrAdmin && selected !== '';
-  const canCreateDeployment = (isHeadRole || isHrOrAdmin) && selected !== '';
+  /** Trưởng phòng ĐD chỉ xem — không bổ sung công / điều động / cấu hình ca. */
+  const canManageSupplement = (user?.role === 'ADMIN' || isHeadRole) && selected !== '' && !isNursingHead;
+  const canManageDutyOnly = false;
+  const canCreateDeployment = (isHeadRole || user?.role === 'ADMIN') && selected !== '' && !isNursingHead;
   const [qInput, setQInput] = useState('');
   const [q, setQ] = useState('');
   const [filterDept, setFilterDept] = useState<number | ''>('');
-  const [filterStatus, setFilterStatus] = useState('ACTIVE');
+  const [filterStatus, setFilterStatus] = useState('WORKING');
   const [departments, setDepartments] = useState<employeeService.DepartmentOption[]>([]);
   const [{ year, month }, setPeriod] = useState(currentYearMonth);
   const [att, setAtt] = useState<Record<string, unknown>[]>([]);
@@ -195,6 +201,9 @@ export default function WorkPage() {
   const [dialogDate, setDialogDate] = useState<string | undefined>();
   const [updateRow, setUpdateRow] = useState<Record<string, unknown> | null>(null);
   const [explainRow, setExplainRow] = useState<Record<string, unknown> | null>(null);
+  const [explainInitialKeys, setExplainInitialKeys] = useState<
+    attSvc.ExplanationSlotKey[] | undefined
+  >();
   const [dayDetailOpen, setDayDetailOpen] = useState(false);
   const [dayDetailDate, setDayDetailDate] = useState('');
   const [dayDetailRow, setDayDetailRow] = useState<Record<string, unknown> | null>(null);
@@ -207,10 +216,15 @@ export default function WorkPage() {
   const [holidayDates, setHolidayDates] = useState<Set<string>>(() => new Set());
   const [continuousShift, setContinuousShift] = useState(false);
   const [continuousDates, setContinuousDates] = useState<Set<string>>(() => new Set());
+  const [splitDates, setSplitDates] = useState<Set<string>>(() => new Set());
   const [continuousConfigOpen, setContinuousConfigOpen] = useState(false);
+  const [continuousTypeOpen, setContinuousTypeOpen] = useState(false);
+  const [continuousTypes, setContinuousTypes] = useState<attSvc.ContinuousShiftType[]>([]);
   const [youngChild, setYoungChild] = useState(false);
   const [youngChildSaving, setYoungChildSaving] = useState(false);
   const [youngChildPending, setYoungChildPending] = useState(false);
+  const [youngChildProposeOpen, setYoungChildProposeOpen] = useState(false);
+  const [shiftConfigProposeOpen, setShiftConfigProposeOpen] = useState(false);
   const [dutyShifts, setDutyShifts] = useState<attSvc.DutyShiftEntry[]>([]);
   const [dutyOpen, setDutyOpen] = useState(false);
   const [supplementOpen, setSupplementOpen] = useState(false);
@@ -220,6 +234,8 @@ export default function WorkPage() {
   const [dutyDate, setDutyDate] = useState('');
   const [deploymentDate, setDeploymentDate] = useState('');
   const [supplementInitialTab, setSupplementInitialTab] = useState<0 | 1 | 2 | undefined>(undefined);
+  const [matrixOpen, setMatrixOpen] = useState(false);
+  const pendingSelectRef = useRef<number | null>(null);
 
   const selectedEmployee = useMemo(
     () => employees.find((e) => e.id === selected),
@@ -264,7 +280,11 @@ export default function WorkPage() {
     const id =
       employeeId ??
       (selected !== '' ? Number(selected) : user?.employeeId != null ? user.employeeId : undefined);
-    const refDate = `${periodYear}-${String(periodMonth).padStart(2, '0')}-15`;
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear() === periodYear && today.getMonth() + 1 === periodMonth;
+    const refDate = isCurrentMonth
+      ? `${periodYear}-${String(periodMonth).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      : `${periodYear}-${String(periodMonth).padStart(2, '0')}-15`;
     attSvc
       .fetchShiftSchedule(refDate, id)
       .then((s) => {
@@ -274,7 +294,11 @@ export default function WorkPage() {
       .catch(() => setSchedule(scheduleForDate(refDate)));
     if (id != null && (isHrOrAdmin || isHeadRole)) {
       youngChildReq
-        .fetchPendingYoungChildForEmployee(id, periodYear, periodMonth)
+        .fetchPendingYoungChildForEmployee(
+          id,
+          `${periodYear}-${String(periodMonth).padStart(2, '0')}-01`,
+          new Date(Date.UTC(periodYear, periodMonth, 0)).toISOString().slice(0, 10),
+        )
         .then((p) => setYoungChildPending(Boolean(p?.id)))
         .catch(() => setYoungChildPending(false));
     } else {
@@ -288,18 +312,36 @@ export default function WorkPage() {
       (selected !== '' ? Number(selected) : user?.employeeId != null ? user.employeeId : undefined);
     if (id == null) {
       setContinuousDates(new Set());
+      setSplitDates(new Set());
       setContinuousShift(false);
       return;
     }
     attSvc
       .fetchEmployeeContinuousShiftDays(id, periodYear, periodMonth)
       .then((r) => {
-        const set = new Set(r.dates ?? []);
-        setContinuousDates(set);
-        setContinuousShift(set.size > 0);
+        const continuous = new Set(
+          r.continuousDates
+            ?? (r.days ?? [])
+              .filter((d) => d.kind !== 'SPLIT')
+              .map((d) => d.date),
+        );
+        const split = new Set(
+          r.splitDates
+            ?? (r.days ?? [])
+              .filter((d) => d.kind === 'SPLIT')
+              .map((d) => d.date),
+        );
+        // Fallback cũ: API chưa trả kind → coi toàn bộ dates là thông tầm
+        if (continuous.size === 0 && split.size === 0 && (r.dates?.length ?? 0) > 0) {
+          r.dates.forEach((d) => continuous.add(d));
+        }
+        setContinuousDates(continuous);
+        setSplitDates(split);
+        setContinuousShift(continuous.size > 0);
       })
       .catch(() => {
         setContinuousDates(new Set());
+        setSplitDates(new Set());
         setContinuousShift(false);
       });
   }
@@ -329,6 +371,12 @@ export default function WorkPage() {
   }, [isHrOrAdmin, year, month]);
 
   useEffect(() => {
+    attSvc.fetchContinuousShiftTypes(true)
+      .then(setContinuousTypes)
+      .catch(() => setContinuousTypes([]));
+  }, []);
+
+  useEffect(() => {
     const raw = searchParams.get('tab');
     if (!raw) return;
     // Tab đơn đã chuyển sang trang /requests
@@ -342,10 +390,65 @@ export default function WorkPage() {
   }, [searchParams, navigate]);
 
   useEffect(() => {
-    if (canPickEmployee) {
-      employeeService.fetchDepartments().then(setDepartments).catch(() => {});
+    if (!canPickEmployee) return;
+    let cancelled = false;
+    void (async () => {
+      let rows: employeeService.DepartmentOption[] = [];
+      try {
+        rows = await employeeService.fetchDepartments();
+      } catch {
+        // HCNS2 / Trưởng phòng ĐD có nguồn dự phòng bên dưới.
+      }
+
+      // Không khóa HCNS2 theo phòng ban trong hồ sơ. Nếu API danh mục cũ trả rỗng,
+      // dựng danh sách khoa/phòng từ chính dữ liệu công toàn viện được HR2 phép xem.
+      if (rows.length === 0 && isHr2Viewer) {
+        try {
+          const matrix = await attSvc.fetchAttendanceMonthMatrix(year, month);
+          const unique = new Map<number, employeeService.DepartmentOption>();
+          matrix.rows.forEach((row) => {
+            if (row.departmentId != null && row.department?.trim()) {
+              unique.set(row.departmentId, {
+                id: row.departmentId,
+                code: `DEPT-${row.departmentId}`,
+                name: row.department.trim(),
+              });
+            }
+          });
+          rows = [...unique.values()].sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+        } catch {
+          // Lỗi tải ma trận sẽ được hiển thị trong cửa sổ bảng công khi người dùng mở.
+        }
+      }
+
+      if (rows.length === 0 && isNursingHead) {
+        try {
+          const stats = await employeeService.fetchNursingDashboardStats();
+          rows = (stats.byDepartment ?? [])
+            .filter((d) => d.departmentId != null && d.departmentName?.trim())
+            .map((d) => ({
+              id: Number(d.departmentId),
+              code: `DEPT-${d.departmentId}`,
+              name: d.departmentName.trim(),
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+        } catch {
+          // Giữ danh sách rỗng; người dùng vẫn lọc được bằng tìm kiếm tên.
+        }
+      }
+
+      if (!cancelled) setDepartments(rows);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canPickEmployee, isHr2Viewer, isNursingHead, year, month]);
+
+  useEffect(() => {
+    if (deptFilterLocked && ownDepartmentId != null) {
+      setFilterDept(ownDepartmentId);
     }
-  }, [canPickEmployee]);
+  }, [deptFilterLocked, ownDepartmentId]);
 
   useEffect(() => {
     if (!canPickEmployee) return;
@@ -356,25 +459,43 @@ export default function WorkPage() {
         size: 1000,
         q: q.trim() || undefined,
         departmentId: filterDept === '' ? undefined : filterDept,
-        status: filterStatus || undefined,
+        workUnit: ownWorkUnitDetail,
+        ...employeeStatusQuery(filterStatus),
       });
       if (cancelled) return;
       setEmployees(p.content);
       if (p.content.length === 0) {
+        pendingSelectRef.current = null;
         setSelected('');
         return;
       }
-      setSelected((prev) => (prev !== '' && p.content.some((e) => e.id === prev) ? prev : p.content[0].id));
+      setSelected((prev) => {
+        const pending = pendingSelectRef.current;
+        if (pending != null && p.content.some((e) => e.id === pending)) {
+          pendingSelectRef.current = null;
+          return pending;
+        }
+        return prev !== '' && p.content.some((e) => e.id === prev) ? prev : p.content[0].id;
+      });
     })();
     return () => {
       cancelled = true;
     };
-  }, [canPickEmployee, q, filterDept, filterStatus]);
+  }, [canPickEmployee, q, filterDept, filterStatus, ownWorkUnitDetail]);
 
   useEffect(() => {
     if (canPickEmployee) return;
     if (user?.employeeId) setSelected(user.employeeId);
   }, [user, canPickEmployee]);
+
+  // Nhân viên / Giám đốc vào /work → chuyển sang Công của tôi
+  useEffect(() => {
+    if (selfOnly) return;
+    const role = user?.role;
+    if (role === 'EMPLOYEE' || role === 'DIRECTOR') {
+      navigate('/work/me', { replace: true });
+    }
+  }, [selfOnly, user?.role, navigate]);
 
   useEffect(() => {
     if (!isHrOrAdmin) return;
@@ -473,12 +594,22 @@ export default function WorkPage() {
   }
 
   async function handleExportReport() {
-    if (!isHrOrAdmin) return;
+    if (!isHrOrAdmin && !isHeadRole) return;
     setExportingReport(true);
     setNotifyMsg(null);
     try {
-      await attSvc.downloadMonthlyReport(year, month, filterDept === '' ? undefined : Number(filterDept));
-      setNotifyMsg(`Đã xuất báo cáo công tháng ${month}/${year}.`);
+      const departmentId =
+        isHeadRole && !isHrOrAdmin
+          ? ownDepartmentId ?? undefined
+          : filterDept === ''
+            ? undefined
+            : Number(filterDept);
+      await attSvc.downloadMonthlyReport(year, month, departmentId);
+      setNotifyMsg(
+        isHeadRole && !isHrOrAdmin
+          ? `Đã xuất báo cáo công khoa của bạn tháng ${month}/${year}.`
+          : `Đã xuất báo cáo công tháng ${month}/${year}.`,
+      );
     } catch {
       setNotifyMsg('Không xuất được báo cáo công.');
     } finally {
@@ -504,32 +635,32 @@ export default function WorkPage() {
   }
 
   async function handleContinuousShiftSaved(dates: string[], recalculated: number, warning?: string) {
-    const set = new Set(dates);
-    setContinuousDates(set);
-    setContinuousShift(set.size > 0);
+    // Tải lại phân loại thông tầm / sáng–chiều từ API
+    reloadContinuousDates();
     reloadSchedule();
     reloadAll();
     setNotifyMsg(
       warning
         ? warning
-        : `Đã lưu ${dates.length} ngày ca thông tầm tháng ${month}/${year} — tính lại ${recalculated} ngày.`,
+        : `Đã lưu ${dates.length} ngày xếp ca tháng ${month}/${year} — tính lại ${recalculated} ngày.`,
     );
   }
 
   async function handleYoungChildChange(checked: boolean) {
-    if (selected === '' || !isHrOrAdmin) return;
+    if (selected === '' || user?.role !== 'ADMIN') return;
+    const now = new Date();
+    const effectiveDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     setYoungChildSaving(true);
     try {
-      const result = await attSvc.setEmployeeYoungChild(Number(selected), year, month, checked);
+      const result = await attSvc.setEmployeeYoungChild(Number(selected), effectiveDate, checked);
       setYoungChild(checked);
       reloadSchedule(Number(selected), year, month);
       reloadAll();
       setNotifyMsg(
-        result.recalculateWarning
-          ? result.recalculateWarning
-          : checked
-            ? `Đã bật nuôi con nhỏ tháng ${month}/${year} (−1 giờ, tối thiểu 7h = 1 công) — tính lại ${result.recalculated} ngày.`
-            : `Đã tắt nuôi con nhỏ tháng ${month}/${year} — tính lại ${result.recalculated} ngày.`,
+        result.recalculateWarning ||
+          (checked
+            ? `Đã bật chế độ nuôi con nhỏ từ ${effectiveDate}; chế độ duy trì đến khi ADMIN tắt.`
+            : `Đã tắt chế độ nuôi con nhỏ từ ${effectiveDate}.`),
       );
     } catch {
       setNotifyMsg('Không cập nhật được chế độ nuôi con nhỏ.');
@@ -538,33 +669,13 @@ export default function WorkPage() {
     }
   }
 
-  async function handleProposeYoungChild(enabled: boolean) {
-    if (selected === '' || !isHeadRole) return;
-    setYoungChildSaving(true);
-    try {
-      await youngChildReq.createYoungChildRequest({
-        employeeId: Number(selected),
-        year,
-        month,
-        enabled,
-      });
-      setYoungChildPending(true);
-      setNotifyMsg(
-        enabled
-          ? `Đã gửi đề xuất bật nuôi con nhỏ tháng ${month}/${year} — chờ HCNS duyệt.`
-          : `Đã gửi đề xuất tắt nuôi con nhỏ tháng ${month}/${year} — chờ HCNS duyệt.`,
-      );
-    } catch {
-      setNotifyMsg('Không gửi được đề xuất nuôi con nhỏ. Kiểm tra quyền hoặc đề xuất đang chờ.');
-    } finally {
-      setYoungChildSaving(false);
-    }
-  }
-
   const employeeName = selectedEmployee?.fullName ?? user?.fullName ?? 'Nhân viên';
 
-  /** Nhân viên chỉ gửi đơn trên hồ sơ của chính mình (backend gắn theo tài khoản đăng nhập). */
+  /** Nhân viên gửi cho mình; ADMIN có thể tạo giải trình cho nhân viên đang chọn. */
   const canActOnRows = Boolean(user?.employeeId && selected !== '' && Number(selected) === user.employeeId);
+  const canExplainSelected =
+    selected !== '' &&
+    (user?.role === 'ADMIN' || canActOnRows);
 
   function openDutyShift(date: string) {
     setDutyDate(date);
@@ -598,9 +709,10 @@ export default function WorkPage() {
     setDeploymentDate('');
   }
 
-  function openExplain(date: string) {
+  function openExplain(date: string, selectedKeys?: attSvc.ExplanationSlotKey[]) {
     setDialogDate(date);
     setExplainRow(attByDate.get(date) ?? null);
+    setExplainInitialKeys(selectedKeys);
     setExplainOpen(true);
   }
 
@@ -614,6 +726,7 @@ export default function WorkPage() {
     setExplainOpen(false);
     setDialogDate(undefined);
     setExplainRow(null);
+    setExplainInitialKeys(undefined);
   }
 
   function closeUpdate() {
@@ -628,12 +741,50 @@ export default function WorkPage() {
     setDayDetailOpen(true);
   }
 
+  function openEmployeeFromMatrix(employeeId: number, departmentId?: number | null) {
+    pendingSelectRef.current = employeeId;
+    setQInput('');
+    setQ('');
+    setFilterStatus('WORKING');
+    if (!deptFilterLocked && departmentId != null) {
+      setFilterDept(departmentId);
+    }
+    setSelected(employeeId);
+    setMatrixOpen(false);
+    setNotifyMsg('Đã chuyển sang bảng công chi tiết của nhân viên đã chọn.');
+  }
+
   return (
     <Box>
       <PageHeader
         overline="Công"
-        title="Bảng công & chấm công"
-        description="Theo dõi giờ làm, phạt muộn/sớm và quên chấm. Lịch ca tự đổi theo mùa hè/đông."
+        title={selfOnly ? 'Công của tôi' : 'Bảng công & chấm công'}
+        description={
+          selfOnly
+            ? 'Xem bảng công cá nhân theo tháng — không cần tìm tên trong danh sách.'
+            : 'Theo dõi giờ làm, phạt muộn/sớm và quên chấm. Lịch ca tự đổi theo mùa hè/đông.'
+        }
+        actions={
+          canPickEmployee ? (
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<TableChartOutlinedIcon />}
+              onClick={() => setMatrixOpen(true)}
+              sx={{
+                textTransform: 'none',
+                fontWeight: 700,
+                borderRadius: 2,
+                px: 2.25,
+                py: 1,
+                boxShadow: 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Bảng công theo khoa
+            </Button>
+          ) : undefined
+        }
       />
 
       <AttendanceScheduleBanner
@@ -643,22 +794,32 @@ export default function WorkPage() {
           setScheduleEditContinuous(false);
           setScheduleEditOpen(true);
         }}
-        onEditContinuous={() => {
-          setScheduleEditContinuous(true);
-          setScheduleEditOpen(true);
-        }}
-        canManageContinuous={(isHrOrAdmin || isHeadRole) && selected !== ''}
+        onEditContinuous={
+          isHrOrAdmin
+            ? () => {
+                setContinuousTypeOpen(true);
+              }
+            : undefined
+        }
+        canManageContinuous={(user?.role === 'ADMIN' || isHeadRole) && selected !== ''}
         employeeName={selectedEmployee?.fullName}
         continuousShift={continuousShift}
         continuousDayCount={continuousDates.size}
-        onConfigureContinuousShift={isHrOrAdmin ? () => setContinuousConfigOpen(true) : undefined}
+        onConfigureContinuousShift={
+          user?.role === 'ADMIN' || isHeadRole
+            ? () => setContinuousConfigOpen(true)
+            : undefined
+        }
         youngChild={youngChild}
         youngChildSaving={youngChildSaving}
         youngChildPending={youngChildPending}
-        onYoungChildChange={isHrOrAdmin ? handleYoungChildChange : undefined}
-        canProposeYoungChild={isHeadRole && !isHrOrAdmin && selected !== ''}
-        onProposeYoungChild={handleProposeYoungChild}
+        onYoungChildChange={user?.role === 'ADMIN' ? handleYoungChildChange : undefined}
+        canProposeYoungChild={(user?.role === 'ADMIN' || (isHeadRole && !isHrOrAdmin)) && selected !== ''}
+        onProposeYoungChild={() => setYoungChildProposeOpen(true)}
+        canProposeShiftConfigChange={isHeadRole && !isHrOrAdmin && selected !== ''}
+        onProposeShiftConfigChange={() => setShiftConfigProposeOpen(true)}
         periodLabel={`tháng ${month}/${year}`}
+        continuousTypes={continuousTypes}
       />
 
       {canPickEmployee && (
@@ -673,6 +834,7 @@ export default function WorkPage() {
           employees={employees}
           selected={selected}
           onSelectedChange={setSelected}
+          deptFilterLocked={deptFilterLocked}
         />
       )}
 
@@ -700,9 +862,38 @@ export default function WorkPage() {
                 onForgotPenaltyConfig={() => setForgotPenaltyConfigOpen(true)}
                 onLatePenaltyConfig={() => setLatePenaltyConfigOpen(true)}
                 onHolidayWorkConfig={() => setHolidayWorkConfigOpen(true)}
-                onBulkSupplement={() => setBulkSupplementOpen(true)}
-                onBulkDeployment={() => setBulkDeploymentOpen(true)}
+                onBulkSupplement={user?.role === 'ADMIN' ? () => setBulkSupplementOpen(true) : undefined}
+                onBulkDeployment={user?.role === 'ADMIN' ? () => setBulkDeploymentOpen(true) : undefined}
               />
+            )}
+            {isHeadRole && (
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Button
+                  variant="outlined"
+                  startIcon={<FileDownloadOutlinedIcon />}
+                  onClick={handleExportReport}
+                  disabled={exportingReport}
+                  sx={{ borderRadius: 2, fontWeight: 700 }}
+                >
+                  {exportingReport ? 'Đang xuất…' : 'Xuất Excel khoa'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<GroupAddOutlinedIcon />}
+                  onClick={() => setBulkSupplementOpen(true)}
+                  sx={{ borderRadius: 2, fontWeight: 700 }}
+                >
+                  Bổ sung hàng loạt
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<SwapHorizOutlinedIcon />}
+                  onClick={() => setBulkDeploymentOpen(true)}
+                  sx={{ borderRadius: 2, fontWeight: 700 }}
+                >
+                  Điều động hàng loạt
+                </Button>
+              </Stack>
             )}
           </Stack>
 
@@ -742,11 +933,7 @@ export default function WorkPage() {
                       icon={<EventAvailableIcon />}
                       label="Tổng công tháng"
                       value={formatWorkUnits(summary.totalWorkUnits)}
-                      sub={
-                        Number(summary.dutyWorkUnitsTotal ?? 0) > 0
-                          ? `${formatWorkUnits(summary.attendanceWorkUnits ?? 0)} chấm + ${formatWorkUnits(summary.dutyWorkUnitsTotal)} trực`
-                          : undefined
-                      }
+                      sub={`${formatWorkUnits(summary.clockedWorkUnits ?? summary.attendanceWorkUnits ?? 0)} chấm + ${formatWorkUnits(summary.leaveWorkUnits ?? 0)} phép + ${formatWorkUnits(summary.dutyWorkUnitsTotal ?? 0)} trực`}
                       accent={theme.palette.primary.main}
                     />
                   </Grid>
@@ -805,6 +992,28 @@ export default function WorkPage() {
                       value={attSvc.formatMoney(summary.mealAllowance ?? 0)}
                       sub={mealAllowanceSub(summary)}
                       accent="#e65100"
+                    />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <StatCard
+                      icon={<PaymentsOutlinedIcon />}
+                      label="Tiền hỗ trợ"
+                      value={attSvc.formatMoney(summary.seminarSupportTotal ?? 0)}
+                      sub={
+                        Number(summary.seminarSupportCount ?? 0) > 0
+                          ? `${summary.seminarSupportCount} hội thảo`
+                          : undefined
+                      }
+                      accent="#7c3aed"
+                    />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <StatCard
+                      icon={<LocalHospitalOutlinedIcon />}
+                      label="Phụ cấp Quang Trung"
+                      value={attSvc.formatMoney(summary.quangTrungAllowance ?? 0)}
+                      sub={`${summary.quangTrungAllowanceCount ?? 0} ngày × ${attSvc.formatMoney(summary.quangTrungAllowanceRate ?? 0)}`}
+                      accent="#0f766e"
                     />
                   </Grid>
                 </Grid>
@@ -878,26 +1087,35 @@ export default function WorkPage() {
                         const noData = !row;
                         const isDeployment = attSvc.isDeploymentRow(row);
                         const dayContinuous = continuousDates.has(workDate);
+                        const daySplit = splitDates.has(workDate);
+                        const dayAssigned = dayContinuous || daySplit;
                         return (
                           <TableRow
                             key={workDate}
                             hover
                             sx={{
                               ...(warnRow ? { bgcolor: alpha(theme.palette.warning.main, 0.06) } : {}),
-                              ...(dayContinuous && !warnRow
-                                ? { bgcolor: alpha(theme.palette.success.main, 0.04) }
+                              ...(dayAssigned && !warnRow
+                                ? {
+                                    bgcolor: alpha(
+                                      dayContinuous ? theme.palette.success.main : theme.palette.primary.main,
+                                      0.04,
+                                    ),
+                                  }
                                 : {}),
                               ...(noData && !warnRow ? { opacity: 0.72 } : {}),
                             }}
                           >
                             <TableCell
                               sx={{
-                                fontWeight: holidayDates.has(workDate) || dayContinuous ? 800 : 500,
+                                fontWeight: holidayDates.has(workDate) || dayAssigned ? 800 : 500,
                                 color: holidayDates.has(workDate)
                                   ? 'warning.dark'
                                   : dayContinuous
                                     ? 'success.dark'
-                                    : 'inherit',
+                                    : daySplit
+                                      ? 'primary.dark'
+                                      : 'inherit',
                                 whiteSpace: 'nowrap',
                                 width: 64,
                                 px: 1.5,
@@ -908,7 +1126,9 @@ export default function WorkPage() {
                                   ? 'Ngày lễ — đi làm = 2 công'
                                   : dayContinuous
                                     ? 'Ca thông tầm'
-                                    : undefined
+                                    : daySplit
+                                      ? 'Ca sáng–chiều theo ngày'
+                                      : undefined
                               }
                             >
                               {(parseLocalDate(workDate) ?? new Date()).toLocaleDateString('vi-VN', {
@@ -922,6 +1142,15 @@ export default function WorkPage() {
                                   sx={{ display: 'block', fontWeight: 700, color: 'success.main', lineHeight: 1.1 }}
                                 >
                                   TT
+                                </Typography>
+                              ) : null}
+                              {daySplit ? (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{ display: 'block', fontWeight: 700, color: 'primary.main', lineHeight: 1.1 }}
+                                >
+                                  SC
                                 </Typography>
                               ) : null}
                             </TableCell>
@@ -1089,6 +1318,7 @@ export default function WorkPage() {
                                 workDate={workDate}
                                 requests={myRequests}
                                 canSubmit={canActOnRows}
+                                canSubmitExplanation={canExplainSelected}
                                 canManageSupplement={canManageSupplement}
                                 canManageDuty={canManageDutyOnly}
                                 canCreateDeployment={canCreateDeployment}
@@ -1126,6 +1356,8 @@ export default function WorkPage() {
         onSubmitted={reloadAll}
         defaultDate={dialogDate}
         attendanceRow={updateRow}
+        employeeId={selected !== '' ? Number(selected) : user?.employeeId}
+        continuousShift={dialogDate ? continuousDates.has(dialogDate) : false}
       />
       <AttendanceExplanationDialog
         open={explainOpen}
@@ -1134,7 +1366,40 @@ export default function WorkPage() {
         defaultDate={dialogDate}
         attendanceRow={explainRow}
         continuousShift={dialogDate ? continuousDates.has(dialogDate) : false}
+        employeeId={selected !== '' ? Number(selected) : user?.employeeId}
+        schedule={schedule}
+        initialSelectedKeys={explainInitialKeys}
       />
+      {selected !== '' && (
+        <YoungChildProposeDialog
+          open={youngChildProposeOpen}
+          onClose={() => setYoungChildProposeOpen(false)}
+          employeeId={Number(selected)}
+          employeeName={selectedEmployee?.fullName || employeeName}
+          departmentName={selectedEmployee?.departmentName}
+          year={year}
+          month={month}
+          onSubmitted={() => {
+            setYoungChildPending(true);
+            setNotifyMsg(
+              'Đã gửi đề xuất chế độ nuôi con nhỏ — chờ HCNS duyệt.',
+            );
+          }}
+        />
+      )}
+      {selected !== '' && (
+        <ShiftConfigChangeProposeDialog
+          open={shiftConfigProposeOpen}
+          onClose={() => setShiftConfigProposeOpen(false)}
+          employeeId={Number(selected)}
+          employeeName={selectedEmployee?.fullName || employeeName}
+          departmentName={selectedEmployee?.departmentName}
+          schedule={schedule}
+          onSubmitted={() => {
+            setNotifyMsg('Đã gửi đề xuất thay đổi ca sáng/chiều — chờ HCNS duyệt.');
+          }}
+        />
+      )}
       {dayDetailOpen && dayDetailDate && (
         <AttendanceDayDetailDialog
           open={dayDetailOpen}
@@ -1145,6 +1410,8 @@ export default function WorkPage() {
           monthSummary={summary}
           schedule={schedule}
           continuousShift={continuousDates.has(dayDetailDate)}
+          employeeId={selected !== '' ? Number(selected) : user?.employeeId}
+          onExplain={canExplainSelected ? openExplain : undefined}
         />
       )}
       <AttendanceScheduleEditDialog
@@ -1155,7 +1422,7 @@ export default function WorkPage() {
         continuousShift={scheduleEditContinuous}
         employeeName={selectedEmployee?.fullName || employeeName}
       />
-      {isHrOrAdmin && selected !== '' && (
+      {(user?.role === 'ADMIN' || isHeadRole) && selected !== '' && (
         <ContinuousShiftConfigDialog
           open={continuousConfigOpen}
           onClose={() => setContinuousConfigOpen(false)}
@@ -1164,6 +1431,17 @@ export default function WorkPage() {
           year={year}
           month={month}
           onSaved={handleContinuousShiftSaved}
+        />
+      )}
+      {(user?.role === 'ADMIN' || isHeadRole) && (
+        <ContinuousShiftTypeDialog
+          open={continuousTypeOpen}
+          onClose={() => {
+            setContinuousTypeOpen(false);
+            attSvc.fetchContinuousShiftTypes(true)
+              .then(setContinuousTypes)
+              .catch(() => setContinuousTypes([]));
+          }}
         />
       )}
       <ForgotPenaltyConfigDialog
@@ -1183,7 +1461,7 @@ export default function WorkPage() {
         initialMonth={month}
         onSaved={handleHolidayWorkSaved}
       />
-      {canManageSupplement && supplementOpen && dutyDate && selected !== '' && (
+      {canManageSupplement && supplementOpen && dutyDate && (
         <WorkSupplementDialog
           open={supplementOpen}
           onClose={closeSupplement}
@@ -1194,18 +1472,20 @@ export default function WorkPage() {
           existingDuty={dutyByDate.get(dutyDate) ?? null}
           attendanceRow={attByDate.get(dutyDate) ?? null}
           initialTab={supplementInitialTab}
+          showCongHo={user?.role === 'ADMIN'}
         />
       )}
-      {isHrOrAdmin && (
+      {(user?.role === 'ADMIN' || isHeadRole) && (
         <BulkWorkSupplementDialog
           open={bulkSupplementOpen}
           onClose={() => setBulkSupplementOpen(false)}
           onSaved={reloadAll}
+          departmentOptions={departments}
           initialDepartmentId={filterDept}
           initialWorkDate={`${year}-${String(month).padStart(2, '0')}-01`}
         />
       )}
-      {isHrOrAdmin && (
+      {(isHrOrAdmin || isHeadRole) && (
         <BulkDeploymentDialog
           open={bulkDeploymentOpen}
           onClose={() => setBulkDeploymentOpen(false)}
@@ -1213,6 +1493,7 @@ export default function WorkPage() {
             setNotifyMsg('Đã tạo đơn điều động hàng loạt.');
             reloadAll();
           }}
+          departmentOptions={departments}
           initialDepartmentId={filterDept}
           initialWorkDate={`${year}-${String(month).padStart(2, '0')}-01`}
           periodYear={year}
@@ -1230,16 +1511,21 @@ export default function WorkPage() {
           existing={dutyByDate.get(dutyDate) ?? null}
         />
       )}
-      {canCreateDeployment && deploymentOpen && deploymentDate && selected !== '' && (
+      {canCreateDeployment && deploymentOpen && deploymentDate && (
         <DeploymentRequestDialog
           open={deploymentOpen}
           onClose={closeDeployment}
           onSubmitted={() => {
-            setNotifyMsg('Đã tạo đơn điều động và gửi thông báo cho nhân viên.');
+            setNotifyMsg(
+              isNursingBlockTitle(selectedEmployee?.positionTitle)
+                ? 'Đã tạo đơn điều động và chuyển Trưởng phòng Điều dưỡng duyệt.'
+                : 'Đã tạo đơn điều động và chuyển HCNS duyệt.',
+            );
             reloadAll();
           }}
           employeeId={Number(selected)}
           employeeName={employeeName}
+          positionTitle={selectedEmployee?.positionTitle}
           workDate={deploymentDate}
           periodYear={year}
           periodMonth={month}
@@ -1248,6 +1534,18 @@ export default function WorkPage() {
             const row = attByDate.get(d);
             return row ? String(row.status ?? '') : null;
           }}
+        />
+      )}
+      {canPickEmployee && (
+        <DepartmentAttendanceMatrixDialog
+          open={matrixOpen}
+          onClose={() => setMatrixOpen(false)}
+          year={year}
+          month={month}
+          departmentId={filterDept}
+          departments={departments}
+          deptFilterLocked={deptFilterLocked}
+          onViewEmployee={openEmployeeFromMatrix}
         />
       )}
     </Box>

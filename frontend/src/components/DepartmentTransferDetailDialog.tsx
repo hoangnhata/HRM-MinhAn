@@ -4,6 +4,7 @@ import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import EventAvailableOutlinedIcon from '@mui/icons-material/EventAvailableOutlined';
+import NotesOutlinedIcon from '@mui/icons-material/NotesOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -12,110 +13,58 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Grid,
   Stack,
   TextField,
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { dateTimeFieldSx } from './ui/DateTimeFields';
-import { FormSection, InfoBanner, WorkRequestViewShell } from './work/WorkRequestFormUi';
+import {
+  DetailField,
+  DetailFields,
+  FormSection,
+  InfoBanner,
+  WorkRequestViewShell,
+  detailHeaderChipSx,
+} from './work/WorkRequestFormUi';
+import { ApprovalReviewNoteCard } from './ApprovalReviewNoteCard';
+import { DepartmentTransferDialog } from './DepartmentTransferDialog';
+import { RequestOwnerActions } from './requests/RequestOwnerActions';
+import {
+  ensureHasSignature,
+  extractApiErrorMessage,
+} from '../services/approvalSignatureService';
 import * as departmentTransferService from '../services/departmentTransferService';
+import { canEditOwnPendingRequest } from '../utils/requestEditAccess';
 
 type Props = {
   open: boolean;
   transferId: number | null;
   onClose: () => void;
   canReview?: boolean;
+  canCancel?: boolean;
   onChanged?: () => void;
 };
-
-function InfoTile({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: React.ReactNode;
-  icon?: React.ReactNode;
-}) {
-  const theme = useTheme();
-  return (
-    <Box
-      sx={{
-        p: 1.5,
-        borderRadius: 2,
-        bgcolor: alpha(theme.palette.grey[500], 0.04),
-        border: `1px solid ${alpha(theme.palette.divider, 0.85)}`,
-        height: '100%',
-      }}
-    >
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-        {icon && (
-          <Box sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center' }}>{icon}</Box>
-        )}
-        <Typography variant="caption" color="text.secondary" fontWeight={600}>
-          {label}
-        </Typography>
-      </Stack>
-      <Typography variant="body2" fontWeight={700}>
-        {value || '—'}
-      </Typography>
-    </Box>
-  );
-}
-
-function ReviewNoteCard({
-  role,
-  timestamp,
-  comment,
-}: {
-  role: string;
-  timestamp?: string | null;
-  comment?: string | null;
-}) {
-  const theme = useTheme();
-  return (
-    <Box
-      sx={{
-        p: 1.75,
-        borderRadius: 2,
-        bgcolor: alpha(theme.palette.grey[500], 0.05),
-        border: `1px solid ${alpha(theme.palette.divider, 0.85)}`,
-      }}
-    >
-      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-        <Typography variant="subtitle2" fontWeight={700}>
-          {role}
-        </Typography>
-        {timestamp && (
-          <Typography variant="caption" color="text.secondary">
-            {departmentTransferService.formatTransferDateTime(timestamp)}
-          </Typography>
-        )}
-      </Stack>
-      <Typography variant="body2" sx={{ mt: 0.75, lineHeight: 1.6 }}>
-        {comment?.trim() ? comment : 'Không có ghi chú.'}
-      </Typography>
-    </Box>
-  );
-}
 
 export function DepartmentTransferDetailDialog({
   open,
   transferId,
   onClose,
   canReview = false,
+  canCancel = false,
   onChanged,
 }: Props) {
   const theme = useTheme();
+  const { user } = useAuth();
   const accent = '#0f766e';
   const [row, setRow] = useState<departmentTransferService.DepartmentTransfer | null>(null);
   const [loading, setLoading] = useState(false);
   const [acting, setActing] = useState(false);
   const [comment, setComment] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     if (!open || transferId == null) {
@@ -128,7 +77,10 @@ export function DepartmentTransferDetailDialog({
     setErr(null);
     departmentTransferService
       .fetchTransferDetail(transferId)
-      .then(setRow)
+      .then((d) => {
+        setRow(d);
+        setComment(d.directorComment || '');
+      })
       .catch(() => {
         setRow(null);
         setErr('Không tải được chi tiết đơn.');
@@ -136,28 +88,82 @@ export function DepartmentTransferDetailDialog({
       .finally(() => setLoading(false));
   }, [open, transferId]);
 
-  const pending = row?.status === 'PENDING_DIRECTOR';
-  const showReviewActions = canReview && pending;
-  const hasReviewHistory = Boolean(
-    row?.directorReviewedAt || row?.directorReviewerUsername || row?.directorComment || row?.appliedAt,
+  const showReviewActions =
+    canReview &&
+    row != null &&
+    row.status !== 'APPLIED' &&
+    row.status !== 'CANCELLED' &&
+    (row.status === 'PENDING_DIRECTOR' || row.status === 'REJECTED' || row.status === 'APPROVED');
+  const directorCorrecting = Boolean(
+    showReviewActions && row?.status === 'APPROVED' && row?.directorReviewedAt,
   );
+  const showCancel =
+    (canCancel
+      || user?.role === 'ADMIN'
+      || user?.role === 'HR'
+      || (Boolean(row?.requestedByUsername)
+        && Boolean(user?.username)
+        && row!.requestedByUsername === user!.username)) &&
+    row != null &&
+    row.status !== 'CANCELLED';
+  const showEdit = Boolean(row && canEditOwnPendingRequest(row, user));
+  const hasReviewHistory = Boolean(
+    row?.directorReviewedAt ||
+      row?.directorReviewerUsername ||
+      row?.directorComment ||
+      row?.directorSignatureUrl ||
+      row?.appliedAt,
+  );
+
+  function reloadRow() {
+    if (transferId == null) return;
+    departmentTransferService
+      .fetchTransferDetail(transferId)
+      .then((d) => {
+        setRow(d);
+        setComment(d.directorComment || '');
+      })
+      .catch(() => setErr('Không tải được chi tiết đơn.'));
+  }
+
+  function handleEditSaved() {
+    reloadRow();
+    onChanged?.();
+    setEditOpen(false);
+  }
 
   async function review(approved: boolean) {
     if (!row) return;
     setActing(true);
     setErr(null);
     try {
+      await ensureHasSignature();
       await departmentTransferService.directorReviewTransfer(row.id, approved, comment);
       onChanged?.();
       onClose();
-    } catch {
-      setErr(approved ? 'Duyệt thất bại.' : 'Từ chối thất bại.');
+    } catch (e) {
+      setErr(extractApiErrorMessage(e, approved ? 'Duyệt thất bại.' : 'Từ chối thất bại.'));
     } finally {
       setActing(false);
     }
   }
 
-  const footer = showReviewActions ? (
+  async function cancelTransfer() {
+    if (!row || !window.confirm('Thu hồi đề nghị luân chuyển phòng ban này?')) return;
+    setActing(true);
+    setErr(null);
+    try {
+      await departmentTransferService.cancelTransfer(row.id);
+      onChanged?.();
+      onClose();
+    } catch (e) {
+      setErr(extractApiErrorMessage(e, 'Không thu hồi được đề nghị.'));
+    } finally {
+      setActing(false);
+    }
+  }
+
+  const footer = showReviewActions || showCancel || showEdit ? (
     <Box
       sx={{
         px: 2.5,
@@ -167,6 +173,13 @@ export function DepartmentTransferDetailDialog({
       }}
     >
       <Stack direction="row" spacing={1.5} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
+        <RequestOwnerActions
+          showEdit={showEdit}
+          showCancel={showCancel}
+          acting={acting || loading}
+          onEdit={() => setEditOpen(true)}
+          onCancel={cancelTransfer}
+        />
         <Button
           onClick={onClose}
           disabled={acting}
@@ -176,43 +189,71 @@ export function DepartmentTransferDetailDialog({
         >
           Đóng
         </Button>
-        <Button
-          color="error"
-          variant="outlined"
-          disabled={acting || loading}
-          startIcon={<CloseIcon />}
-          onClick={() => review(false)}
-          sx={{ borderRadius: 2, fontWeight: 700 }}
-        >
-          Từ chối
-        </Button>
-        <Button
-          variant="contained"
-          disabled={acting || loading}
-          startIcon={acting ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
-          onClick={() => review(true)}
-          sx={{
-            borderRadius: 2,
-            px: 2.5,
-            fontWeight: 700,
-            bgcolor: accent,
-            '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' },
-          }}
-        >
-          Duyệt
-        </Button>
+        {showReviewActions &&
+          (directorCorrecting ? (
+            <Button
+              variant="contained"
+              disabled={acting || loading}
+              startIcon={acting ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
+              onClick={() => review(true)}
+              sx={{
+                borderRadius: 2,
+                px: 2.5,
+                fontWeight: 700,
+                bgcolor: accent,
+                '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' },
+              }}
+            >
+              Lưu chỉnh sửa · Giám đốc
+            </Button>
+          ) : (
+            <>
+              <Button
+                color="error"
+                variant="outlined"
+                disabled={acting || loading}
+                startIcon={<CloseIcon />}
+                onClick={() => review(false)}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                Từ chối
+              </Button>
+              <Button
+                variant="contained"
+                disabled={acting || loading}
+                startIcon={acting ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
+                onClick={() => review(true)}
+                sx={{
+                  borderRadius: 2,
+                  px: 2.5,
+                  fontWeight: 700,
+                  bgcolor: accent,
+                  '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' },
+                }}
+              >
+                Duyệt
+              </Button>
+            </>
+          ))}
       </Stack>
     </Box>
   ) : undefined;
 
   return (
+    <>
     <WorkRequestViewShell
       open={open}
       onClose={onClose}
       loading={acting || loading}
       accent={accent}
       icon={<SwapHorizIcon />}
-      overline={showReviewActions ? 'Duyệt luân chuyển' : 'Chi tiết đơn'}
+      overline={
+        directorCorrecting
+          ? 'Chỉnh sửa sau duyệt'
+          : showReviewActions
+            ? 'Duyệt luân chuyển'
+            : 'Chi tiết đơn'
+      }
       title="Luân chuyển phòng ban"
       description={
         row
@@ -230,11 +271,13 @@ export function DepartmentTransferDetailDialog({
               size="small"
               label={departmentTransferService.TRANSFER_STATUS_LABEL[row.status] || row.status}
               color={departmentTransferService.transferStatusColor(row.status)}
+              sx={detailHeaderChipSx.filled}
             />
             <Chip
               size="small"
               variant="outlined"
               label={`Hiệu lực ${departmentTransferService.formatTransferDate(row.effectiveDate)}`}
+              sx={detailHeaderChipSx.outlined}
             />
           </Stack>
         ) : undefined
@@ -256,100 +299,75 @@ export function DepartmentTransferDetailDialog({
           )}
 
           <FormSection title="Thông tin nhân viên">
-            <Grid container spacing={1.5}>
-              <Grid item xs={12} sm={6}>
-                <InfoTile
-                  label="Họ tên"
-                  value={row.employeeName}
-                  icon={<PersonOutlineIcon sx={{ fontSize: 16 }} />}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <InfoTile
-                  label="Mã nhân viên"
-                  value={row.employeeCode}
-                  icon={<BadgeOutlinedIcon sx={{ fontSize: 16 }} />}
-                />
-              </Grid>
-            </Grid>
+            <DetailFields>
+              <DetailField
+                label="Họ tên"
+                value={row.employeeName}
+                icon={<PersonOutlineIcon sx={{ fontSize: 16 }} />}
+              />
+              <DetailField
+                label="Mã nhân viên"
+                value={row.employeeCode}
+                icon={<BadgeOutlinedIcon sx={{ fontSize: 16 }} />}
+              />
+            </DetailFields>
           </FormSection>
 
           <FormSection title="Nội dung luân chuyển" subtitle="Phòng ban nguồn / đích và ngày áp dụng.">
-            <Grid container spacing={1.5}>
-              <Grid item xs={12} sm={6}>
-                <InfoTile
-                  label="Từ phòng ban"
-                  value={row.fromDepartmentName}
-                  icon={<ApartmentOutlinedIcon sx={{ fontSize: 16 }} />}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <InfoTile
-                  label="Đến phòng ban"
-                  value={
-                    row.toPositionTitle
-                      ? `${row.toDepartmentName} · ${row.toPositionTitle}`
-                      : row.toDepartmentName
-                  }
-                  icon={<ApartmentOutlinedIcon sx={{ fontSize: 16 }} />}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <InfoTile
-                  label="Ngày hiệu lực"
-                  value={departmentTransferService.formatTransferDate(row.effectiveDate)}
-                  icon={<EventAvailableOutlinedIcon sx={{ fontSize: 16 }} />}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <InfoTile
-                  label="Ngày tạo đơn"
-                  value={departmentTransferService.formatTransferDateTime(row.createdAt)}
-                  icon={<CalendarMonthOutlinedIcon sx={{ fontSize: 16 }} />}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Box
-                  sx={{
-                    p: 2,
-                    borderRadius: 2.5,
-                    bgcolor: alpha(accent, 0.05),
-                    border: `1px dashed ${alpha(accent, 0.25)}`,
-                  }}
-                >
-                  <Typography variant="caption" color="text.secondary" fontWeight={600} display="block">
-                    Lý do luân chuyển
-                  </Typography>
-                  <Typography variant="body1" fontWeight={600} sx={{ mt: 0.5, lineHeight: 1.6 }}>
-                    {row.reason || '—'}
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <InfoTile
-                  label="Người đề nghị (HCNS)"
-                  value={row.requestedByUsername}
-                  icon={<PersonOutlineIcon sx={{ fontSize: 16 }} />}
-                />
-              </Grid>
+            <DetailFields>
+              <DetailField
+                label="Từ phòng ban"
+                value={row.fromDepartmentName}
+                icon={<ApartmentOutlinedIcon sx={{ fontSize: 16 }} />}
+              />
+              <DetailField
+                label="Đến phòng ban"
+                value={
+                  row.toPositionTitle
+                    ? `${row.toDepartmentName} · ${row.toPositionTitle}`
+                    : row.toDepartmentName
+                }
+                icon={<ApartmentOutlinedIcon sx={{ fontSize: 16 }} />}
+              />
+              <DetailField
+                label="Ngày hiệu lực"
+                value={departmentTransferService.formatTransferDate(row.effectiveDate)}
+                icon={<EventAvailableOutlinedIcon sx={{ fontSize: 16 }} />}
+              />
+              <DetailField
+                label="Ngày tạo đơn"
+                value={departmentTransferService.formatTransferDateTime(row.createdAt)}
+                icon={<CalendarMonthOutlinedIcon sx={{ fontSize: 16 }} />}
+              />
+              <DetailField
+                wide
+                label="Lý do luân chuyển"
+                value={row.reason}
+                icon={<NotesOutlinedIcon sx={{ fontSize: 16 }} />}
+              />
+              <DetailField
+                label="Người đề nghị (HCNS)"
+                value={row.requestedByUsername}
+                icon={<PersonOutlineIcon sx={{ fontSize: 16 }} />}
+              />
               {row.appliedAt && (
-                <Grid item xs={12} sm={6}>
-                  <InfoTile
-                    label="Đã áp dụng chuyển phòng"
-                    value={departmentTransferService.formatTransferDateTime(row.appliedAt)}
-                    icon={<ScheduleOutlinedIcon sx={{ fontSize: 16 }} />}
-                  />
-                </Grid>
+                <DetailField
+                  label="Đã áp dụng chuyển phòng"
+                  value={departmentTransferService.formatTransferDateTime(row.appliedAt)}
+                  icon={<ScheduleOutlinedIcon sx={{ fontSize: 16 }} />}
+                />
               )}
-            </Grid>
+            </DetailFields>
           </FormSection>
 
           {hasReviewHistory && (
             <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý của Giám đốc.">
-              <ReviewNoteCard
+              <ApprovalReviewNoteCard
                 role={row.directorReviewerUsername ? `Giám đốc · ${row.directorReviewerUsername}` : 'Giám đốc'}
                 timestamp={row.directorReviewedAt}
                 comment={row.directorComment}
+                signatureUrl={row.directorSignatureUrl}
+                formatTimestamp={departmentTransferService.formatTransferDateTime}
               />
             </FormSection>
           )}
@@ -378,5 +396,19 @@ export function DepartmentTransferDetailDialog({
         </>
       ) : null}
     </WorkRequestViewShell>
+    {row && (
+      <DepartmentTransferDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onSubmitted={handleEditSaved}
+        editTransfer={row}
+        employee={{
+          id: row.employeeId,
+          fullName: row.employeeName,
+          departmentName: row.fromDepartmentName,
+        }}
+      />
+    )}
+    </>
   );
 }

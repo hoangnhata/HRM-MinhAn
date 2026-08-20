@@ -46,6 +46,10 @@ public class Notification {
     @JoinColumn(name = "related_announcement_id")
     private InternalAnnouncement relatedAnnouncement;
 
+    /** ID đơn/phiếu liên quan (hội thảo, đào tạo, luân chuyển, …) để mở chi tiết khi bấm thông báo. */
+    @Column(name = "related_request_id")
+    private Long relatedRequestId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

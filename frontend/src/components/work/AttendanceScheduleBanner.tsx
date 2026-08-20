@@ -5,6 +5,7 @@ import NightsStayIcon from "@mui/icons-material/NightsStay";
 import TimelineIcon from "@mui/icons-material/Timeline";
 import ChildCareIcon from "@mui/icons-material/ChildCare";
 import EditIcon from "@mui/icons-material/Edit";
+import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import {
   Box,
   Button,
@@ -22,6 +23,7 @@ import {
   scheduleForDate,
   type ShiftScheduleInfo,
 } from "../../utils/shiftSchedule";
+import type { ContinuousShiftType } from "../../services/attendanceService";
 
 type Props = {
   schedule?: ShiftScheduleInfo;
@@ -30,7 +32,7 @@ type Props = {
   onEdit?: () => void;
   /** Mở dialog chỉnh giờ vào/ra ca thông tầm (cấu hình mùa) */
   onEditContinuous?: () => void;
-  /** HR/Admin: quản lý ca thông tầm / nuôi con nhỏ cho nhân viên đang chọn */
+  /** Trưởng khoa/Điều dưỡng trưởng: xếp ca thông tầm theo ngày cho nhân viên đang chọn */
   canManageContinuous?: boolean;
   employeeName?: string;
   continuousShift?: boolean;
@@ -44,9 +46,13 @@ type Props = {
   /** Trưởng khoa: đề xuất bật/tắt → chờ HCNS */
   canProposeYoungChild?: boolean;
   youngChildPending?: boolean;
-  onProposeYoungChild?: (enabled: boolean) => void;
+  onProposeYoungChild?: () => void;
+  /** Trưởng khoa: đề xuất chỉnh ca sáng/chiều → HCNS duyệt */
+  canProposeShiftConfigChange?: boolean;
+  onProposeShiftConfigChange?: () => void;
   /** Nhãn tháng đang xem, ví dụ "tháng 7/2026" */
   periodLabel?: string;
+  continuousTypes?: ContinuousShiftType[];
 };
 
 function ShiftBlock({
@@ -57,6 +63,8 @@ function ShiftBlock({
   start,
   end,
   accent,
+  footer,
+  hideTime,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -65,6 +73,8 @@ function ShiftBlock({
   start: string;
   end: string;
   accent: string;
+  footer?: string;
+  hideTime?: boolean;
 }) {
   const theme = useTheme();
   return (
@@ -116,48 +126,77 @@ function ShiftBlock({
           >
             {hours} giờ · {units}
           </Typography>
-          <Typography
-            variant="h6"
-            fontWeight={700}
-            sx={{
-              mt: 1,
-              letterSpacing: "-0.02em",
-              color: theme.palette.text.primary,
-              fontSize: "1.05rem",
-            }}
-          >
-            {formatShiftTime(start)}
+          {!hideTime && (
             <Typography
-              component="span"
-              variant="body2"
-              color="text.secondary"
-              sx={{ mx: 0.75, fontWeight: 500 }}
+              variant="h6"
+              fontWeight={700}
+              sx={{
+                mt: 1,
+                letterSpacing: "-0.02em",
+                color: theme.palette.text.primary,
+                fontSize: "1.05rem",
+              }}
             >
-              →
+              {formatShiftTime(start)}
+              <Typography
+                component="span"
+                variant="body2"
+                color="text.secondary"
+                sx={{ mx: 0.75, fontWeight: 500 }}
+              >
+                →
+              </Typography>
+              {formatShiftTime(end)}
             </Typography>
-            {formatShiftTime(end)}
-          </Typography>
+          )}
+          {footer && (
+            <Typography
+              variant="caption"
+              sx={{
+                display: "block",
+                mt: 0.75,
+                fontWeight: 700,
+                color: accent,
+              }}
+            >
+              {footer}
+            </Typography>
+          )}
         </Box>
       </Stack>
     </Paper>
   );
 }
 
-function ContinuousShiftBlock({ schedule }: { schedule: ShiftScheduleInfo }) {
+function ContinuousShiftBlock({
+  schedule,
+  types = [],
+}: {
+  schedule: ShiftScheduleInfo;
+  types?: ContinuousShiftType[];
+}) {
   const theme = useTheme();
-  const totalHours = continuousShiftHours(schedule);
+  const seasonNeedle = schedule.summer ? "hè" : "đông";
+  const configuredType =
+    types.find((type) => type.name.toLocaleLowerCase("vi").includes(seasonNeedle)) ??
+    types[0];
+  const totalHours = configuredType?.hours ?? continuousShiftHours(schedule);
   const totalUnits = (schedule.morningUnits ?? 0) + (schedule.afternoonUnits ?? 0);
   const unitsLabel = `${Number(totalUnits).toFixed(2).replace(".", ",")} công`;
-  const { start, end } = continuousShiftRange(schedule);
+  const fallbackRange = continuousShiftRange(schedule);
+  const start = configuredType?.startTime ?? fallbackRange.start;
+  const end = configuredType?.endTime ?? fallbackRange.end;
   return (
     <ShiftBlock
       icon={<TimelineIcon />}
-      title={schedule.youngChild ? "Ca thông tầm · nuôi con nhỏ" : "Ca thông tầm"}
+      title="Ca thông tầm"
       hours={totalHours}
-      units={`${unitsLabel} · không nghỉ trưa`}
+      units={`${unitsLabel} · làm thông · không nghỉ trưa`}
       start={start}
       end={end}
       accent={theme.palette.success.main}
+      footer={types.length > 0 ? `${types.length} ca đã cấu hình` : "Chưa cấu hình danh mục ca"}
+      hideTime
     />
   );
 }
@@ -180,7 +219,10 @@ export function AttendanceScheduleBanner({
   canProposeYoungChild,
   youngChildPending,
   onProposeYoungChild,
+  canProposeShiftConfigChange,
+  onProposeShiftConfigChange,
   periodLabel,
+  continuousTypes,
 }: Props) {
   const theme = useTheme();
   const schedule = scheduleProp ?? scheduleForDate(date ?? new Date());
@@ -323,6 +365,29 @@ export function AttendanceScheduleBanner({
                 Chỉnh sửa ca sáng/chiều
               </Button>
             )}
+            {!canEdit && canProposeShiftConfigChange && onProposeShiftConfigChange && (
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<SendOutlinedIcon />}
+                onClick={() => onProposeShiftConfigChange()}
+                sx={{
+                  fontWeight: 700,
+                  borderRadius: 2,
+                  px: 1.5,
+                  bgcolor: alpha("#0369a1", 0.06),
+                  color: "#0369a1",
+                  borderColor: alpha("#0369a1", 0.35),
+                  whiteSpace: "nowrap",
+                  "&:hover": {
+                    bgcolor: alpha("#0369a1", 0.12),
+                    borderColor: "#0369a1",
+                  },
+                }}
+              >
+                Đề xuất thay đổi ca sáng/chiều
+              </Button>
+            )}
             {canEdit && onEditContinuous && (
               <Button
                 size="small"
@@ -336,7 +401,7 @@ export function AttendanceScheduleBanner({
                   bgcolor: alpha("#fff", 0.7),
                 }}
               >
-                Chỉnh sửa ca thông tầm
+                Chỉnh sửa danh mục ca
               </Button>
             )}
           </Stack>
@@ -361,11 +426,14 @@ export function AttendanceScheduleBanner({
             end={schedule.afternoonEnd}
             accent={theme.palette.secondary.main}
           />
-          <ContinuousShiftBlock schedule={schedule} />
+          <ContinuousShiftBlock schedule={schedule} types={continuousTypes} />
         </Stack>
       </Box>
 
-      {canManageContinuous && employeeName && (onConfigureContinuousShift || onYoungChildChange || canProposeYoungChild) && (
+      {employeeName &&
+        ((canManageContinuous && onConfigureContinuousShift) ||
+          onYoungChildChange ||
+          canProposeYoungChild) && (
         <Box
           sx={{
             px: { xs: 2, sm: 2.5 },
@@ -375,7 +443,7 @@ export function AttendanceScheduleBanner({
           }}
         >
           <Stack spacing={1.75}>
-            {onConfigureContinuousShift && (
+            {canManageContinuous && onConfigureContinuousShift && (
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 alignItems={{ xs: "flex-start", sm: "center" }}
@@ -446,7 +514,9 @@ export function AttendanceScheduleBanner({
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", pl: 3.5 }}>
                     Giảm 1 giờ/ngày (về sớm 1 giờ không bị trừ) — tối thiểu <strong>7 giờ = 1 công</strong>.
                     {canProposeYoungChild && !onYoungChildChange
-                      ? " Trưởng khoa đề xuất, HCNS duyệt."
+                      ? " Gửi đơn theo khoảng ngày, HCNS duyệt trước khi áp dụng."
+                      : onYoungChildChange
+                        ? " ADMIN bật trực tiếp thì chế độ duy trì đến khi chủ động tắt."
                       : ""}
                   </Typography>
                 </Box>
@@ -458,10 +528,23 @@ export function AttendanceScheduleBanner({
                       </Typography>
                       <Switch
                         checked={Boolean(youngChild)}
-                        disabled={youngChildSaving || Boolean(youngChildPending)}
+                        disabled={youngChildSaving}
                         onChange={(_, checked) => onYoungChildChange(checked)}
                         color="secondary"
                       />
+                      {canProposeYoungChild && onProposeYoungChild && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="secondary"
+                          startIcon={<ChildCareIcon />}
+                          disabled={youngChildSaving || Boolean(youngChildPending)}
+                          onClick={() => onProposeYoungChild()}
+                          sx={{ borderRadius: 2, fontWeight: 700, whiteSpace: "nowrap" }}
+                        >
+                          {youngChildPending ? "Đã gửi đề xuất" : "Tạo đơn dừng áp dụng"}
+                        </Button>
+                      )}
                     </>
                   ) : canProposeYoungChild && onProposeYoungChild ? (
                     <Button
@@ -469,14 +552,10 @@ export function AttendanceScheduleBanner({
                       variant="contained"
                       color="secondary"
                       disabled={youngChildSaving || Boolean(youngChildPending)}
-                      onClick={() => onProposeYoungChild(!youngChild)}
+                      onClick={() => onProposeYoungChild()}
                       sx={{ borderRadius: 2, fontWeight: 700 }}
                     >
-                      {youngChildPending
-                        ? "Đã gửi đề xuất"
-                        : youngChild
-                          ? "Đề xuất tắt"
-                          : "Đề xuất bật"}
+                      {youngChildPending ? "Đã gửi đề xuất" : "Tạo đơn áp dụng"}
                     </Button>
                   ) : null}
                 </Stack>

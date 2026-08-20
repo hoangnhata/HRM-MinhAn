@@ -1,10 +1,17 @@
 package com.minhan.hrm.service;
 
 import com.minhan.hrm.dto.salary.*;
+import com.minhan.hrm.entity.Employee;
+import com.minhan.hrm.entity.EmployeeSalaryBlock;
+import com.minhan.hrm.entity.EmployeeSalaryProfile;
+import com.minhan.hrm.entity.SalaryCategory;
 import com.minhan.hrm.entity.SalaryScaleEntry;
 import com.minhan.hrm.entity.SalaryScaleType;
+import com.minhan.hrm.entity.UserAccount;
+import com.minhan.hrm.entity.UserRole;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.exception.ResourceNotFoundException;
+import com.minhan.hrm.repository.EmployeeSalaryProfileRepository;
 import com.minhan.hrm.repository.SalaryScaleDoctorEntryRepository;
 import com.minhan.hrm.repository.SalaryScaleEntryRepository;
 import com.minhan.hrm.salary.SalaryQualifications;
@@ -31,32 +38,63 @@ public class SalaryScaleService {
     private final SalaryScaleEntryRepository scaleEntryRepository;
     private final SalaryScaleDoctorEntryRepository doctorEntryRepository;
     private final SalaryCalculatorService salaryCalculator;
+    private final EmployeeService employeeService;
+    private final EmployeeSalaryProfileRepository salaryProfileRepository;
+    private final SalaryAccessService salaryAccessService;
 
     @Transactional(readOnly = true)
-    public Map<String, Object> getAllScales() {
-        return Map.of(
-                "employeeDirect", buildEmployeeScaleView(SalaryScaleType.EMPLOYEE_DIRECT),
-                "employeeIndirect", buildEmployeeScaleView(SalaryScaleType.EMPLOYEE_INDIRECT),
-                "doctor", listDoctorScale(),
-                "entriesDirect", listEntries(SalaryScaleType.EMPLOYEE_DIRECT),
-                "entriesIndirect", listEntries(SalaryScaleType.EMPLOYEE_INDIRECT));
+    public Map<String, Object> getAllScales(String salaryToken, boolean mine) {
+        String scope = resolveViewerScope(salaryToken, mine);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("viewerScope", scope);
+        if ("ALL".equals(scope)) {
+            out.put("employeeDirect", buildEmployeeScaleView(SalaryScaleType.EMPLOYEE_DIRECT));
+            out.put("employeeIndirect", buildEmployeeScaleView(SalaryScaleType.EMPLOYEE_INDIRECT));
+            out.put("doctor", listDoctorScale());
+            out.put("entriesDirect", listEntriesInternal(SalaryScaleType.EMPLOYEE_DIRECT));
+            out.put("entriesIndirect", listEntriesInternal(SalaryScaleType.EMPLOYEE_INDIRECT));
+            return out;
+        }
+        out.put("employeeDirect", emptyEmployeeScale(SalaryScaleType.EMPLOYEE_DIRECT));
+        out.put("employeeIndirect", emptyEmployeeScale(SalaryScaleType.EMPLOYEE_INDIRECT));
+        out.put("doctor", List.of());
+        out.put("entriesDirect", List.of());
+        out.put("entriesIndirect", List.of());
+        if ("DIRECT".equals(scope)) {
+            out.put("employeeDirect", buildEmployeeScaleView(SalaryScaleType.EMPLOYEE_DIRECT));
+            out.put("entriesDirect", listEntriesInternal(SalaryScaleType.EMPLOYEE_DIRECT));
+        } else if ("INDIRECT".equals(scope)) {
+            out.put("employeeIndirect", buildEmployeeScaleView(SalaryScaleType.EMPLOYEE_INDIRECT));
+            out.put("entriesIndirect", listEntriesInternal(SalaryScaleType.EMPLOYEE_INDIRECT));
+        } else if ("DOCTOR".equals(scope)) {
+            out.put("doctor", listDoctorScale());
+        }
+        return out;
     }
 
     @Transactional(readOnly = true)
-    public List<SalaryScaleEntryDto> listEntries(SalaryScaleType type) {
+    public List<SalaryScaleEntryDto> listEntries(SalaryScaleType type, String salaryToken) {
+        assertCanViewScaleType(type, salaryToken);
+        return listEntriesInternal(type);
+    }
+
+    private List<SalaryScaleEntryDto> listEntriesInternal(SalaryScaleType type) {
         return scaleEntryRepository.findByScaleTypeOrderByQualificationAscGradeLevelAsc(type).stream()
                 .map(this::toEntryDto)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public EmployeeScaleDto getEmployeeScale(SalaryScaleType type) {
+    public EmployeeScaleDto getEmployeeScale(SalaryScaleType type, String salaryToken) {
+        assertCanViewScaleType(type, salaryToken);
         return buildEmployeeScaleView(type);
     }
 
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
-    public EmployeeScaleDto updateEmployeeScaleBase(SalaryScaleType type, BigDecimal newBaseTotal, String qualification) {
+    public EmployeeScaleDto updateEmployeeScaleBase(
+            SalaryScaleType type, BigDecimal newBaseTotal, String qualification, String salaryToken) {
+        salaryAccessService.requireAdminGrant(salaryToken);
         String qual = SalaryQualifications.normalizeQualification(qualification);
         SalaryScaleEntry base = scaleEntryRepository
                 .findByScaleTypeAndQualificationAndGradeLevel(type, qual, 1)
@@ -90,7 +128,8 @@ public class SalaryScaleService {
 
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
-    public SalaryScaleEntryDto saveEntry(SalaryScaleEntryDto dto) {
+    public SalaryScaleEntryDto saveEntry(SalaryScaleEntryDto dto, String salaryToken) {
+        salaryAccessService.requireAdminGrant(salaryToken);
         SalaryScaleType type = SalaryScaleType.valueOf(dto.getScaleType());
         String qual = SalaryQualifications.normalizeQualification(dto.getQualification());
         SalaryScaleEntry entry = scaleEntryRepository
@@ -111,7 +150,8 @@ public class SalaryScaleService {
 
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
-    public void deleteEntry(Long id) {
+    public void deleteEntry(Long id, String salaryToken) {
+        salaryAccessService.requireAdminGrant(salaryToken);
         scaleEntryRepository.deleteById(id);
     }
 
@@ -235,5 +275,65 @@ public class SalaryScaleService {
                         .totalSalary(e.getTotalSalary())
                         .build())
                 .toList();
+    }
+
+    private EmployeeScaleDto emptyEmployeeScale(SalaryScaleType type) {
+        return EmployeeScaleDto.builder()
+                .scaleType(type.name())
+                .title(type == SalaryScaleType.EMPLOYEE_DIRECT ? "Khối trực tiếp" : "Khối gián tiếp")
+                .baseTotalAtCoef1(BigDecimal.ZERO)
+                .baseInsuranceAtCoef1(BigDecimal.ZERO)
+                .baseProductAtCoef1(BigDecimal.ZERO)
+                .tiers(List.of())
+                .build();
+    }
+
+    /**
+     * ADMIN/HCNS 1 nhập đúng mật khẩu để xem toàn bộ; mọi vai trò khác chỉ xem đúng đối tượng lương của chính mình.
+     * @return ALL | DIRECT | INDIRECT | DOCTOR | NONE
+     */
+    private String resolveViewerScope(String salaryToken) {
+        return resolveViewerScope(salaryToken, false);
+    }
+
+    private String resolveViewerScope(String salaryToken, boolean forceSelf) {
+        UserAccount current = employeeService.currentUser();
+        if (!forceSelf && (current.getRole() == UserRole.ADMIN || current.getRole() == UserRole.HR)) {
+            salaryAccessService.requireAdminGrant(salaryToken);
+            return "ALL";
+        }
+        // Dùng liên kết SĐT/SSO (không chỉ user.employee) — khớp trang Chi tiết lương.
+        Employee emp = employeeService.linkedEmployee(current).orElse(null);
+        if (emp == null) {
+            return "NONE";
+        }
+        EmployeeSalaryProfile profile = salaryProfileRepository.findByEmployee(emp).orElse(null);
+        if (profile == null) {
+            return "NONE";
+        }
+        if (profile.getSalaryCategory() == SalaryCategory.DOCTOR) {
+            return "DOCTOR";
+        }
+        if (profile.getEmployeeBlock() == EmployeeSalaryBlock.INDIRECT) {
+            return "INDIRECT";
+        }
+        if (profile.getEmployeeBlock() == EmployeeSalaryBlock.DIRECT) {
+            return "DIRECT";
+        }
+        // Hồ sơ đã có category nhân viên nhưng chưa gắn khối → vẫn NONE
+        return "NONE";
+    }
+
+    private void assertCanViewScaleType(SalaryScaleType type, String salaryToken) {
+        String scope = resolveViewerScope(salaryToken);
+        if ("ALL".equals(scope)) {
+            return;
+        }
+        boolean allowed = ("DIRECT".equals(scope) && type == SalaryScaleType.EMPLOYEE_DIRECT)
+                || ("INDIRECT".equals(scope) && type == SalaryScaleType.EMPLOYEE_INDIRECT);
+        if (!allowed) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Bạn chỉ được xem thang bảng lương theo đối tượng của mình");
+        }
     }
 }

@@ -18,4 +18,6 @@ if (Test-Path $www) {
 
 Expand-Archive -Path $zip -DestinationPath $www -Force
 Write-Host "Da giai nen frontend vao $www"
+Write-Host "Site: https://erp.benhvienminhan.com/"
+Write-Host "API:  https://erp.benhvienminhan.com/j1-api (proxy -> backend port 8086)"
 Write-Host "Chay setup-iis-frontend.ps1 neu chua cau hinh IIS."

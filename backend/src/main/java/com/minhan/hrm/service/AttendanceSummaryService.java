@@ -7,7 +7,9 @@ import com.minhan.hrm.attendance.LatePenaltySettings;
 import com.minhan.hrm.entity.*;
 import com.minhan.hrm.repository.AttendanceRecordRepository;
 import com.minhan.hrm.repository.AttendanceWorkRequestRepository;
+import com.minhan.hrm.repository.EmployeeSalaryProfileRepository;
 import com.minhan.hrm.repository.EmployeeRepository;
+import com.minhan.hrm.repository.SeminarProposalRequestRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,9 @@ import java.util.*;
 @RequiredArgsConstructor
 public class AttendanceSummaryService {
 
+    private static final BigDecimal QUANG_TRUNG_DOCTOR_ALLOWANCE = new BigDecimal("100000");
+    private static final BigDecimal QUANG_TRUNG_EMPLOYEE_ALLOWANCE = new BigDecimal("50000");
+
     private final AttendanceRecordRepository attendanceRecordRepository;
     private final AttendanceWorkRequestRepository workRequestRepository;
     private final EmployeeRepository employeeRepository;
@@ -30,6 +35,9 @@ public class AttendanceSummaryService {
     private final LatePenaltyConfigService latePenaltyConfigService;
     private final AttendanceDayProcessor dayProcessor;
     private final DutyShiftService dutyShiftService;
+    private final SeminarProposalRequestRepository seminarProposalRepository;
+    private final EmployeeSalaryProfileRepository salaryProfileRepository;
+    private final YoungChildHoursService youngChildHoursService;
 
     @Transactional(readOnly = true)
     public Map<String, Object> employeeMonthSummary(Long employeeId, int year, int month) {
@@ -46,16 +54,19 @@ public class AttendanceSummaryService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> departmentMonthSummary(int year, int month, Long departmentId) {
         UserAccount current = employeeService.currentUser();
-        if (current.getRole() != UserRole.ADMIN && current.getRole() != UserRole.HR) {
+        if (current.getRole() != UserRole.ADMIN
+                && current.getRole() != UserRole.HR
+                && !EmployeeService.isHr2Role(current)) {
             throw new com.minhan.hrm.exception.ApiException(
-                    org.springframework.http.HttpStatus.FORBIDDEN, "Chỉ ADMIN/HR xem bảng công tổng hợp");
+                    org.springframework.http.HttpStatus.FORBIDDEN, "Chỉ ADMIN/HR/HCNS2 xem bảng công tổng hợp");
         }
         YearMonth ym = YearMonth.of(year, month);
         LocalDate from = ym.atDay(1);
         LocalDate to = ym.atEndOfMonth();
         List<Employee> employees = employeeRepository.findAll().stream()
-                .filter(e -> e.getStatus() == EmployeeStatus.ACTIVE)
-                .filter(e -> departmentId == null || e.getDepartment().getId().equals(departmentId))
+                .filter(e -> e.getStatus() != null && e.getStatus() != EmployeeStatus.TERMINATED)
+                .filter(e -> departmentId == null
+                        || (e.getDepartment() != null && e.getDepartment().getId().equals(departmentId)))
                 .toList();
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Employee emp : employees) {
@@ -66,7 +77,7 @@ public class AttendanceSummaryService {
                     "employeeId", emp.getId(),
                     "employeeCode", emp.getEmployeeCode() != null ? emp.getEmployeeCode() : "",
                     "fullName", emp.getFullName(),
-                    "department", emp.getDepartment().getName(),
+                    "department", emp.getDepartment() != null ? emp.getDepartment().getName() : "",
                     "totalWorkUnits", s.get("totalWorkUnits"),
                     "latePenalty", s.get("latePenalty"),
                     "forgotPenalty", s.get("forgotPenalty"),
@@ -79,24 +90,45 @@ public class AttendanceSummaryService {
     }
 
     /**
-     * Dữ liệu báo cáo công cả tháng cho toàn bộ nhân viên đang làm việc (tùy chọn lọc phòng ban).
+     * Dữ liệu báo cáo công cả tháng cho toàn bộ nhân viên đang làm việc
+     * (chính thức + thử việc + thực tập + nghỉ phép tạm; tùy chọn lọc phòng ban).
      * Mỗi phần tử gồm summary đầy đủ + mã NV, phòng ban, chức vụ và danh sách công theo ngày.
      */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> monthReport(int year, int month, Long departmentId) {
         UserAccount current = employeeService.currentUser();
-        if (current.getRole() != UserRole.ADMIN && current.getRole() != UserRole.HR) {
+        Long effectiveDepartmentId;
+        if (EmployeeService.isHr2Role(current)
+                || current.getRole() == UserRole.ADMIN
+                || current.getRole() == UserRole.HR
+                || current.getRole() == UserRole.HEAD_NURSING) {
+            effectiveDepartmentId = departmentId;
+        } else if (EmployeeService.isHeadRole(current)) {
+            // Luôn khóa theo khoa lấy từ hồ sơ liên kết; không tin departmentId do client gửi lên.
+            effectiveDepartmentId = employeeService.resolveHeadDepartmentScope(current);
+        } else {
             throw new com.minhan.hrm.exception.ApiException(
-                    org.springframework.http.HttpStatus.FORBIDDEN, "Chỉ ADMIN/HR xuất báo cáo công");
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "Chỉ ADMIN/HR hoặc Trưởng khoa/Trưởng phòng Điều dưỡng được xuất báo cáo công");
         }
         YearMonth ym = YearMonth.of(year, month);
         LocalDate from = ym.atDay(1);
         LocalDate to = ym.atEndOfMonth();
+        String scopedWorkUnit = EmployeeService.isHeadRole(current) && !EmployeeService.isHr2Role(current)
+                ? employeeService.resolveHeadWorkUnitScope(current)
+                : null;
+        boolean nursingBlockOnly = current.getRole() == UserRole.HEAD_NURSING;
+        // Đầy đủ NV đang làm: chính thức + thử việc + thực tập + nghỉ phép tạm (không gồm đã nghỉ việc).
         List<Employee> employees = employeeRepository.findAll().stream()
-                .filter(e -> e.getStatus() == EmployeeStatus.ACTIVE || e.getStatus() == EmployeeStatus.ON_LEAVE)
-                .filter(e -> departmentId == null || e.getDepartment().getId().equals(departmentId))
+                .filter(e -> e.getStatus() != null && e.getStatus() != EmployeeStatus.TERMINATED)
+                .filter(e -> effectiveDepartmentId == null
+                        || (e.getDepartment() != null
+                        && effectiveDepartmentId.equals(e.getDepartment().getId())))
+                .filter(e -> scopedWorkUnit == null || employeeService.matchesWorkUnit(e, scopedWorkUnit))
+                .filter(e -> !nursingBlockOnly || NursingBlockClassifier.matches(e))
                 .sorted(Comparator
-                        .comparing((Employee e) -> e.getDepartment().getName(), String.CASE_INSENSITIVE_ORDER)
+                        .comparing((Employee e) -> e.getDepartment() != null ? e.getDepartment().getName() : "",
+                                String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(Employee::getFullName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
         List<Map<String, Object>> rows = new ArrayList<>();
@@ -105,14 +137,48 @@ public class AttendanceSummaryService {
                     .findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(emp, from, to);
             Map<String, Object> summary = buildSummary(emp, records, from, to);
             summary.put("employeeCode", emp.getEmployeeCode() != null ? emp.getEmployeeCode() : "");
-            summary.put("department", emp.getDepartment().getName());
+            summary.put("departmentId", emp.getDepartment() != null ? emp.getDepartment().getId() : null);
+            summary.put("department", emp.getDepartment() != null ? emp.getDepartment().getName() : "");
             summary.put("position", emp.getPosition() != null ? emp.getPosition().getTitle() : "");
-            summary.put("days", records.stream().map(this::dayDetail).toList());
+            summary.put("phone", emp.getPhone() != null ? emp.getPhone() : "");
+            summary.put("employeeStatus", emp.getStatus() != null ? emp.getStatus().name() : "");
+            Set<LocalDate> youngChildDates = youngChildHoursService.datesForEmployee(emp.getId(), from, to);
+            summary.put("days", records.stream().map(r -> dayDetail(r, youngChildDates)).toList());
             summary.put("dutyDays", dutyShiftService.reportEntries(
                     emp, dutyShiftService.findEntriesForEmployee(emp.getId(), from, to)));
             rows.add(summary);
         }
         return rows;
+    }
+
+    /**
+     * Ma trận công theo ngày (dạng bảng chấm công Excel) để xem trên UI.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> monthMatrix(int year, int month, Long departmentId) {
+        YearMonth ym = YearMonth.of(year, month);
+        List<Map<String, Object>> rows = monthReport(year, month, departmentId);
+        UserAccount current = employeeService.currentUser();
+        Long effectiveDepartmentId = EmployeeService.isHeadRole(current)
+                ? employeeService.resolveHeadDepartmentScope(current)
+                : departmentId;
+        String departmentName = "Toàn bệnh viện";
+        if (effectiveDepartmentId != null && !rows.isEmpty()) {
+            Object name = rows.get(0).get("department");
+            if (name != null && !String.valueOf(name).isBlank()) {
+                departmentName = String.valueOf(name);
+            }
+        } else if (effectiveDepartmentId != null) {
+            departmentName = "Theo khoa đã chọn";
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("year", year);
+        out.put("month", month);
+        out.put("daysInMonth", ym.lengthOfMonth());
+        out.put("departmentId", effectiveDepartmentId);
+        out.put("departmentName", departmentName);
+        out.put("rows", rows);
+        return out;
     }
 
     @Transactional(readOnly = true)
@@ -122,7 +188,9 @@ public class AttendanceSummaryService {
         YearMonth ym = YearMonth.of(year, month);
         List<AttendanceRecord> records = attendanceRecordRepository.findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(
                 emp, ym.atDay(1), ym.atEndOfMonth());
-        List<Map<String, Object>> days = records.stream().map(this::dayDetail).toList();
+        Set<LocalDate> youngChildDates = youngChildHoursService.datesForEmployee(
+                employeeId, ym.atDay(1), ym.atEndOfMonth());
+        List<Map<String, Object>> days = records.stream().map(r -> dayDetail(r, youngChildDates)).toList();
         List<AttendanceWorkRequest> requests = workRequestRepository.findByEmployeeAndWorkDateBetweenOrderByWorkDateDescCreatedAtDesc(
                 emp, ym.atDay(1), ym.atEndOfMonth());
         summary.put("days", days);
@@ -137,12 +205,16 @@ public class AttendanceSummaryService {
     private Map<String, Object> buildSummary(
             Employee emp, List<AttendanceRecord> records, LocalDate from, LocalDate to) {
         BigDecimal totalUnits = BigDecimal.ZERO;
+        BigDecimal leaveUnits = BigDecimal.ZERO;
         int lateMinutes = 0;
         for (AttendanceRecord r : records) {
-            totalUnits = totalUnits
-                    .add(nzUnits(r.getMorningWorkUnits()))
+            BigDecimal dayUnits = nzUnits(r.getMorningWorkUnits())
                     .add(nzUnits(r.getAfternoonWorkUnits()))
                     .add(nzUnits(r.getOvertimeWorkUnits()));
+            totalUnits = totalUnits.add(dayUnits);
+            if ("LEAVE".equals(r.getStatus())) {
+                leaveUnits = leaveUnits.add(dayUnits);
+            }
             if (!r.isLateMinutesExempt()) {
                 lateMinutes += r.getLateMinutes();
             }
@@ -157,12 +229,17 @@ public class AttendanceSummaryService {
                 emp, dutyShiftService.findEntriesForEmployee(emp.getId(), from, to));
         int dutyShiftCount = ((Number) dutyTotals.get("dutyShiftCount")).intValue();
         MealAllowanceTotals meal = computeMealAllowance(records, dutyShiftCount);
+        SeminarSupportTotals seminarSupport = computeSeminarSupport(emp.getId(), from, to);
+        QuangTrungAllowanceTotals quangTrungAllowance =
+                computeQuangTrungAllowance(emp, records);
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("employeeId", emp.getId());
         summary.put("fullName", emp.getFullName());
         summary.put("periodYear", from.getYear());
         summary.put("periodMonth", from.getMonthValue());
         summary.put("attendanceWorkUnits", totalUnits);
+        summary.put("clockedWorkUnits", totalUnits.subtract(leaveUnits).max(BigDecimal.ZERO));
+        summary.put("leaveWorkUnits", leaveUnits);
         summary.put("totalWorkUnits", totalUnits.add((BigDecimal) dutyTotals.get("dutyWorkUnitsTotal")));
         summary.put("lateMinutesTotal", lateMinutes);
         summary.put("latePenalty", late.amount());
@@ -179,8 +256,75 @@ public class AttendanceSummaryService {
         summary.put("mealAllowancePresentDays", meal.presentDays());
         summary.put("mealAllowanceMorningDays", meal.morningDays());
         summary.put("mealAllowanceDutyUnits", meal.dutyUnits());
+        summary.put("seminarSupportTotal", seminarSupport.amount());
+        summary.put("seminarSupportCount", seminarSupport.count());
+        summary.put("quangTrungAllowance", quangTrungAllowance.amount());
+        summary.put("quangTrungAllowanceCount", quangTrungAllowance.count());
+        summary.put("quangTrungAllowanceRate", quangTrungAllowance.rate());
         return summary;
     }
+
+    private QuangTrungAllowanceTotals computeQuangTrungAllowance(
+            Employee employee, List<AttendanceRecord> records) {
+        int count = (int) records.stream()
+                .map(AttendanceRecord::getNote)
+                .filter(Objects::nonNull)
+                .filter(note -> note.contains(AttendanceService.QUANG_TRUNG_NOTE_MARKER))
+                .count();
+        boolean doctor = salaryProfileRepository.findByEmployee(employee)
+                .map(profile -> profile.getSalaryCategory() == SalaryCategory.DOCTOR)
+                .orElse(false);
+        BigDecimal rate = doctor
+                ? QUANG_TRUNG_DOCTOR_ALLOWANCE
+                : QUANG_TRUNG_EMPLOYEE_ALLOWANCE;
+        return new QuangTrungAllowanceTotals(
+                count, rate, rate.multiply(BigDecimal.valueOf(count)));
+    }
+
+    private record QuangTrungAllowanceTotals(
+            int count, BigDecimal rate, BigDecimal amount) {}
+
+    private SeminarSupportTotals computeSeminarSupport(Long employeeId, LocalDate from, LocalDate to) {
+        List<SeminarProposalRequest> rows =
+                seminarProposalRepository.findApprovedWithSupportInPeriod(employeeId, from, to);
+        BigDecimal total = BigDecimal.ZERO;
+        for (SeminarProposalRequest row : rows) {
+            total = total.add(parseMoneyAmount(row.getSupportAmount()));
+        }
+        return new SeminarSupportTotals(rows.size(), total);
+    }
+
+    private static BigDecimal parseMoneyAmount(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        String t = raw.trim().replaceAll("[^0-9,.]", "");
+        if (t.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        int lastDot = t.lastIndexOf('.');
+        int lastComma = t.lastIndexOf(',');
+        if (lastDot >= 0 && lastComma >= 0) {
+            if (lastDot > lastComma) {
+                t = t.replace(",", "");
+            } else {
+                t = t.replace(".", "").replace(',', '.');
+            }
+        } else if (lastDot >= 0 && t.indexOf('.') != lastDot) {
+            t = t.replace(".", "");
+        } else if (lastComma >= 0 && t.indexOf(',') != lastComma) {
+            t = t.replace(",", "");
+        } else if (lastComma >= 0) {
+            t = t.replace(',', '.');
+        }
+        try {
+            return new BigDecimal(t);
+        } catch (NumberFormatException ex) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private record SeminarSupportTotals(int count, BigDecimal amount) {}
 
     private static final BigDecimal MEAL_ALLOWANCE_PER_UNIT = new BigDecimal("20000");
 
@@ -195,7 +339,8 @@ public class AttendanceSummaryService {
             // Ngày nghỉ phép / công tác không tính phụ cấp phần ăn tại viện
             if ("LEAVE".equals(r.getStatus())
                     || "UNPAID_LEAVE".equals(r.getStatus())
-                    || "BUSINESS_TRIP".equals(r.getStatus())) {
+                    || "BUSINESS_TRIP".equals(r.getStatus())
+                    || "SEMINAR".equals(r.getStatus())) {
                 continue;
             }
             if (totalUnits.compareTo(new BigDecimal("0.99")) >= 0) {
@@ -245,7 +390,7 @@ public class AttendanceSummaryService {
         return units;
     }
 
-    private Map<String, Object> dayDetail(AttendanceRecord r) {
+    private Map<String, Object> dayDetail(AttendanceRecord r, Set<LocalDate> youngChildDates) {
         BigDecimal morning = nzUnits(r.getMorningWorkUnits());
         BigDecimal afternoon = nzUnits(r.getAfternoonWorkUnits());
         BigDecimal overtime = nzUnits(r.getOvertimeWorkUnits());
@@ -269,7 +414,9 @@ public class AttendanceSummaryService {
         m.put("checkIn", timeStr(r.getCheckIn()));
         m.put("checkOut", timeStr(r.getCheckOut()));
         m.put("note", note);
+        m.put("quangTrung", note.contains(AttendanceService.QUANG_TRUNG_NOTE_MARKER));
         m.put("deployment", note.contains("Điều động làm thêm") || note.contains("Điều động trong ca"));
+        m.put("youngChild", youngChildDates.contains(r.getWorkDate()));
         m.put("punchTimes", dayProcessor.resolvePunches(r).stream().map(Object::toString).toList());
         return m;
     }
@@ -297,6 +444,10 @@ public class AttendanceSummaryService {
         m.put("explainedMorningOut", timeStr(r.getExplainedMorningOut()));
         m.put("explainedAfternoonIn", timeStr(r.getExplainedAfternoonIn()));
         m.put("explainedAfternoonOut", timeStr(r.getExplainedAfternoonOut()));
+        m.put("originalMorningIn", timeStr(r.getOriginalMorningIn()));
+        m.put("originalMorningOut", timeStr(r.getOriginalMorningOut()));
+        m.put("originalAfternoonIn", timeStr(r.getOriginalAfternoonIn()));
+        m.put("originalAfternoonOut", timeStr(r.getOriginalAfternoonOut()));
         m.put("status", r.getStatus().name());
         m.put("hrWaiveForgotFine", r.isHrWaiveForgotFine());
         m.put("createdAt", r.getCreatedAt().toString());
@@ -309,17 +460,9 @@ public class AttendanceSummaryService {
 
     private void assertCanView(Employee target) {
         UserAccount current = employeeService.currentUser();
-        if (current.getRole() == UserRole.ADMIN || current.getRole() == UserRole.HR) {
+        if (EmployeeService.isHr2Role(current)) {
             return;
         }
-        Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
-        if (self != null && self.getId().equals(target.getId())) {
-            return;
-        }
-        if (current.getRole() == UserRole.HEAD_DEPARTMENT || current.getRole() == UserRole.HEAD_NURSING) {
-            return;
-        }
-        throw new com.minhan.hrm.exception.ApiException(
-                org.springframework.http.HttpStatus.FORBIDDEN, "Không có quyền xem bảng công");
+        employeeService.assertCanAccessEmployee(target);
     }
 }

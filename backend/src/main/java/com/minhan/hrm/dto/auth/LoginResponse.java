@@ -15,4 +15,6 @@ public class LoginResponse {
     String fullName;
     String email;
     boolean mustChangePassword;
+    /** true khi chưa có chữ ký số — bắt buộc tạo ở lần đăng nhập đầu */
+    boolean mustSetSignature;
 }

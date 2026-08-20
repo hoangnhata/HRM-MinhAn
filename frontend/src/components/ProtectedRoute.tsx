@@ -22,5 +22,14 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/change-password-required" replace />;
   }
 
+  if (
+    !user?.mustChangePassword &&
+    user?.mustSetSignature &&
+    loc.pathname !== '/signature-required' &&
+    loc.pathname !== '/change-password-required'
+  ) {
+    return <Navigate to="/signature-required" replace />;
+  }
+
   return <>{children}</>;
 }

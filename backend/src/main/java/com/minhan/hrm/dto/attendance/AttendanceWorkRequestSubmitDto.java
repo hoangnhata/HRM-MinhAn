@@ -17,7 +17,10 @@ public class AttendanceWorkRequestSubmitDto {
     @NotNull
     private AttendanceRequestType requestType;
 
-    /** Nhân viên được điều động — bắt buộc với DEPLOYMENT (trưởng tạo cho người khác). */
+    /**
+     * Nhân viên được lập đơn hộ — dùng với DEPLOYMENT và EXPLANATION do ADMIN tạo.
+     * Nhân viên thường luôn bị ràng buộc vào hồ sơ của chính mình.
+     */
     private Long employeeId;
 
     @NotNull

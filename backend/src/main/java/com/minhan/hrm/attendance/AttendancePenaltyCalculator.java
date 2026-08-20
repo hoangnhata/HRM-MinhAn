@@ -6,6 +6,7 @@ import com.minhan.hrm.entity.AttendanceUpdateKind;
 import com.minhan.hrm.entity.AttendanceWorkRequest;
 
 import java.math.BigDecimal;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 
@@ -27,8 +28,22 @@ public final class AttendancePenaltyCalculator {
      * Phạt quên chấm công theo số lần quên thực tế khi nộp đơn:
      * thiếu 1 mốc (vào hoặc ra) = 1 lần; thiếu cả ca = 2 lần;
      * cả ngày = số mốc còn thiếu trên cả 2 ca (tối đa 4; đã có một phần chấm thì không hardcode 4).
+     * Ca thông tầm chỉ có 2 mốc (vào đầu ngày / ra cuối ngày).
      */
     public static int forgotFineUnitsForUpdate(AttendanceUpdateKind kind, AttendanceRecord rec) {
+        return forgotFineUnitsForUpdate(kind, rec, false);
+    }
+
+    public static int forgotFineUnitsForUpdate(
+            AttendanceUpdateKind kind, AttendanceRecord rec, boolean continuousShift) {
+        if (continuousShift) {
+            if (rec == null) {
+                return 2;
+            }
+            LocalTime dayIn = rec.getMorningCheckIn() != null ? rec.getMorningCheckIn() : rec.getCheckIn();
+            LocalTime dayOut = rec.getAfternoonCheckOut() != null ? rec.getAfternoonCheckOut() : rec.getCheckOut();
+            return missingPunchCount(dayIn, dayOut);
+        }
         if (kind == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
             if (rec == null) {
                 return 4;

@@ -1,53 +1,126 @@
 import api from './api';
 
-/** Mẫu đồng bộ Bộ tiêu chí ĐD-KTV-HS MA 2026 (cùng cấu trúc tiêu chí JSON). */
+/** Mẫu đồng bộ tiêu chí ĐD (Excel MA 2026). */
 export const MA2026_EVAL_TEMPLATE_CODE = 'DD_KTV_HS_MA_2026';
 
 export type CriterionOption = { label: string; points: number };
 export type CriterionGroup = {
   id: string;
-  /** Nhóm I/II/III... như mẫu Excel (optional) */
   section?: string;
-  /** Tổng điểm của nhóm (optional) */
   sectionPoints?: number;
-  /** Số thứ tự trong nhóm (optional) */
   no?: string;
   title: string;
   maxPoints: number | null;
   options: CriterionOption[];
+  bonus?: boolean;
+  penalty?: boolean;
 };
 
 export type NursingTemplate = {
   code: string;
   name: string;
   version: number;
+  baseMaxPoints?: number;
+  note?: string;
   criteriaGroups: CriterionGroup[];
   gradingScale: Array<{ min: number; label: string; proposal: string }>;
 };
 
 export type NursingEvalRow = Record<string, unknown>;
 
-/** Tên hiển thị người chấm: họ tên nhân viên (nếu có) hoặc tên đăng nhập. */
-export function formatChannelEvaluatorName(slot: {
-  displayName?: string | null;
-  username?: string | null;
-} | null | undefined): string {
-  const dn = (slot?.displayName ?? '').trim();
-  if (dn) return dn;
-  const u = (slot?.username ?? '').trim();
-  return u || '';
+export const NURSING_EVAL_STATUS_LABEL: Record<string, string> = {
+  DRAFT: 'Nháp',
+  PENDING_NURSING_HEAD: 'Chờ Trưởng phòng ĐD',
+  NURSING_HEAD_REJECTED: 'Trưởng phòng ĐD từ chối',
+  PENDING_HR: 'Chờ HCNS',
+  HR_REJECTED: 'HCNS từ chối',
+  PENDING_DIRECTOR: 'Chờ Giám đốc',
+  DIRECTOR_REJECTED: 'Giám đốc từ chối',
+  APPROVED: 'Đã duyệt',
+  CANCELLED: 'Đã thu hồi',
+};
+
+export type NursingEvalStatusColor =
+  | 'default'
+  | 'primary'
+  | 'secondary'
+  | 'error'
+  | 'info'
+  | 'success'
+  | 'warning';
+
+export function nursingEvalStatusColor(status?: string | null): NursingEvalStatusColor {
+  switch (status) {
+    case 'APPROVED':
+      return 'success';
+    case 'PENDING_NURSING_HEAD':
+    case 'PENDING_HR':
+    case 'PENDING_DIRECTOR':
+      return 'warning';
+    case 'NURSING_HEAD_REJECTED':
+    case 'HR_REJECTED':
+    case 'DIRECTOR_REJECTED':
+      return 'error';
+    case 'DRAFT':
+      return 'info';
+    case 'CANCELLED':
+      return 'default';
+    default:
+      return 'default';
+  }
 }
 
-/** Chuỗi thời gian ISO từ server → ngày giờ đọc được (Việt Nam). */
-export function formatChannelEvalSavedAt(iso: string | null | undefined): string {
-  if (iso == null || iso === '') return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return new Intl.DateTimeFormat('vi-VN', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-    timeZone: 'Asia/Ho_Chi_Minh',
-  }).format(d);
+/** Bộ lọc trạng thái gộp theo bước — không tách chờ / từ chối. */
+export const NURSING_EVAL_STATUS_FILTER_GROUPS: Array<{
+  value: string;
+  label: string;
+  statuses: string[];
+}> = [
+  { value: 'DRAFT', label: 'Nháp', statuses: ['DRAFT'] },
+  {
+    value: 'NURSING_HEAD',
+    label: 'Trưởng phòng ĐD',
+    statuses: ['PENDING_NURSING_HEAD', 'NURSING_HEAD_REJECTED'],
+  },
+  {
+    value: 'HR',
+    label: 'HCNS',
+    statuses: ['PENDING_HR', 'HR_REJECTED'],
+  },
+  {
+    value: 'DIRECTOR',
+    label: 'Giám đốc',
+    statuses: ['PENDING_DIRECTOR', 'DIRECTOR_REJECTED'],
+  },
+  { value: 'APPROVED', label: 'Đã duyệt', statuses: ['APPROVED'] },
+  { value: 'CANCELLED', label: 'Đã thu hồi', statuses: ['CANCELLED'] },
+];
+
+export const NURSING_EVAL_STATUS_FILTER_OPTIONS = NURSING_EVAL_STATUS_FILTER_GROUPS.map(
+  ({ value, label }) => ({ value, label }),
+);
+
+export const NURSING_EVAL_ROSTER_STATUS_OPTIONS = [
+  { value: 'NONE', label: 'Chưa có phiếu' },
+  ...NURSING_EVAL_STATUS_FILTER_OPTIONS,
+];
+
+/** Map trạng thái chi tiết → nhóm lọc. */
+export function nursingEvalStatusFilterGroup(status?: string | null): string {
+  const raw = (status || '').trim() || 'NONE';
+  if (raw === 'NONE') return 'NONE';
+  for (const g of NURSING_EVAL_STATUS_FILTER_GROUPS) {
+    if (g.statuses.includes(raw)) return g.value;
+  }
+  return raw;
+}
+
+/** Các nhóm lọc có mặt trong danh sách (theo status chi tiết). */
+export function nursingEvalFilterOptionsPresent(statuses: Array<string | null | undefined>) {
+  const present = new Set(
+    statuses.map((s) => nursingEvalStatusFilterGroup(s || 'NONE')),
+  );
+  return NURSING_EVAL_STATUS_FILTER_OPTIONS.filter((o) => present.has(o.value));
 }
 
 export async function fetchNursingTemplate(code: string) {
@@ -60,23 +133,15 @@ export async function fetchNursingHistory(employeeId: number) {
   return data;
 }
 
-export type CriterionScorePayload = {
-  truongKhoa: number;
-  ddt: number;
-  /** Hội đồng 30 điểm */
-  hd?: number;
-  truongKhoaNote?: string;
-  ddtNote?: string;
-  hdNote?: string;
-};
-
 export type NursingSubmitBody = {
   employeeId: number;
   periodYear: number;
   periodMonth: number;
   templateCode: string;
-  scores: Record<string, CriterionScorePayload>;
+  scores: Record<string, number>;
+  notes?: Record<string, string>;
   comments?: string;
+  submitForReview: boolean;
 };
 
 export async function submitNursingEvaluation(body: NursingSubmitBody) {
@@ -84,20 +149,32 @@ export async function submitNursingEvaluation(body: NursingSubmitBody) {
   return data;
 }
 
-export type NursingChannelSubmitBody = {
-  employeeId: number;
-  periodYear: number;
-  periodMonth: number;
-  templateCode: string;
-  channel: 'truongKhoa' | 'ddt' | 'hd';
-  scores: Record<string, number>;
-  /** Ghi chú theo từng tiêu chí (id), cùng kênh đang lưu */
-  notes?: Record<string, string>;
-  comments?: string;
-};
+export async function nursingHeadReviewNursingEvaluation(id: number, approved: boolean, comment?: string) {
+  const { data } = await api.post<NursingEvalRow>(`/v1/nursing-evaluations/${id}/nursing-head-review`, {
+    approved,
+    comment,
+  });
+  return data;
+}
 
-export async function submitNursingEvaluationChannel(body: NursingChannelSubmitBody) {
-  const { data } = await api.post<NursingEvalRow>('/v1/nursing-evaluations/channel', body);
+export async function hrReviewNursingEvaluation(id: number, approved: boolean, comment?: string) {
+  const { data } = await api.post<NursingEvalRow>(`/v1/nursing-evaluations/${id}/hr-review`, {
+    approved,
+    comment,
+  });
+  return data;
+}
+
+export async function directorReviewNursingEvaluation(id: number, approved: boolean, comment?: string) {
+  const { data } = await api.post<NursingEvalRow>(`/v1/nursing-evaluations/${id}/director-review`, {
+    approved,
+    comment,
+  });
+  return data;
+}
+
+export async function cancelNursingEvaluation(id: number) {
+  const { data } = await api.post<NursingEvalRow>(`/v1/nursing-evaluations/${id}/cancel`);
   return data;
 }
 
@@ -109,18 +186,17 @@ export type MonthlyEvalSummaryRow = {
   departmentName: string;
   periodYear: number;
   periodMonth: number;
-  totalTruongKhoa: number | null;
-  totalDdt: number | null;
-  gradeTruongKhoa: string | null;
-  gradeDdt: string | null;
-  /** Điểm phần 70: TB hai cột nếu đủ cả hai; một cột nếu chỉ một bên chấm */
-  deptAvg70: number | null;
-  /** Điểm Hội đồng 30 */
-  hdTotal30: number | null;
-  hdGrade: string | null;
-  /** Tổng hợp 100 = deptAvg70 + hdTotal30 */
-  total100: number | null;
-  overallGrade: string | null;
+  status?: string | null;
+  totalScore?: number | null;
+  overallGrade?: string | null;
+  total100?: number | null;
+  totalTruongKhoa?: number | null;
+  totalDdt?: number | null;
+  gradeTruongKhoa?: string | null;
+  gradeDdt?: string | null;
+  deptAvg70?: number | null;
+  hdTotal30?: number | null;
+  hdGrade?: string | null;
   evaluatorUsername: string;
 };
 
@@ -136,11 +212,28 @@ export async function fetchNursingEvaluationRecord(evaluationId: number) {
   return data;
 }
 
+/** Phiếu đã duyệt của chính tôi (sau khi Giám đốc duyệt). */
+export async function fetchMyApprovedNursingEvaluations() {
+  const { data } = await api.get<NursingEvalRow[]>('/v1/nursing-evaluations/mine');
+  return data;
+}
+
+export async function fetchNursingPending() {
+  const { data } = await api.get<NursingEvalRow[]>('/v1/nursing-evaluations/pending');
+  return data;
+}
+
+export async function fetchNursingEvaluationHistory() {
+  const { data } = await api.get<NursingEvalRow[]>('/v1/nursing-evaluations/history');
+  return data;
+}
+
 export type NursingPeriodStatusRow = {
   employeeId: number;
-  hasTruongKhoa: boolean;
-  hasDdt: boolean;
-  hasHd: boolean;
+  evaluationId?: number;
+  status?: string | null;
+  totalScore?: number | null;
+  overallGrade?: string | null;
 };
 
 export async function fetchNursingPeriodStatus(year: number, month: number, templateCode: string) {
@@ -148,4 +241,14 @@ export async function fetchNursingPeriodStatus(year: number, month: number, temp
     params: { year, month, templateCode },
   });
   return data;
+}
+
+export function scorePointsFromRow(scores: unknown, criterionId: string): number | null {
+  if (!scores || typeof scores !== 'object') return null;
+  const part = (scores as Record<string, Record<string, unknown>>)[criterionId];
+  if (!part || typeof part !== 'object') return null;
+  const p = part.points ?? part.truongKhoa ?? part.ddt;
+  if (p == null || p === '') return null;
+  const n = Number(p);
+  return Number.isFinite(n) ? n : null;
 }

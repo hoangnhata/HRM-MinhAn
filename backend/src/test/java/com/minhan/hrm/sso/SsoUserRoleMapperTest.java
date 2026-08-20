@@ -10,12 +10,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class SsoUserRoleMapperTest {
 
     @Test
-    void mapsAllSixHrmRoles() {
+    void mapsUnifiedHeadRoleAndLegacyNursingRole() {
         assertEquals(UserRole.ADMIN, SsoUserRoleMapper.toUserRole("ADMIN"));
         assertEquals(UserRole.EMPLOYEE, SsoUserRoleMapper.toUserRole("employee"));
         assertEquals(UserRole.HR, SsoUserRoleMapper.toUserRole("HR"));
+        assertEquals(UserRole.HEAD_DEPARTMENT, SsoUserRoleMapper.toUserRole("HEAD_NURSING"));
         assertEquals(UserRole.HEAD_DEPARTMENT, SsoUserRoleMapper.toUserRole("HEAD_DEPARTMENT"));
-        assertEquals(UserRole.HEAD_NURSING, SsoUserRoleMapper.toUserRole("HEAD_NURSING"));
+        assertEquals(UserRole.HEAD_HR, SsoUserRoleMapper.toUserRole("HEAD_HR"));
         assertEquals(UserRole.DIRECTOR, SsoUserRoleMapper.toUserRole("DIRECTOR"));
     }
 
@@ -27,6 +28,7 @@ class SsoUserRoleMapperTest {
 
     @Test
     void toRoleCodeRoundTrip() {
-        assertEquals("HEAD_NURSING", SsoUserRoleMapper.toRoleCode(UserRole.HEAD_NURSING));
+        assertEquals("HEAD_DEPARTMENT", SsoUserRoleMapper.toRoleCode(UserRole.HEAD_DEPARTMENT));
+        assertEquals("HEAD_HR", SsoUserRoleMapper.toRoleCode(UserRole.HEAD_HR));
     }
 }

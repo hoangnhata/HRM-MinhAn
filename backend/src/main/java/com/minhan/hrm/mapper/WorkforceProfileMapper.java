@@ -37,6 +37,7 @@ public final class WorkforceProfileMapper {
         put(m, "contractTerm", w.getContractTerm());
         put(m, "workUnitDetail", w.getWorkUnitDetail());
         put(m, "workforceNotes", w.getWorkforceNotes());
+        put(m, "trialType", w.getTrialType());
         put(m, "dependentsInfo", w.getDependentsInfo());
         put(m, "ethnicity", w.getEthnicity());
         put(m, "placeOfOrigin", w.getPlaceOfOrigin());

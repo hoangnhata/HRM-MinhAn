@@ -11,5 +11,7 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
 
     Optional<Position> findByTitleIgnoreCase(String title);
 
+    Optional<Position> findFirstByTitleIgnoreCaseOrderByIdAsc(String title);
+
     boolean existsByCode(String code);
 }

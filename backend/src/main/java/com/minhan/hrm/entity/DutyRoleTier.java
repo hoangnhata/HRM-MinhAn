@@ -6,7 +6,7 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum DutyRoleTier {
-    BS_NSN_XQ_SA("BS NSN XQ SA", "Bác sĩ NSN XQ SA"),
+    BS_NSN_XQ_SA("BS NSN XQ SA", "Bác sĩ chuyên khoa"),
     NV_TAI_KHOA("NV_TAI_KHOA", "Nhân viên tại khoa"),
     THU_NGAN_DUOC("THU_NGAN_DUOC", "Thu ngân dược"),
     BS("BS", "Bác sĩ"),

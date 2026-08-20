@@ -86,5 +86,6 @@ if (-not $existing) {
 iisreset /restart | Out-Null
 
 Write-Host "`n=== XONG ===" -ForegroundColor Green
-Write-Host "Truy cap: http://192.168.31.101/"
-Write-Host "Dam bao backend dang chay (start-hrm.bat) truoc khi dang nhap."
+Write-Host "Truy cap: https://erp.benhvienminhan.com/"
+Write-Host "API:      https://erp.benhvienminhan.com/j1-api"
+Write-Host "Dam bao backend dang chay (start-hrm.bat port 8086) truoc khi dang nhap."

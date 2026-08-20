@@ -5,7 +5,11 @@ export type YoungChildRequest = {
   employeeId: number;
   employeeCode?: string | null;
   employeeName: string;
+  positionTitle?: string | null;
   departmentName?: string | null;
+  startDate: string;
+  endDate: string;
+  /** Dữ liệu cũ để tương thích các đơn trước migration. */
   year: number;
   month: number;
   enabled: boolean;
@@ -15,6 +19,7 @@ export type YoungChildRequest = {
   hrReviewerUsername?: string | null;
   hrComment?: string | null;
   hrReviewedAt?: string | null;
+  hrSignatureUrl?: string | null;
   createdAt?: string | null;
   recalculated?: number;
   recalculateWarning?: string;
@@ -29,8 +34,8 @@ export const YOUNG_CHILD_STATUS_LABEL: Record<string, string> = {
 
 export async function createYoungChildRequest(body: {
   employeeId: number;
-  year: number;
-  month: number;
+  startDate: string;
+  endDate: string;
   enabled: boolean;
   reason?: string;
 }) {
@@ -53,10 +58,15 @@ export async function fetchMyYoungChildRequests() {
   return data;
 }
 
-export async function fetchPendingYoungChildForEmployee(employeeId: number, year: number, month: number) {
+export async function fetchRelatedYoungChildRequests() {
+  const { data } = await api.get<YoungChildRequest[]>('/v1/young-child-requests/related-to-me');
+  return data;
+}
+
+export async function fetchPendingYoungChildForEmployee(employeeId: number, fromDate: string, toDate: string) {
   const { data } = await api.get<YoungChildRequest | null>(
     `/v1/young-child-requests/employee/${employeeId}/pending`,
-    { params: { year, month } },
+    { params: { fromDate, toDate } },
   );
   return data;
 }
@@ -74,7 +84,22 @@ export async function hrReviewYoungChildRequest(id: number, approved: boolean, c
   return data;
 }
 
+export async function updateYoungChildRequest(id: number, body: {
+  employeeId: number;
+  startDate: string;
+  endDate: string;
+  enabled: boolean;
+  reason?: string;
+}) {
+  const { data } = await api.put<YoungChildRequest>(`/v1/young-child-requests/${id}`, body);
+  return data;
+}
+
 export async function cancelYoungChildRequest(id: number) {
   const { data } = await api.post<YoungChildRequest>(`/v1/young-child-requests/${id}/cancel`);
   return data;
+}
+
+export async function revokeYoungChildRequest(id: number) {
+  await api.delete(`/v1/young-child-requests/${id}`);
 }

@@ -39,13 +39,13 @@ public class PayrollService {
                 .collect(Collectors.toList());
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listAll() {
         return payrollRecordRepository.findAll().stream().map(this::toMap).collect(Collectors.toList());
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
     public Map<String, Object> upsert(PayrollRequest req) {
         Employee emp = employeeService.requireEmployeeEntity(req.getEmployeeId());
@@ -72,12 +72,16 @@ public class PayrollService {
 
     private void assertCanViewPayroll(Employee target) {
         UserAccount current = employeeService.currentUser();
-        if (current.getRole() == UserRole.ADMIN) {
+        if (current.getRole() == UserRole.ADMIN || current.getRole() == UserRole.HR) {
             return;
         }
-        Employee self = employeeRepository.findByUserUsername(current.getUsername()).orElse(null);
+        Employee self = employeeService.linkedEmployee(current).orElse(null);
         if (self == null || !self.getId().equals(target.getId())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem bảng lương");
+        }
+        if (!employeeService.canViewOwnSalary(self)) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Nhân viên thử việc chưa có ngày vào làm chính thức — chưa xem được bảng lương");
         }
     }
 
@@ -95,7 +99,7 @@ public class PayrollService {
                 "finalized", r.isFinalized());
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @Transactional
     public void delete(Long id) {
         if (!payrollRecordRepository.existsById(id)) {

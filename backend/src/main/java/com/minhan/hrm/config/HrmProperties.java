@@ -18,6 +18,56 @@ public class HrmProperties {
     private final Sso sso = new Sso();
     private final ErpAuth erpAuth = new ErpAuth();
     private final Frontend frontend = new Frontend();
+    private final Auth auth = new Auth();
+    private final SalaryAccess salaryAccess = new SalaryAccess();
+    private final Assistant assistant = new Assistant();
+    private final Push push = new Push();
+
+    @Getter
+    @Setter
+    public static class Push {
+        /** Bật gửi FCM khi có thông báo mới. Cần credentials Firebase Admin. */
+        private boolean enabled = false;
+        /** Đường dẫn file service-account JSON (Firebase Admin). */
+        private String credentialsPath = "";
+    }
+
+    @Getter
+    @Setter
+    public static class Assistant {
+        /** Trợ lý chỉ hoạt động khi đã cấu hình API key ở backend. */
+        private boolean enabled = false;
+        private String baseUrl = "https://api.openai.com/v1";
+        private String apiKey = "";
+        private String model = "gpt-5.6-terra";
+        /** Model thứ hai được thử khi model chính hết hạn mức (429). */
+        private String fallbackModel = "";
+        private String reasoningEffort = "low";
+        private int maxToolCalls = 4;
+        private int maxRounds = 5;
+        private int rateLimitPerMinute = 15;
+        private int connectTimeoutSeconds = 10;
+        private int readTimeoutSeconds = 45;
+    }
+
+    @Getter
+    @Setter
+    public static class SalaryAccess {
+        /** Mật khẩu riêng để ADMIN mở khóa xem/chỉnh sửa lương toàn bệnh viện. */
+        private String password = "luongMA@123";
+        /** Thời gian hiệu lực của phiên mở khóa. */
+        private long expirationMs = 1_800_000L; // 30 phút
+    }
+
+    @Getter
+    @Setter
+    public static class Auth {
+        /**
+         * Một lần: đặt lại mật khẩu user {@code admin} = Admin@123 và bắt đổi MK.
+         * Tắt ngay sau khi đăng nhập được.
+         */
+        private boolean resetAdminPassword = false;
+    }
 
     @Getter
     @Setter
@@ -46,7 +96,7 @@ public class HrmProperties {
         private boolean enabled = false;
         private String url = "jdbc:sqlserver://192.168.31.101:1433;databaseName=chamcong;encrypt=optional;trustServerCertificate=true";
         private String username = "sa";
-        private String password = "323321@Vn";
+        private String password = "345321@Vn";
         /** Bảng lịch sử quẹt thẻ — mặc định dbo.CheckInOut */
         private String table = "dbo.CheckInOut";
         /** Số ngày lùi lại mỗi lần đồng bộ thủ công (để bắt cả chỉnh sửa trễ) */
@@ -60,8 +110,8 @@ public class HrmProperties {
     @Getter
     @Setter
     public static class Sso {
-        /** Bật kết nối sso_db (SQL Server) — Roles / UserAppRoles cho HRM */
-        private boolean enabled = true;
+        /** Bật kết nối sso_db — tắt mặc định: đăng nhập/phân quyền local trên MySQL */
+        private boolean enabled = false;
         private String url = "jdbc:sqlserver://192.168.8.16:1433;databaseName=sso_db;encrypt=optional;trustServerCertificate=true";
         private String username = "sa";
         private String password = "123@lrco";
@@ -82,6 +132,11 @@ public class HrmProperties {
         private String assetBaseUrl = "http://192.168.8.16:3000";
         private String loginPath = "/api/auth/login";
         private String profilePath = "/api/auth/profile";
+        /**
+         * Bỏ qua lỗi chứng chỉ HTTPS tự ký khi Java gọi ERP (PKIX).
+         * Trình duyệt vẫn vào ERP bình thường; JVM cần bật tùy chọn này nếu cert chưa có trong truststore.
+         */
+        private boolean trustInsecureSsl = true;
     }
 
     @Getter

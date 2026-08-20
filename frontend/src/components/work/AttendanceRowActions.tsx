@@ -76,12 +76,13 @@ type Props = {
   workDate: string;
   requests: WorkRequest[];
   canSubmit: boolean;
+  canSubmitExplanation?: boolean;
   canManageSupplement?: boolean;
   canManageDuty?: boolean;
   canCreateDeployment?: boolean;
   hasDutyShift?: boolean;
   onDetail: (date: string) => void;
-  onExplain: (date: string) => void;
+  onExplain: (date: string, selectedKeys?: import('../../services/attendanceService').ExplanationSlotKey[]) => void;
   onUpdate: (date: string) => void;
   onSupplement?: (date: string) => void;
   onDutyShift?: (date: string) => void;
@@ -98,6 +99,7 @@ export function AttendanceRowActions({
   workDate,
   requests,
   canSubmit,
+  canSubmitExplanation = canSubmit,
   canManageSupplement = false,
   canManageDuty = false,
   canCreateDeployment = false,
@@ -209,12 +211,12 @@ export function AttendanceRowActions({
             </Typography>
           </Tooltip>
         ) : (
-          <Tooltip title={!canSubmit ? SUBMIT_HINT : 'Giải trình muộn / về sớm'}>
+          <Tooltip title={!canSubmitExplanation ? SUBMIT_HINT : 'Giải trình muộn / về sớm'}>
             <span>
               <IconButton
                 size="small"
                 onClick={() => onExplain(workDate)}
-                disabled={!canSubmit}
+                disabled={!canSubmitExplanation}
                 sx={iconBtnSx}
                 aria-label="Giải trình"
               >

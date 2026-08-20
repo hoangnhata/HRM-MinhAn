@@ -11,6 +11,7 @@ export type LoginResponse = {
   fullName: string;
   email?: string;
   mustChangePassword?: boolean;
+  mustSetSignature?: boolean;
 };
 
 export async function login(body: LoginBody): Promise<LoginResponse> {

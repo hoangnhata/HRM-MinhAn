@@ -3,6 +3,7 @@ import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
 import NightsStayIcon from '@mui/icons-material/NightsStay';
 import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
 import WbTwilightIcon from '@mui/icons-material/WbTwilight';
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import {
   Alert,
   Box,
@@ -10,6 +11,7 @@ import {
   Checkbox,
   CircularProgress,
   Grid,
+  InputAdornment,
   List,
   ListItem,
   ListItemIcon,
@@ -31,6 +33,10 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onSaved?: () => void;
+  /** ADMIN làm việc theo phạm vi toàn viện, không khóa theo khoa/phòng. */
+  hospitalWide?: boolean;
+  /** Danh sách trang Công đã tải sẵn — giúp hộp thoại hiển thị ngay khi mở. */
+  departmentOptions?: employeeService.DepartmentOption[];
   initialDepartmentId?: number | '';
   initialWorkDate?: string;
 };
@@ -40,14 +46,49 @@ type Mode = 'DUTY' | 'QUANG_TRUNG';
 const ACCENT_DUTY = '#5b4bb4';
 const fieldSx = dateTimeFieldSx;
 
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
+}
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function allowedDutyTypesForEmployee(
+  emp: employeeService.EmployeeSummary,
+  all: att.DutyShiftTypeOption[],
+) {
+  if (emp.mainDutyAuthorized) return all;
+  return all.filter((t) => t.code === 'TK');
+}
+
+function allowedDutyTypesForSelection(
+  emps: employeeService.EmployeeSummary[],
+  selectedIds: Set<number>,
+  all: att.DutyShiftTypeOption[],
+) {
+  const selected = emps.filter((e) => selectedIds.has(e.id));
+  if (selected.length === 0) return all.filter((t) => t.code === 'TK');
+  let allowed = all;
+  for (const emp of selected) {
+    const empAllowed = allowedDutyTypesForEmployee(emp, all);
+    allowed = allowed.filter((t) => empAllowed.some((a) => a.code === t.code));
+  }
+  return allowed;
 }
 
 export function BulkWorkSupplementDialog({
   open,
   onClose,
   onSaved,
+  hospitalWide = false,
+  departmentOptions,
   initialDepartmentId = '',
   initialWorkDate,
 }: Props) {
@@ -56,17 +97,22 @@ export function BulkWorkSupplementDialog({
   const accent = mode === 'DUTY' ? ACCENT_DUTY : theme.palette.success.main;
 
   const [departments, setDepartments] = useState<employeeService.DepartmentOption[]>([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [departmentError, setDepartmentError] = useState<string | null>(null);
   const [departmentId, setDepartmentId] = useState<number | ''>('');
   const [employees, setEmployees] = useState<employeeService.EmployeeSummary[]>([]);
+  const [employeeSearch, setEmployeeSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   /** Công trực: loại ca riêng từng NV (chỉ dùng khi đã tick) */
   const [dutyShiftByEmp, setDutyShiftByEmp] = useState<Record<number, string>>({});
+  const [dutyRoleByEmp, setDutyRoleByEmp] = useState<Record<number, string>>({});
   const [employeesLoading, setEmployeesLoading] = useState(false);
 
   const [workDate, setWorkDate] = useState(initialWorkDate || todayIso());
 
   const [types, setTypes] = useState<att.DutyShiftTypeOption[]>([]);
   const [quickDutyType, setQuickDutyType] = useState('');
+  const [quickDutyRole, setQuickDutyRole] = useState('');
   const [dutyNote, setDutyNote] = useState('');
 
   const [updateKind, setUpdateKind] = useState('MORNING_SUPPLEMENT');
@@ -87,9 +133,26 @@ export function BulkWorkSupplementDialog({
       .map((employeeId) => ({
         employeeId,
         shiftTypeCode: (dutyShiftByEmp[employeeId] || '').trim(),
+        roleTierCode: (dutyRoleByEmp[employeeId] || '').trim() || undefined,
       }))
       .filter((x) => x.shiftTypeCode);
-  }, [selectedIds, dutyShiftByEmp]);
+  }, [selectedIds, dutyShiftByEmp, dutyRoleByEmp]);
+
+  const quickDutyTypes = useMemo(
+    () => allowedDutyTypesForSelection(employees, selectedIds, types),
+    [employees, selectedIds, types],
+  );
+  const quickRoleTiers = useMemo(
+    () => types.find((type) => type.code === quickDutyType)?.roleTiers ?? [],
+    [types, quickDutyType],
+  );
+  const filteredEmployees = useMemo(() => {
+    const query = normalizeSearch(employeeSearch);
+    if (!query) return employees;
+    return employees.filter((employee) =>
+      normalizeSearch(`${employee.fullName} ${employee.employeeCode ?? ''} ${employee.departmentName ?? ''}`).includes(query),
+    );
+  }, [employees, employeeSearch]);
 
   const submitCount = mode === 'DUTY' ? dutyItems.length : selectedIds.size;
 
@@ -99,12 +162,15 @@ export function BulkWorkSupplementDialog({
     setResult(null);
     setMode('DUTY');
     setQuickDutyType('');
+    setQuickDutyRole('');
     setDutyNote('');
     setDutyShiftByEmp({});
+    setDutyRoleByEmp({});
     setUpdateKind('MORNING_SUPPLEMENT');
     setReason('');
     setWorkDate(initialWorkDate || todayIso());
-    setDepartmentId(initialDepartmentId === '' ? '' : Number(initialDepartmentId));
+    setDepartmentId(hospitalWide || initialDepartmentId === '' ? '' : Number(initialDepartmentId));
+    setEmployeeSearch('');
     setSelectedIds(new Set());
     const sch = scheduleForDate(initialWorkDate || todayIso());
     setMorningStart(sch.morningStart);
@@ -112,37 +178,56 @@ export function BulkWorkSupplementDialog({
     setAfternoonStart(sch.afternoonStart);
     setAfternoonEnd(sch.afternoonEnd);
 
-    employeeService.fetchDepartments().then(setDepartments).catch(() => setDepartments([]));
+    setDepartments(departmentOptions ?? []);
+    setDepartmentError(null);
+    setDepartmentsLoading(true);
+    employeeService
+      .fetchDepartments()
+      .then((data) => {
+        setDepartments(data);
+        if (data.length === 0) {
+          setDepartmentError('Hệ thống chưa có dữ liệu khoa/phòng.');
+        }
+      })
+      .catch(() => {
+        if (!departmentOptions?.length) {
+          setDepartmentError('Không tải được danh sách khoa/phòng. Vui lòng đóng và mở lại hộp thoại.');
+        }
+      })
+      .finally(() => setDepartmentsLoading(false));
     att.fetchDutyShiftTypes().then(setTypes).catch(() => setTypes([]));
-  }, [open, initialDepartmentId, initialWorkDate]);
+  }, [open, hospitalWide, departmentOptions, initialDepartmentId, initialWorkDate]);
 
   useEffect(() => {
-    if (!open || departmentId === '') {
+    if (!open || (!hospitalWide && departmentId === '')) {
       setEmployees([]);
       setSelectedIds(new Set());
       setDutyShiftByEmp({});
+      setDutyRoleByEmp({});
       return;
     }
     setEmployeesLoading(true);
     employeeService
       .fetchEmployees({
         page: 0,
-        size: 500,
-        departmentId: Number(departmentId),
+        size: hospitalWide ? 2000 : 500,
+        ...(hospitalWide ? {} : { departmentId: Number(departmentId) }),
       })
       .then((page) => {
         const list = (page.content ?? []).filter((e) => e.status !== 'TERMINATED');
         setEmployees(list);
         setSelectedIds(new Set());
         setDutyShiftByEmp({});
+        setDutyRoleByEmp({});
       })
       .catch(() => {
         setEmployees([]);
         setSelectedIds(new Set());
         setDutyShiftByEmp({});
+        setDutyRoleByEmp({});
       })
       .finally(() => setEmployeesLoading(false));
-  }, [open, departmentId]);
+  }, [open, hospitalWide, departmentId]);
 
   useEffect(() => {
     if (!open) return;
@@ -163,6 +248,11 @@ export function BulkWorkSupplementDialog({
           delete copy[id];
           return copy;
         });
+        setDutyRoleByEmp((m) => {
+          const copy = { ...m };
+          delete copy[id];
+          return copy;
+        });
       } else {
         next.add(id);
       }
@@ -171,21 +261,34 @@ export function BulkWorkSupplementDialog({
   }
 
   function selectAll() {
-    setSelectedIds(new Set(employees.map((e) => e.id)));
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      filteredEmployees.forEach((employee) => next.add(employee.id));
+      return next;
+    });
   }
 
   function clearAll() {
     setSelectedIds(new Set());
     setDutyShiftByEmp({});
+    setDutyRoleByEmp({});
   }
 
   function setEmpDutyType(id: number, code: string) {
     setDutyShiftByEmp((m) => ({ ...m, [id]: code }));
+    setDutyRoleByEmp((m) => {
+      const allowedRoles = types.find((type) => type.code === code)?.roleTiers ?? [];
+      return allowedRoles.some((role) => role.code === m[id]) ? m : { ...m, [id]: '' };
+    });
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (code) next.add(id);
       return next;
     });
+  }
+
+  function setEmpDutyRole(id: number, code: string) {
+    setDutyRoleByEmp((current) => ({ ...current, [id]: code }));
   }
 
   function applyQuickDutyType() {
@@ -197,13 +300,20 @@ export function BulkWorkSupplementDialog({
       });
       return next;
     });
+    setDutyRoleByEmp((current) => {
+      const next = { ...current };
+      selectedIds.forEach((id) => {
+        next[id] = quickDutyRole;
+      });
+      return next;
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setResult(null);
-    if (departmentId === '') {
+    if (!hospitalWide && departmentId === '') {
       setErr('Chọn khoa/phòng.');
       return;
     }
@@ -317,29 +427,47 @@ export function BulkWorkSupplementDialog({
         </Stack>
       </FormSection>
 
-      <FormSection title="Ngày & khoa/phòng">
+      <FormSection title={hospitalWide ? 'Ngày & phạm vi' : 'Ngày & khoa/phòng'}>
         <Grid container spacing={1.75}>
           <Grid item xs={12} sm={6}>
             <DatePickerField label="Ngày áp dụng" required value={workDate} onChange={setWorkDate} sx={fieldSx} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField
-              select
-              required
-              fullWidth
-              size="small"
-              label="Khoa / phòng"
-              value={departmentId}
-              onChange={(e) => setDepartmentId(e.target.value === '' ? '' : Number(e.target.value))}
-              sx={fieldSx}
-            >
-              <MenuItem value="">— Chọn —</MenuItem>
-              {departments.map((d) => (
-                <MenuItem key={d.id} value={d.id}>
-                  {d.name}
-                </MenuItem>
-              ))}
-            </TextField>
+            {hospitalWide ? (
+              <TextField
+                fullWidth
+                size="small"
+                label="Phạm vi nhân viên"
+                value="Toàn viện"
+                InputProps={{ readOnly: true }}
+                helperText="Tài khoản ADMIN được chọn nhân viên ở mọi khoa/phòng"
+                sx={fieldSx}
+              />
+            ) : (
+              <TextField
+                select
+                required
+                fullWidth
+                size="small"
+                label="Khoa / phòng"
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value === '' ? '' : Number(e.target.value))}
+                disabled={departmentsLoading && departments.length === 0}
+                error={Boolean(departmentError && departments.length === 0)}
+                helperText={departmentError}
+                sx={fieldSx}
+              >
+                <MenuItem value="">— Chọn —</MenuItem>
+                {departmentsLoading && departments.length === 0 && (
+                  <MenuItem disabled>Đang tải danh sách khoa/phòng…</MenuItem>
+                )}
+                {departments.map((d) => (
+                  <MenuItem key={d.id} value={d.id}>
+                    {d.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
           </Grid>
         </Grid>
       </FormSection>
@@ -347,7 +475,7 @@ export function BulkWorkSupplementDialog({
       <FormSection
         title={mode === 'DUTY' ? 'Nhân viên & loại ca trực' : 'Nhân viên'}
         subtitle={
-          departmentId === ''
+          !hospitalWide && departmentId === ''
             ? 'Chọn khoa/phòng để tải danh sách.'
             : mode === 'DUTY'
               ? `${dutyItems.length} người đã chọn đủ loại ca · ${selectedIds.size} đang tick`
@@ -358,37 +486,72 @@ export function BulkWorkSupplementDialog({
           <Box sx={{ py: 3, textAlign: 'center' }}>
             <CircularProgress size={28} />
           </Box>
-        ) : departmentId === '' ? (
+        ) : !hospitalWide && departmentId === '' ? (
           <Typography variant="body2" color="text.secondary">
             Chưa chọn khoa/phòng.
           </Typography>
         ) : employees.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
-            Không có nhân viên đang làm việc trong khoa này.
+            {hospitalWide ? 'Không có nhân viên đang làm việc trong viện.' : 'Không có nhân viên đang làm việc trong khoa này.'}
           </Typography>
         ) : (
           <>
+            <TextField
+              fullWidth
+              size="small"
+              label="Tìm nhân viên"
+              placeholder="Nhập tên hoặc mã nhân viên"
+              value={employeeSearch}
+              onChange={(event) => setEmployeeSearch(event.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchOutlinedIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ ...fieldSx, mb: 1.5 }}
+            />
             <Stack direction="row" spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap alignItems="center">
               <Button size="small" onClick={selectAll} sx={{ borderRadius: 2 }}>
-                Chọn tất cả
+                {employeeSearch.trim() ? 'Chọn tất cả kết quả' : 'Chọn tất cả'}
               </Button>
               <Button size="small" onClick={clearAll} sx={{ borderRadius: 2 }}>
                 Bỏ chọn
               </Button>
-              {mode === 'DUTY' && types.length > 0 && (
+              {mode === 'DUTY' && quickDutyTypes.length > 0 && (
                 <>
                   <TextField
                     select
                     size="small"
                     label="Gán nhanh loại ca"
                     value={quickDutyType}
-                    onChange={(e) => setQuickDutyType(e.target.value)}
+                    onChange={(e) => {
+                      setQuickDutyType(e.target.value);
+                      setQuickDutyRole('');
+                    }}
                     sx={{ ...fieldSx, minWidth: 200 }}
                   >
                     <MenuItem value="">— Chọn loại —</MenuItem>
-                    {types.map((t) => (
+                    {quickDutyTypes.map((t) => (
                       <MenuItem key={t.code} value={t.code}>
                         {t.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Gán nhanh vị trí"
+                    value={quickDutyRole}
+                    onChange={(e) => setQuickDutyRole(e.target.value)}
+                    disabled={!quickDutyType}
+                    sx={{ ...fieldSx, minWidth: 190 }}
+                  >
+                    <MenuItem value="">Tự nhận diện</MenuItem>
+                    {quickRoleTiers.map((role) => (
+                      <MenuItem key={role.code} value={role.code}>
+                        {role.label}
                       </MenuItem>
                     ))}
                   </TextField>
@@ -407,8 +570,9 @@ export function BulkWorkSupplementDialog({
 
             {mode === 'DUTY' && (
               <InfoBanner>
-                Tick người cần bổ sung, rồi chọn <strong>loại ca trực riêng</strong> từng dòng. Có thể dùng «Gán
-                nhanh» rồi sửa lại từng người.
+                Tick người cần bổ sung, rồi chọn <strong>loại ca trực</strong> và{' '}
+                <strong>vị trí trực</strong> từng dòng. Để “Tự nhận diện” nếu muốn hệ thống xác định vị trí theo
+                chức danh.
               </InfoBanner>
             )}
 
@@ -422,8 +586,19 @@ export function BulkWorkSupplementDialog({
                 mt: mode === 'DUTY' ? 1.5 : 0,
               }}
             >
-              {employees.map((emp) => {
+              {filteredEmployees.length === 0 && (
+                <ListItem>
+                  <ListItemText
+                    primary="Không tìm thấy nhân viên"
+                    secondary="Kiểm tra lại tên hoặc mã nhân viên."
+                  />
+                </ListItem>
+              )}
+              {filteredEmployees.map((emp) => {
                 const checked = selectedIds.has(emp.id);
+                const rowTypes = allowedDutyTypesForEmployee(emp, types);
+                const selectedType = rowTypes.find((type) => type.code === dutyShiftByEmp[emp.id]);
+                const roleTiers = selectedType?.roleTiers ?? [];
                 return (
                   <ListItem
                     key={emp.id}
@@ -447,28 +622,50 @@ export function BulkWorkSupplementDialog({
                     </ListItemIcon>
                     <ListItemText
                       primary={emp.fullName}
-                      secondary={emp.employeeCode || emp.positionTitle || undefined}
+                      secondary={[emp.employeeCode, hospitalWide ? emp.departmentName : emp.positionTitle].filter(Boolean).join(' · ') || undefined}
                       primaryTypographyProps={{ fontWeight: checked ? 700 : 500, fontSize: '0.875rem' }}
                       sx={{ flex: '1 1 140px', minWidth: 120 }}
                     />
                     {mode === 'DUTY' && (
-                      <TextField
-                        select
-                        size="small"
-                        label="Loại ca trực"
-                        disabled={!checked}
-                        value={dutyShiftByEmp[emp.id] || ''}
-                        onChange={(e) => setEmpDutyType(emp.id, e.target.value)}
-                        sx={{ ...fieldSx, minWidth: { xs: '100%', sm: 260 }, flex: '1 1 260px' }}
+                      <Stack
+                        direction={{ xs: 'column', md: 'row' }}
+                        spacing={1}
+                        sx={{ flex: '1 1 440px', minWidth: { xs: '100%', sm: 360 } }}
                       >
-                        <MenuItem value="">— Chọn loại ca —</MenuItem>
-                        {types.map((t) => (
-                          <MenuItem key={t.code} value={t.code}>
-                            {t.label}
-                            {t.grantsWorkUnits ? ' (+0,33 công)' : ' (không công)'}
-                          </MenuItem>
-                        ))}
-                      </TextField>
+                        <TextField
+                          select
+                          size="small"
+                          label="Loại ca trực"
+                          disabled={!checked}
+                          value={dutyShiftByEmp[emp.id] || ''}
+                          onChange={(e) => setEmpDutyType(emp.id, e.target.value)}
+                          sx={{ ...fieldSx, minWidth: { xs: '100%', md: 230 }, flex: 1 }}
+                        >
+                          <MenuItem value="">— Chọn loại ca —</MenuItem>
+                          {rowTypes.map((t) => (
+                            <MenuItem key={t.code} value={t.code}>
+                              {t.label}
+                              {t.grantsWorkUnits ? ' (+0,33 công)' : ' (không công)'}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                        <TextField
+                          select
+                          size="small"
+                          label="Vị trí trực"
+                          disabled={!checked || !selectedType}
+                          value={dutyRoleByEmp[emp.id] || ''}
+                          onChange={(e) => setEmpDutyRole(emp.id, e.target.value)}
+                          sx={{ ...fieldSx, minWidth: { xs: '100%', md: 180 }, flex: 1 }}
+                        >
+                          <MenuItem value="">Tự nhận diện</MenuItem>
+                          {roleTiers.map((role) => (
+                            <MenuItem key={role.code} value={role.code}>
+                              {role.label}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      </Stack>
                     )}
                   </ListItem>
                 );

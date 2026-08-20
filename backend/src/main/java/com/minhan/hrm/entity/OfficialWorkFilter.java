@@ -9,5 +9,9 @@ public enum OfficialWorkFilter {
     /** Đang làm việc — không ghi nhận nghỉ thai sản. */
     WORKING,
     /** Đang nghỉ thai sản. */
-    MATERNITY_LEAVE
+    MATERNITY_LEAVE,
+    /** Toàn thời gian (TTG). */
+    FULL_TIME,
+    /** Bán thời gian (BTG). */
+    PART_TIME
 }

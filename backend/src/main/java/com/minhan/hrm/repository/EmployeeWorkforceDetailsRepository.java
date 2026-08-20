@@ -27,6 +27,13 @@ public interface EmployeeWorkforceDetailsRepository extends JpaRepository<Employ
     List<EmployeeWorkforceDetails> findByAttendanceCodeIsNotNull();
 
     @Query("""
+            SELECT DISTINCT TRIM(w.workUnitDetail) FROM EmployeeWorkforceDetails w
+            WHERE w.workUnitDetail IS NOT NULL AND TRIM(w.workUnitDetail) <> ''
+            ORDER BY TRIM(w.workUnitDetail) ASC
+            """)
+    List<String> findDistinctWorkUnitDetails();
+
+    @Query("""
             SELECT COUNT(w) FROM EmployeeWorkforceDetails w
             JOIN w.employee e
             WHERE e.status IN (com.minhan.hrm.entity.EmployeeStatus.ACTIVE, com.minhan.hrm.entity.EmployeeStatus.ON_LEAVE)

@@ -239,56 +239,61 @@ export function WorkAdminToolbar({
             </Button>
           </Tooltip>
 
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<GroupAddOutlinedIcon />}
-            endIcon={<ArrowDropDownIcon />}
-            onClick={(e) => setBulkAnchor(e.currentTarget)}
-            sx={accentBtnSx}
-            disabled={!onBulkSupplement && !onBulkDeployment}
-          >
-            Bổ sung hàng loạt
-          </Button>
-          <Menu
-            anchorEl={bulkAnchor}
-            open={Boolean(bulkAnchor)}
-            onClose={() => setBulkAnchor(null)}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-            transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-            slotProps={{ paper: { sx: { minWidth: 300, borderRadius: 2, mt: 0.5 } } }}
-          >
-            <MenuItem
-              disabled={!onBulkSupplement}
-              onClick={() => {
-                setBulkAnchor(null);
-                onBulkSupplement?.();
-              }}
-            >
-              <ListItemIcon>
-                <NightsStayIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText
-                primary="Công trực / Quang Trung"
-                secondary="Bổ sung theo khoa — ca trực hoặc công QT"
-              />
-            </MenuItem>
-            <MenuItem
-              disabled={!onBulkDeployment}
-              onClick={() => {
-                setBulkAnchor(null);
-                onBulkDeployment?.();
-              }}
-            >
-              <ListItemIcon>
-                <SwapHorizOutlinedIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText
-                primary="Điều động hàng loạt"
-                secondary="Tạo đơn điều động ×1,5 cho nhiều NV cùng khoa"
-              />
-            </MenuItem>
-          </Menu>
+          {(onBulkSupplement || onBulkDeployment) && (
+            <>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<GroupAddOutlinedIcon />}
+                endIcon={<ArrowDropDownIcon />}
+                onClick={(e) => setBulkAnchor(e.currentTarget)}
+                sx={accentBtnSx}
+              >
+                Bổ sung hàng loạt
+              </Button>
+              <Menu
+                anchorEl={bulkAnchor}
+                open={Boolean(bulkAnchor)}
+                onClose={() => setBulkAnchor(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                slotProps={{ paper: { sx: { minWidth: 300, borderRadius: 2, mt: 0.5 } } }}
+              >
+                {onBulkSupplement && (
+                  <MenuItem
+                    onClick={() => {
+                      setBulkAnchor(null);
+                      onBulkSupplement();
+                    }}
+                  >
+                    <ListItemIcon>
+                      <NightsStayIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Công trực / Quang Trung"
+                      secondary="Bổ sung theo khoa — ca trực hoặc công QT"
+                    />
+                  </MenuItem>
+                )}
+                {onBulkDeployment && (
+                  <MenuItem
+                    onClick={() => {
+                      setBulkAnchor(null);
+                      onBulkDeployment();
+                    }}
+                  >
+                    <ListItemIcon>
+                      <SwapHorizOutlinedIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Điều động hàng loạt"
+                      secondary="Tạo đơn điều động ×1,5 cho nhiều NV cùng khoa"
+                    />
+                  </MenuItem>
+                )}
+              </Menu>
+            </>
+          )}
         </ToolbarGroup>
       </Box>
     </Paper>

@@ -1,15 +1,19 @@
 package com.minhan.hrm.controller;
 
 import com.minhan.hrm.dto.sso.SsoAccountAdminRowDto;
+import com.minhan.hrm.dto.sso.SsoAssignAssetRoleRequest;
+import com.minhan.hrm.dto.sso.SsoAssignErpRoleRequest;
 import com.minhan.hrm.dto.sso.SsoAssignHrmRoleRequest;
 import com.minhan.hrm.dto.sso.SsoHrmRoleDto;
 import com.minhan.hrm.dto.sso.SsoRoleCatalogDto;
 import com.minhan.hrm.dto.sso.SsoSyncResultDto;
+import com.minhan.hrm.dto.sso.SsoWorkforceSyncResultDto;
 import com.minhan.hrm.entity.UserRole;
 import com.minhan.hrm.sso.SsoAccountAdminService;
 import com.minhan.hrm.sso.SsoRoleService;
 import com.minhan.hrm.sso.SsoRoleSyncService;
 import com.minhan.hrm.sso.SsoUserRoleMapper;
+import com.minhan.hrm.sso.SsoWorkforceSyncService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -34,6 +38,7 @@ public class SsoAdminController {
     private final SsoRoleService ssoRoleService;
     private final SsoRoleSyncService ssoRoleSyncService;
     private final SsoAccountAdminService ssoAccountAdminService;
+    private final SsoWorkforceSyncService ssoWorkforceSyncService;
 
     @GetMapping("/hrm-roles")
     @PreAuthorize("hasRole('ADMIN')")
@@ -44,11 +49,12 @@ public class SsoAdminController {
 
     @GetMapping("/accounts")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Danh sách tài khoản SSO + role HRM (lọc tên/SĐT/mã chấm công, phòng ban)")
+    @Operation(summary = "Danh sách tài khoản SSO + role HRM (lọc tên/SĐT/mã chấm công, phòng ban, bộ phận)")
     public List<SsoAccountAdminRowDto> listAccounts(
             @RequestParam(required = false) String q,
-            @RequestParam(required = false) Long departmentId) {
-        return ssoAccountAdminService.listAccounts(q, departmentId);
+            @RequestParam(required = false) Long departmentId,
+            @RequestParam(required = false) String workUnit) {
+        return ssoAccountAdminService.listAccounts(q, departmentId, workUnit);
     }
 
     @PostMapping("/schema/ensure")
@@ -75,6 +81,31 @@ public class SsoAdminController {
             @PathVariable long accountId,
             @Valid @RequestBody SsoAssignHrmRoleRequest body) {
         return ssoAccountAdminService.assignAndSync(accountId, body.getRoleCode());
+    }
+
+    @PutMapping("/accounts/{accountId}/erp-role")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Đổi vai trò ERP (UserAccounts.RoleId)")
+    public SsoHrmRoleDto assignErpRole(
+            @PathVariable long accountId,
+            @Valid @RequestBody SsoAssignErpRoleRequest body) {
+        return ssoAccountAdminService.assignErpRole(accountId, body.getRoleId());
+    }
+
+    @PutMapping("/accounts/{accountId}/asset-role")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Đổi vai trò Tài sản (UserAccounts.roleId_ts)")
+    public SsoHrmRoleDto assignAssetRole(
+            @PathVariable long accountId,
+            @Valid @RequestBody SsoAssignAssetRoleRequest body) {
+        return ssoAccountAdminService.assignAssetRole(accountId, body.getRoleIdTs());
+    }
+
+    @PostMapping("/sync-workforce")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Đồng bộ nhân lực HRM → SSO: cập nhật TK theo HRM, xóa TK/hồ sơ không còn trong danh sách nhân lực")
+    public SsoWorkforceSyncResultDto syncWorkforce() {
+        return ssoWorkforceSyncService.syncFromHrm();
     }
 
     @PostMapping("/sync-hrm-user")

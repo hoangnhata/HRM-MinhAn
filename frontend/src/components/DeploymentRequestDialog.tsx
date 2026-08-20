@@ -14,8 +14,9 @@ import { alpha } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import * as att from '../services/attendanceService';
 import { DatePickerField, TimePickerField, dateTimeFieldSx } from './ui/DateTimeFields';
-import { FormSection, InfoBanner, SelectableChip, WorkRequestDialogShell } from './work/WorkRequestFormUi';
+import { FormSection, InfoBanner, RequestFlowSteps, SelectableChip, WorkRequestDialogShell } from './work/WorkRequestFormUi';
 import { scheduleForDate, type ShiftScheduleInfo } from '../utils/shiftSchedule';
+import { deploymentFlowSteps, isNursingBlockTitle } from '../utils/nursingBlock';
 
 type Props = {
   open: boolean;
@@ -23,6 +24,8 @@ type Props = {
   onSubmitted?: () => void;
   employeeId: number;
   employeeName: string;
+  /** Chức danh — dùng để hiện bước Trưởng phòng ĐD (khối ĐD–KTV–HS–Thư ký). */
+  positionTitle?: string | null;
   workDate: string;
   schedule?: ShiftScheduleInfo | null;
   /** Tháng đang xem trên bảng công — giới hạn chọn ngày trong dialog. */
@@ -30,6 +33,7 @@ type Props = {
   periodMonth?: number;
   /** null / ABSENT / LEAVE / BUSINESS_TRIP = ngày nghỉ hoặc chưa có → được điều động trong ca. */
   getDayStatus?: (date: string) => string | null | undefined;
+  editRequest?: att.WorkRequest | null;
 };
 
 type TimeMode = 'OUTSIDE' | 'INSIDE';
@@ -176,7 +180,7 @@ function insideDeploymentUnits(
 function isOffOrEmptyDay(status?: string | null): boolean {
   if (status == null || status === '') return true;
   const s = status.toUpperCase();
-  return s === 'ABSENT' || s === 'LEAVE' || s === 'UNPAID_LEAVE' || s === 'BUSINESS_TRIP';
+  return s === 'ABSENT' || s === 'LEAVE' || s === 'UNPAID_LEAVE' || s === 'BUSINESS_TRIP' || s === 'SEMINAR';
 }
 
 function isWorkedDay(status?: string | null): boolean {
@@ -205,19 +209,42 @@ function deployMaxDate(periodYear?: number, periodMonth?: number): string {
   return endOfMonthIso(today);
 }
 
+function deploymentModeFromRequest(r: att.WorkRequest): { timeMode: TimeMode; insideScope: InsideScope } {
+  const inside =
+    r.deploymentInsideShift === true ||
+    (r.deploymentInsideShift !== false &&
+      (r.shiftScope === 'MORNING' ||
+        r.shiftScope === 'AFTERNOON' ||
+        Boolean(r.requestedAfternoonStart?.trim()) ||
+        Boolean(r.requestedAfternoonEnd?.trim())));
+  if (!inside) {
+    return { timeMode: 'OUTSIDE', insideScope: 'FULL_DAY' };
+  }
+  if (r.shiftScope === 'MORNING') return { timeMode: 'INSIDE', insideScope: 'MORNING' };
+  if (r.shiftScope === 'AFTERNOON') return { timeMode: 'INSIDE', insideScope: 'AFTERNOON' };
+  return { timeMode: 'INSIDE', insideScope: 'FULL_DAY' };
+}
+
 export function DeploymentRequestDialog({
   open,
   onClose,
   onSubmitted,
   employeeId,
   employeeName,
+  positionTitle,
   workDate: defaultDate,
   schedule: scheduleProp,
   periodYear,
   periodMonth,
   getDayStatus,
+  editRequest,
 }: Props) {
   const accent = '#0f766e';
+  const isEditing = Boolean(editRequest);
+  const resolvedEmployeeId = editRequest?.employeeId ?? employeeId;
+  const resolvedEmployeeName = editRequest?.employeeName ?? employeeName;
+  const resolvedPositionTitle = editRequest?.positionTitle ?? positionTitle;
+  const nursingFlow = isNursingBlockTitle(resolvedPositionTitle);
   const today = todayIso();
   const minDate =
     periodYear && periodMonth ? monthStartIso(periodYear, periodMonth) : undefined;
@@ -250,8 +277,28 @@ export function DeploymentRequestDialog({
 
   useEffect(() => {
     if (!open) return;
-    const d = clampDate(defaultDate);
+    const initialDate = editRequest?.workDate ?? defaultDate;
+    const d = clampDate(initialDate);
     const sch = scheduleProp ?? scheduleForDate(d);
+
+    if (editRequest) {
+      const { timeMode: mode, insideScope: scope } = deploymentModeFromRequest(editRequest);
+      setWorkDate(d);
+      setTimeMode(mode);
+      setInsideScope(scope);
+      setReason(editRequest.reason || '');
+      setMorningStart(editRequest.requestedStart?.slice(0, 5) || sch.morningStart);
+      setMorningEnd(editRequest.requestedEnd?.slice(0, 5) || sch.morningEnd);
+      setAfternoonStart(editRequest.requestedAfternoonStart?.slice(0, 5) || sch.afternoonStart);
+      setAfternoonEnd(editRequest.requestedAfternoonEnd?.slice(0, 5) || sch.afternoonEnd);
+      if (mode === 'OUTSIDE') {
+        setStartTime(editRequest.requestedStart?.slice(0, 5) || '18:00');
+        setEndTime(editRequest.requestedEnd?.slice(0, 5) || '21:00');
+      }
+      setErr(null);
+      return;
+    }
+
     const empty = isOffOrEmptyDay(getDayStatus?.(d));
     const worked = isWorkedDay(getDayStatus?.(d));
     setWorkDate(d);
@@ -267,7 +314,7 @@ export function DeploymentRequestDialog({
     setErr(null);
     // Chỉ reset khi mở dialog / đổi ngày mặc định — không phụ thuộc getDayStatus (inline mỗi render)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, defaultDate, minDate, maxDate, scheduleProp]);
+  }, [open, defaultDate, minDate, maxDate, scheduleProp, editRequest]);
 
   function onDateChange(next: string) {
     const clamped = clampDate(next);
@@ -424,40 +471,41 @@ export function DeploymentRequestDialog({
 
     setLoading(true);
     try {
+      let payload: att.SubmitWorkRequest;
       if (timeMode === 'OUTSIDE') {
-        await att.submitWorkRequest({
+        payload = {
           requestType: 'DEPLOYMENT',
-          employeeId,
+          employeeId: resolvedEmployeeId,
           workDate,
           shiftScope: 'FULL_DAY',
           reason: reason.trim(),
           requestedStart: startTime.slice(0, 5),
           requestedEnd: endTime.slice(0, 5),
-        });
+        };
       } else if (insideScope === 'MORNING') {
-        await att.submitWorkRequest({
+        payload = {
           requestType: 'DEPLOYMENT',
-          employeeId,
+          employeeId: resolvedEmployeeId,
           workDate,
           shiftScope: 'MORNING',
           reason: reason.trim(),
           requestedStart: morningStart.slice(0, 5),
           requestedEnd: morningEnd.slice(0, 5),
-        });
+        };
       } else if (insideScope === 'AFTERNOON') {
-        await att.submitWorkRequest({
+        payload = {
           requestType: 'DEPLOYMENT',
-          employeeId,
+          employeeId: resolvedEmployeeId,
           workDate,
           shiftScope: 'AFTERNOON',
           reason: reason.trim(),
           requestedStart: afternoonStart.slice(0, 5),
           requestedEnd: afternoonEnd.slice(0, 5),
-        });
+        };
       } else {
-        await att.submitWorkRequest({
+        payload = {
           requestType: 'DEPLOYMENT',
-          employeeId,
+          employeeId: resolvedEmployeeId,
           workDate,
           shiftScope: 'FULL_DAY',
           reason: reason.trim(),
@@ -465,7 +513,12 @@ export function DeploymentRequestDialog({
           requestedEnd: morningEnd.slice(0, 5),
           requestedAfternoonStart: afternoonStart.slice(0, 5),
           requestedAfternoonEnd: afternoonEnd.slice(0, 5),
-        });
+        };
+      }
+      if (isEditing && editRequest) {
+        await att.updateWorkRequest(editRequest.id, payload);
+      } else {
+        await att.submitWorkRequest(payload);
       }
       onSubmitted?.();
       onClose();
@@ -488,20 +541,27 @@ export function DeploymentRequestDialog({
       accent={accent}
       maxWidth="md"
       icon={<SwapHorizOutlinedIcon />}
-      overline="Điều động nhân sự"
-      title="Đơn điều động"
-      description="Công ×1,5. Ngày đã chấm: chọn «Trong ca» để thay công ca sáng/chiều; «Ngoài ca» để cộng thêm ngoài giờ."
+      overline={isEditing ? 'Chỉnh sửa đơn' : 'Điều động nhân sự'}
+      title={isEditing ? 'Chỉnh sửa đơn điều động' : 'Đơn điều động'}
+      description="Công ×1,5. Trong ca chỉ cập nhật khi đơn đã duyệt và có đủ giờ chấm vào/ra; ngoài ca giữ cách tính hiện tại."
       formId="deployment-request-form"
-      submitLabel="Gửi điều động"
+      submitLabel={isEditing ? 'Lưu thay đổi' : nursingFlow ? 'Gửi Trưởng phòng ĐD duyệt' : 'Gửi HCNS duyệt'}
       error={err}
       onSubmit={submit}
     >
+      <RequestFlowSteps accent={accent} steps={deploymentFlowSteps(resolvedPositionTitle)} />
+
       <InfoBanner>
-        {workedDay ? (
+        {nursingFlow ? (
+          <>
+            Nhân viên khối <strong>ĐD–KTV–HS–Thư ký</strong>: sau khi lập, đơn chuyển{' '}
+            <strong>Trưởng phòng Điều dưỡng</strong> → HCNS → Giám đốc.
+          </>
+        ) : workedDay ? (
           <>
             Ngày <strong>đã có công chấm máy</strong> — chọn <strong>Trong ca</strong> để thay công ca điều động
-            (×1,5, theo buổi hoặc cả ngày). <strong>Ngoài ca</strong> chỉ cộng thêm giờ ngoài giờ (không trùng ca
-            chính).
+            (×1,5, theo buổi hoặc cả ngày) khi đủ giờ vào/ra. <strong>Ngoài ca</strong> chỉ cộng thêm giờ ngoài
+            giờ (không trùng ca chính).
           </>
         ) : offDay ? (
           <>
@@ -520,7 +580,7 @@ export function DeploymentRequestDialog({
           fullWidth
           size="small"
           label="Họ và tên"
-          value={employeeName}
+          value={resolvedEmployeeName}
           disabled
           sx={fieldSx}
           InputProps={{
@@ -740,8 +800,8 @@ export function DeploymentRequestDialog({
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1, lineHeight: 1.5 }}>
           {timeMode === 'INSIDE'
             ? workedDay
-              ? 'Trong ca: thay công theo giờ đã nhập (tối đa sáng 1 · chiều 0,5).'
-              : 'Trong ca: cộng công theo giờ đã nhập (tối đa sáng 1 · chiều 0,5).'
+              ? 'Trong ca: đủ giờ chấm vào/ra mới thay công theo khung đã duyệt (tối đa sáng 1 · chiều 0,5).'
+              : 'Trong ca: đủ giờ chấm vào/ra mới cộng công theo khung đã duyệt (tối đa sáng 1 · chiều 0,5).'
             : 'Ngoài ca: tính theo giờ ×1,5 rồi quy ra công.'}
         </Typography>
       </Box>
