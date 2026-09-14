@@ -17,8 +17,8 @@ workflows:
       # Đổi nếu tên integration trên Codemagic khác (ERP đang dùng MinhAnAppStore)
       app_store_connect: MinhAnAppStore
     environment:
-      # Ghim bản Flutter — đừng để "stable" (lên bản mới là build có thể vỡ).
-      flutter: 3.35.5
+      # Ghim đúng bản local (Dart 3.12.2) — đừng để "stable".
+      flutter: 3.44.6
       xcode: latest
       cocoapods: default
       vars:
