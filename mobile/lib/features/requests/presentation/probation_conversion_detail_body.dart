@@ -8,6 +8,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/status_chip.dart';
+import 'request_generic_card.dart';
 
 /// Nội dung chi tiết đơn lên chính thức — bố cục mobile, dữ liệu đồng bộ API web.
 class ProbationConversionDetailBody extends StatelessWidget {
@@ -88,7 +89,8 @@ class ProbationConversionDetailBody extends StatelessWidget {
         (raw['departmentName'] as String?)?.trim() ??
         (raw['department'] as String?)?.trim();
     final position = (raw['positionTitle'] as String?)?.trim();
-    final formType = (raw['formType'] as String?)?.trim().toUpperCase() ?? 'STAFF';
+    final formType =
+        (raw['formType'] as String?)?.trim().toUpperCase() ?? 'STAFF';
     final formLabel =
         (raw['formTypeLabel'] as String?)?.trim() ??
         switch (formType) {
@@ -261,12 +263,14 @@ class ProbationConversionDetailBody extends StatelessWidget {
                   _KV(label: 'Phòng ban', value: department),
                 if (position != null && position.isNotEmpty)
                   _KV(label: 'Vị trí', value: position),
-                _KV(
-                  label: 'Trạng thái hiện tại',
-                  value: employeeStatusLabel(
-                    raw['employeeStatus']?.toString(),
+                // Không có dữ liệu thì ẩn hẳn dòng, tránh dấu gạch vô nghĩa.
+                if ((raw['employeeStatus']?.toString() ?? '').isNotEmpty)
+                  _KV(
+                    label: 'Trạng thái hiện tại',
+                    value: employeeStatusLabel(
+                      raw['employeeStatus']?.toString(),
+                    ),
                   ),
-                ),
                 _KV(label: 'Mẫu đơn', value: formLabel),
               ],
             ),
@@ -289,10 +293,7 @@ class ProbationConversionDetailBody extends StatelessWidget {
                 if (requester != null && requester.isNotEmpty)
                   _KV(label: 'Người lập đơn', value: requester),
                 if (createdAt != null)
-                  _KV(
-                    label: 'Ngày gửi',
-                    value: AppFormat.dateTime(createdAt),
-                  ),
+                  _KV(label: 'Ngày gửi', value: AppFormat.dateTime(createdAt)),
                 if (reason != null && reason.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
@@ -503,17 +504,16 @@ class ProbationConversionDetailBody extends StatelessWidget {
             ),
           ),
         ],
-        if (bottom != null) ...[
-          const SizedBox(height: 10),
-          bottom!,
-        ],
+        if (bottom != null) ...[const SizedBox(height: 10), bottom!],
       ],
     );
   }
 
   static Color _gradeColor(String? grade) {
     final g = (grade ?? '').toLowerCase();
-    if (g.contains('xuất sắc') || g.contains('giỏi')) return const Color(0xFF15803D);
+    if (g.contains('xuất sắc') || g.contains('giỏi')) {
+      return const Color(0xFF15803D);
+    }
     if (g.contains('khá')) return const Color(0xFF0F766E);
     if (g.contains('trung bình')) return AppColors.warning;
     if (g.contains('yếu') || g.contains('kém')) return AppColors.error;
@@ -534,7 +534,8 @@ class ProbationConversionDetailBody extends StatelessWidget {
       'APPLIED': 'Đã lên chính thức',
       'CANCELLED': 'Đã huỷ',
     };
-    return labels[status.toUpperCase()] ?? status;
+    // Trạng thái lạ rơi về bảng nhãn chung, không bao giờ lộ mã thô.
+    return labels[status.toUpperCase()] ?? genericRequestStatusLabel(status);
   }
 
   static Color _statusColor(String status) {

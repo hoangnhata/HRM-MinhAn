@@ -60,13 +60,30 @@ class Skeleton extends StatelessWidget {
 
 /// Danh sách thẻ giả — dùng khi đang tải danh sách đơn/nhân viên/thông báo.
 class SkeletonList extends StatelessWidget {
-  const SkeletonList({super.key, this.itemCount = 5, this.showAvatar = true});
+  const SkeletonList({
+    super.key,
+    this.itemCount = 5,
+    this.showAvatar = true,
+    this.embedded = false,
+  });
 
   final int itemCount;
   final bool showAvatar;
 
+  /// `true` khi đặt bên trong một vùng cuộn khác (ListView, Column):
+  /// vẽ thành cột tĩnh thay vì ListView lồng nhau gây lỗi chiều cao vô hạn.
+  final bool embedded;
+
   @override
   Widget build(BuildContext context) {
+    if (embedded) {
+      return Column(
+        children: [
+          for (var i = 0; i < itemCount; i++)
+            _SkeletonListCard(showAvatar: showAvatar),
+        ],
+      );
+    }
     return ListView.builder(
       padding: const EdgeInsets.all(AppSpacing.page),
       itemCount: itemCount,

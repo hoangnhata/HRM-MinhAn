@@ -32,7 +32,8 @@ class AttendanceEnums {
   static const workRequestTypes = {'EXPLANATION', 'UPDATE'};
   static const deploymentRequestTypes = {'DEPLOYMENT'};
 
-  static bool isLeaveRequestType(String type) => leaveRequestTypes.contains(type);
+  static bool isLeaveRequestType(String type) =>
+      leaveRequestTypes.contains(type);
   static bool isWorkRequestType(String type) => workRequestTypes.contains(type);
   static bool isDeploymentRequestType(String type) =>
       deploymentRequestTypes.contains(type);
@@ -122,19 +123,33 @@ class AttendanceEnums {
   static bool isPending(String status) => status.startsWith('PENDING_');
 
   /// Nhãn ngắn cho chip trạng thái trong danh sách hẹp.
+  /// Nhãn ngắn cho chip trên thẻ: đang chờ thì nói rõ chờ ai, người xem
+  /// biết ngay đơn kẹt ở bước nào mà không cần mở chi tiết.
   static String shortStatusLabel(String status) {
     if (status == 'APPROVED' || status == 'APPROVED_NO_FINE') return 'Đã duyệt';
     if (status.endsWith('_REJECTED')) return 'Từ chối';
     if (status == 'WITHDRAWN') return 'Đã rút';
-    return 'Chờ duyệt';
+    return switch (status) {
+      'PENDING_HEAD' => 'Chờ Trưởng khoa',
+      'PENDING_NURSING_HEAD' => 'Chờ Trưởng phòng ĐD',
+      'PENDING_HR' => 'Chờ HCNS',
+      'PENDING_DIRECTOR' => 'Chờ Giám đốc',
+      _ => 'Chờ duyệt',
+    };
   }
-  static String shiftScopeLabel(String? v) => v == null ? '—' : (shiftScopeLabels[v] ?? v);
-  static String updateKindLabel(String? v) => v == null ? '—' : (updateKindLabels[v] ?? v);
-  static String explanationKindLabel(String? v) => v == null ? '—' : (explanationKindLabels[v] ?? v);
+
+  static String shiftScopeLabel(String? v) =>
+      v == null ? '—' : (shiftScopeLabels[v] ?? v);
+  static String updateKindLabel(String? v) =>
+      v == null ? '—' : (updateKindLabels[v] ?? v);
+  static String explanationKindLabel(String? v) =>
+      v == null ? '—' : (explanationKindLabels[v] ?? v);
   static String statusLabel(String v) => statusLabels[v] ?? v;
 
   static Color statusColor(String status) {
-    if (status == 'APPROVED' || status == 'APPROVED_NO_FINE') return AppColors.success;
+    if (status == 'APPROVED' || status == 'APPROVED_NO_FINE') {
+      return AppColors.success;
+    }
     if (status.endsWith('_REJECTED')) return AppColors.error;
     if (status == 'WITHDRAWN') return AppColors.textSecondary;
     return AppColors.warning;
@@ -254,42 +269,42 @@ enum AttendanceRequestScope {
   deployment;
 
   bool matches(String requestType) => switch (this) {
-        leave => AttendanceEnums.isLeaveRequestType(requestType),
-        work => AttendanceEnums.isWorkRequestType(requestType),
-        deployment => AttendanceEnums.isDeploymentRequestType(requestType),
-      };
+    leave => AttendanceEnums.isLeaveRequestType(requestType),
+    work => AttendanceEnums.isWorkRequestType(requestType),
+    deployment => AttendanceEnums.isDeploymentRequestType(requestType),
+  };
 
   /// Nhân viên tự lập nghỉ phép / đơn công. Điều động: trưởng khoa hoặc admin.
   bool canCreate(UserRole role) => switch (this) {
-        leave || work => true,
-        deployment =>
-          role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role),
-      };
+    leave || work => true,
+    deployment =>
+      role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role),
+  };
 
   List<String> get creatableTypes => switch (this) {
-        leave => AttendanceEnums.leaveRequestTypes.toList(),
-        work => AttendanceEnums.workRequestTypes.toList(),
-        deployment => const [],
-      };
+    leave => AttendanceEnums.leaveRequestTypes.toList(),
+    work => AttendanceEnums.workRequestTypes.toList(),
+    deployment => const [],
+  };
 
   String get defaultCreateType => switch (this) {
-        leave => 'LEAVE',
-        work => 'EXPLANATION',
-        deployment => 'DEPLOYMENT',
-      };
+    leave => 'LEAVE',
+    work => 'EXPLANATION',
+    deployment => 'DEPLOYMENT',
+  };
 
   String get title => switch (this) {
-        leave => 'Đơn nghỉ phép',
-        work => 'Đơn công',
-        deployment => 'Đơn điều động',
-      };
+    leave => 'Đơn nghỉ phép',
+    work => 'Đơn công',
+    deployment => 'Đơn điều động',
+  };
 
   String get subtitle => switch (this) {
-        leave => 'Nghỉ phép năm và nghỉ không lương.',
-        work => 'Giải trình muộn/sớm và cập nhật quên chấm công.',
-        deployment =>
-          'Điều động: lập bởi Trưởng khoa/ĐD trưởng → duyệt theo luồng.',
-      };
+    leave => 'Nghỉ phép năm và nghỉ không lương.',
+    work => 'Giải trình muộn/sớm và cập nhật quên chấm công.',
+    deployment =>
+      'Điều động: lập bởi Trưởng khoa/ĐD trưởng → duyệt theo luồng.',
+  };
 
   /// Banner dưới header — chỉ dùng khi xem danh sách cá nhân (không phải người duyệt).
   String employeeListIntro(bool canApprove) {
@@ -301,14 +316,14 @@ enum AttendanceRequestScope {
   }
 
   IconData get icon => switch (this) {
-        leave => Icons.beach_access_rounded,
-        work => Icons.assignment_outlined,
-        deployment => Icons.swap_horiz_rounded,
-      };
+    leave => Icons.beach_access_rounded,
+    work => Icons.assignment_outlined,
+    deployment => Icons.swap_horiz_rounded,
+  };
 
   AttendanceRequestPrefill? createPrefill() => switch (this) {
-        leave => AttendanceRequestPrefill.leave(),
-        work => AttendanceRequestPrefill.work(),
-        deployment => null,
-      };
+    leave => AttendanceRequestPrefill.leave(),
+    work => AttendanceRequestPrefill.work(),
+    deployment => null,
+  };
 }

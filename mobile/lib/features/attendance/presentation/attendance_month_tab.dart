@@ -149,7 +149,11 @@ class AttendanceMonthTab extends ConsumerWidget {
               ),
               loading: () => const Padding(
                 padding: EdgeInsets.symmetric(horizontal: AppSpacing.page),
-                child: SkeletonList(itemCount: 1, showAvatar: false),
+                child: SkeletonList(
+                  itemCount: 1,
+                  showAvatar: false,
+                  embedded: true,
+                ),
               ),
               error: (_, _) => Padding(
                 padding: AppSpacing.pageH,
@@ -413,7 +417,7 @@ class _MonthSwitcher extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final isCurrentMonth = year == now.year && month == now.month;
-    final label = '${_monthNames[month - 1]} $year';
+    final label = '${_monthNames[month - 1]}/$year';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(

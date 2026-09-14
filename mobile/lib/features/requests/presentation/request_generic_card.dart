@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_card.dart';
@@ -105,10 +106,7 @@ class RequestGenericCard extends StatelessWidget {
         ? DateTime.tryParse(raw['createdAt'] as String)
         : null;
     final title = employeeName ?? 'Đơn #${raw['id']}';
-    final meta = [
-      position,
-      department,
-    ]
+    final meta = [position, department]
         .whereType<String>()
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
@@ -120,13 +118,8 @@ class RequestGenericCard extends StatelessWidget {
     final statusColor = awaiting
         ? AppColors.warning
         : (status == null
-            ? AppColors.textSecondary
-            : GenericRequestUi.statusColor(status));
-
-    final footnoteParts = <String>[
-      if (reason != null && reason.isNotEmpty) reason,
-      if (createdAt != null) 'Gửi ${AppFormat.dateTime(createdAt)}',
-    ];
+              ? AppColors.textSecondary
+              : GenericRequestUi.statusColor(status));
 
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.xs),
@@ -153,10 +146,11 @@ class RequestGenericCard extends StatelessWidget {
                             title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: AppTypography.style(
                               fontWeight: FontWeight.w800,
                               fontSize: 13.5,
                               height: 1.25,
+                              letterSpacing: -0.1,
                             ),
                           ),
                         ),
@@ -176,7 +170,7 @@ class RequestGenericCard extends StatelessWidget {
                         meta,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: AppTypography.style(
                           fontSize: 11.5,
                           height: 1.3,
                           color: AppColors.textSecondary,
@@ -189,7 +183,7 @@ class RequestGenericCard extends StatelessWidget {
                         'Bước · $stageLabel',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: AppTypography.style(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
                           height: 1.25,
@@ -197,26 +191,36 @@ class RequestGenericCard extends StatelessWidget {
                         ),
                       ),
                     ],
-                    if (footnoteParts.isNotEmpty) ...[
+                    if (reason != null && reason.isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        reason,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 11.5,
+                          height: 1.35,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                    if (createdAt != null) ...[
                       const SizedBox(height: 5),
                       Row(
                         children: [
-                          Icon(
-                            createdAt != null
-                                ? Icons.schedule_rounded
-                                : Icons.notes_outlined,
+                          const Icon(
+                            Icons.schedule_rounded,
                             size: 12,
                             color: AppColors.textTertiary,
                           ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              footnoteParts.join(' · '),
+                              'Gửi ${AppFormat.dateTime(createdAt)}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: AppTypography.metricMuted(
                                 fontSize: 11,
-                                height: 1.3,
                                 color: AppColors.textTertiary,
                               ),
                             ),

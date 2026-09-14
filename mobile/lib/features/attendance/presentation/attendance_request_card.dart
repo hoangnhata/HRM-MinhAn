@@ -41,9 +41,14 @@ class AttendanceRequestCard extends StatelessWidget {
     final typeLabel = AttendanceEnums.requestTypeLabel(request.requestType);
     final shortStatus = AttendanceEnums.shortStatusLabel(request.status);
     final fullStatus = AttendanceEnums.statusLabel(request.status);
+    // Kèm số ngày nghỉ/công tác để không phải nhẩm từ khoảng ngày.
+    final days = request.leaveDays ?? request.tripDays;
+    final daysSuffix = days != null && days > 0
+        ? ' · ${AppFormat.compactNumber(days)} ngày'
+        : '';
     final dateLabel = hasRange
-        ? '${AppFormat.date(request.workDate)} → ${AppFormat.date(request.endDate)}'
-        : AppFormat.date(request.workDate);
+        ? '${AppFormat.date(request.workDate)} → ${AppFormat.date(request.endDate)}$daysSuffix'
+        : '${AppFormat.date(request.workDate)}$daysSuffix';
     final canToggle = selectMode && onSelectedChanged != null;
     final employeeLine = [
       request.employeeName,
@@ -160,9 +165,7 @@ class AttendanceRequestCard extends StatelessWidget {
                 const SizedBox(height: 5),
                 Text(
                   'Gửi ${AppFormat.dateTime(request.createdAt)}',
-                  style: AppTypography.caption(
-                    color: AppColors.textTertiary,
-                  ),
+                  style: AppTypography.caption(color: AppColors.textTertiary),
                 ),
               ],
             ),
