@@ -1,0 +1,62 @@
+# Codemagic — build iOS HRM → TestFlight
+# Bundle ID: com.minhan.hrm.hrmMobile
+#
+# Trước khi chạy workflow lần đầu:
+# 1. Codemagic → Teams → Integrations → App Store Connect (tên integration khớp bên dưới)
+# 2. Code signing identities → Fetch profile App Store cho com.minhan.hrm.hrmMobile
+# 3. Đặt APP_STORE_APPLE_ID = số Apple ID của app trên App Store Connect (App Information)
+# 4. Đặt GoogleService-Info.plist vào mobile/ios/Runner/ (hoặc Codemagic env/file)
+# 5. Ghim đúng phiên bản Flutter đang dùng local (flutter --version)
+
+workflows:
+  ios-testflight:
+    name: HRM iOS → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    integrations:
+      # Đổi nếu tên integration trên Codemagic khác (ERP đang dùng MinhAnAppStore)
+      app_store_connect: MinhAnAppStore
+    environment:
+      # Ghim bản Flutter — đừng để "stable" (lên bản mới là build có thể vỡ).
+      flutter: 3.35.5
+      xcode: latest
+      cocoapods: default
+      groups:
+        # Thêm group chứa secret nếu bạn nhét GoogleService-Info.plist qua Codemagic
+        # - hrm_ios_secrets
+      vars:
+        BUNDLE_ID: com.minhan.hrm.hrmMobile
+        # Số App ID trên App Store Connect (App Information → Apple ID). Điền trước khi build.
+        APP_STORE_APPLE_ID: "6811757349"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.minhan.hrm.hrmMobile
+    scripts:
+      - name: Set up code signing
+        script: |
+          xcode-project use-profiles
+      - name: Get Flutter packages
+        script: |
+          cd mobile
+          flutter pub get
+      - name: Install CocoaPods
+        script: |
+          cd mobile/ios
+          pod install
+      - name: Build IPA
+        script: |
+          cd mobile
+          flutter build ipa --release \
+            --build-name=1.0.0 \
+            --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" --type IOS 2>/dev/null || echo 0) + 1)) \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - mobile/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        # Chưa submit App Review — chỉ TestFlight
+        submit_to_app_store: false
