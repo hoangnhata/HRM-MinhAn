@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/session/session_epoch.dart';
+import '../../../core/utils/app_icon_badge.dart';
 import '../../../shared/models/app_notification.dart';
 import '../data/notification_repository.dart';
 
@@ -57,12 +58,18 @@ class NotificationController extends StateNotifier<NotificationState> {
     _pollTimer = null;
   }
 
+  void _applyUnread(int unread) {
+    state = state.copyWith(unreadCount: unread);
+    unawaited(AppIconBadge.sync(unread));
+  }
+
   Future<void> refresh() async {
     state = state.copyWith(loading: true, error: null);
     try {
       final items = await _repository.fetchMine();
       final unread = items.where((n) => !n.read).length;
-      state = state.copyWith(items: items, unreadCount: unread, loading: false);
+      state = state.copyWith(items: items, loading: false);
+      _applyUnread(unread);
     } catch (e) {
       state = state.copyWith(loading: false, error: 'Không tải được thông báo');
     }
@@ -79,9 +86,10 @@ class NotificationController extends StateNotifier<NotificationState> {
         // Có thay đổi so với web → tải lại danh sách đầy đủ.
         final items = await _repository.fetchMine();
         final unread = items.where((n) => !n.read).length;
-        state = state.copyWith(items: items, unreadCount: unread);
+        state = state.copyWith(items: items);
+        _applyUnread(unread);
       } else {
-        state = state.copyWith(unreadCount: count);
+        _applyUnread(count);
       }
     } catch (_) {
       // Im lặng — poll nền không làm gián đoạn UI.
@@ -93,7 +101,7 @@ class NotificationController extends StateNotifier<NotificationState> {
   Future<void> refreshUnreadCountOnly() async {
     try {
       final count = await _repository.fetchUnreadCount();
-      state = state.copyWith(unreadCount: count);
+      _applyUnread(count);
     } catch (_) {}
   }
 
@@ -116,10 +124,8 @@ class NotificationController extends StateNotifier<NotificationState> {
         sensitive: n.sensitive,
         actionPath: n.actionPath,
       );
-      state = state.copyWith(
-        items: updated,
-        unreadCount: (state.unreadCount - 1).clamp(0, 999999),
-      );
+      state = state.copyWith(items: updated);
+      _applyUnread((state.unreadCount - 1).clamp(0, 999999));
     } catch (_) {}
   }
 
@@ -128,6 +134,11 @@ class NotificationController extends StateNotifier<NotificationState> {
       await _repository.markAllRead();
       await refresh();
     } catch (_) {}
+  }
+
+  Future<void> clearBadgeOnLogout() async {
+    state = const NotificationState();
+    await AppIconBadge.clear();
   }
 }
 

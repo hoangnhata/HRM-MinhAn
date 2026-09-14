@@ -12,6 +12,8 @@ import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 
 /**
  * Hiện brand splash (logo + chữ + load) ngay khi Activity mở,
@@ -20,6 +22,22 @@ import io.flutter.embedding.android.FlutterActivity
 class MainActivity : FlutterActivity() {
   private var brandSplash: View? = null
   private val splashAnimators = mutableListOf<Animator>()
+
+  override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+    super.configureFlutterEngine(flutterEngine)
+    MethodChannel(
+      flutterEngine.dartExecutor.binaryMessenger,
+      "com.minhan.hrm/app_badge",
+    ).setMethodCallHandler { call, result ->
+      if (call.method == "setBadge") {
+        // Số trên icon Android phụ thuộc launcher; FCM notificationCount là nguồn chính.
+        // Channel tồn tại để Flutter không lỗi khi sync giống iOS.
+        result.success(null)
+      } else {
+        result.notImplemented()
+      }
+    }
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     val splashScreen = installSplashScreen()

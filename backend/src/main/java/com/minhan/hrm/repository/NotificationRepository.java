@@ -18,6 +18,8 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     long countByUserAndOpenedFalse(UserAccount user);
 
+    long countByUser_IdAndOpenedFalse(Long userId);
+
     @Modifying
     @Query("UPDATE Notification n SET n.relatedEmployee = NULL WHERE n.relatedEmployee.id = :employeeId")
     void clearRelatedEmployee(@Param("employeeId") Long employeeId);

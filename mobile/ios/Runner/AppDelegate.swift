@@ -35,5 +35,38 @@ import FirebaseMessaging
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HrmAppBadge") {
+      let channel = FlutterMethodChannel(
+        name: "com.minhan.hrm/app_badge",
+        binaryMessenger: registrar.messenger()
+      )
+      channel.setMethodCallHandler { call, result in
+        guard call.method == "setBadge" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        let count = (call.arguments as? Int) ?? 0
+        DispatchQueue.main.async {
+          if #available(iOS 16.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(count) { error in
+              if let error {
+                result(
+                  FlutterError(
+                    code: "badge",
+                    message: error.localizedDescription,
+                    details: nil
+                  )
+                )
+              } else {
+                result(nil)
+              }
+            }
+          } else {
+            UIApplication.shared.applicationIconBadgeNumber = count
+            result(nil)
+          }
+        }
+      }
+    }
   }
 }

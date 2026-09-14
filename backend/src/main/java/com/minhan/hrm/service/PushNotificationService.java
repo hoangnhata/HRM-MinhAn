@@ -3,6 +3,10 @@ package com.minhan.hrm.service;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
+import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
+import com.google.firebase.messaging.ApnsConfig;
+import com.google.firebase.messaging.Aps;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -10,6 +14,7 @@ import com.google.firebase.messaging.Notification;
 import com.minhan.hrm.config.HrmProperties;
 import com.minhan.hrm.dto.notification.NotificationDto;
 import com.minhan.hrm.entity.UserDeviceToken;
+import com.minhan.hrm.repository.NotificationRepository;
 import com.minhan.hrm.repository.UserDeviceTokenRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +37,7 @@ public class PushNotificationService {
 
     private final HrmProperties properties;
     private final UserDeviceTokenRepository deviceTokenRepository;
+    private final NotificationRepository notificationRepository;
 
     private volatile boolean ready;
 
@@ -79,6 +85,11 @@ public class PushNotificationService {
         if (tokens.isEmpty()) {
             return;
         }
+        // Số đỏ trên icon app (iOS / Android launcher) = số thông báo chưa đọc.
+        int badge = (int) Math.min(
+                Integer.MAX_VALUE,
+                Math.max(0, notificationRepository.countByUser_IdAndOpenedFalse(userId)));
+
         Map<String, String> data = new HashMap<>();
         data.put("notificationId", String.valueOf(dto.getId()));
         data.put("category", dto.getCategory() != null ? dto.getCategory().name() : "");
@@ -88,6 +99,7 @@ public class PushNotificationService {
         }
         data.put("title", dto.getTitle() != null ? dto.getTitle() : "");
         data.put("body", dto.getMessage() != null ? dto.getMessage() : "");
+        data.put("badge", String.valueOf(badge));
 
         for (UserDeviceToken row : tokens) {
             try {
@@ -98,6 +110,17 @@ public class PushNotificationService {
                                 .setBody(dto.getMessage())
                                 .build())
                         .putAllData(data)
+                        .setApnsConfig(ApnsConfig.builder()
+                                .setAps(Aps.builder()
+                                        .setBadge(badge)
+                                        .setSound("default")
+                                        .build())
+                                .build())
+                        .setAndroidConfig(AndroidConfig.builder()
+                                .setNotification(AndroidNotification.builder()
+                                        .setNotificationCount(badge)
+                                        .build())
+                                .build())
                         .build();
                 FirebaseMessaging.getInstance().send(message);
             } catch (FirebaseMessagingException e) {

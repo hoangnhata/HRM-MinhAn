@@ -190,11 +190,12 @@ class PushNotificationCoordinator {
     final body = message.notification?.body ??
         message.data['body']?.toString() ??
         '';
+    final badgeFromPush = int.tryParse(message.data['badge']?.toString() ?? '');
     await _local.show(
       id: message.hashCode,
       title: title,
       body: body,
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           'hrm_push',
           'Thông báo HRM',
@@ -203,8 +204,11 @@ class PushNotificationCoordinator {
           importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
+          number: badgeFromPush,
         ),
-        iOS: DarwinNotificationDetails(),
+        iOS: DarwinNotificationDetails(
+          badgeNumber: badgeFromPush,
+        ),
       ),
       payload: _encodePayload(message.data),
     );

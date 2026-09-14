@@ -12,6 +12,7 @@ import 'core/sync/live_data_refresh.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/application/auth_controller.dart';
 import 'features/auth/application/auth_state.dart';
+import 'features/notifications/application/notification_controller.dart';
 import 'features/notifications/application/push_notification_service.dart';
 import 'features/notifications/presentation/notification_ui.dart';
 
@@ -118,6 +119,9 @@ class _HrmMobileAppState extends ConsumerState<HrmMobileApp>
       }
       if (becameLoggedOut) {
         await push.clearTokenOnLogout();
+        await ref
+            .read(notificationControllerProvider.notifier)
+            .clearBadgeOnLogout();
       }
     });
 
