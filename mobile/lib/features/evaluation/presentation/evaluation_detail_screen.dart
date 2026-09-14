@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
@@ -76,6 +77,12 @@ class _EvaluationDetailScreenState
     });
   }
 
+  Future<void> _refresh() async {
+    await ref.read(evaluationControllerProvider.notifier).refreshQuietly();
+    if (!mounted) return;
+    _retryFetch();
+  }
+
   bool _isPending(EvaluationState state) =>
       state.pending.any((r) => r.id == widget.evaluationId);
 
@@ -112,6 +119,7 @@ class _EvaluationDetailScreenState
     setState(() => _busy = false);
 
     if (ok) {
+      HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
         approved
@@ -138,44 +146,58 @@ class _EvaluationDetailScreenState
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: GradientAppBar(
-        title: 'Phiếu đánh giá',
-        subtitle: record == null
-            ? null
-            : 'Kỳ tháng ${record.periodMonth}/${record.periodYear}',
+      body: Column(
+        children: [
+          AppScreenHeader(
+            dense: true,
+            title: 'Phiếu đánh giá',
+            icon: Icons.fact_check_rounded,
+            eyebrow: 'Đánh giá',
+            subtitle: record == null
+                ? null
+                : 'Kỳ tháng ${record.periodMonth}/${record.periodYear}',
+            onBack: () => Navigator.of(context).maybePop(),
+          ),
+          Expanded(
+            child: record == null
+                ? (state.loading || _fetching)
+                      ? const LoadingState(label: 'Đang tải phiếu đánh giá...')
+                      : state.error != null
+                      ? ErrorState(message: state.error!, onRetry: _retryFetch)
+                      : EmptyState(
+                          icon: Icons.search_off_rounded,
+                          title: 'Không tìm thấy phiếu đánh giá',
+                          message:
+                              'Phiếu có thể đã bị thu hồi hoặc bạn không có quyền xem.',
+                          action: OutlinedButton.icon(
+                            onPressed: _retryFetch,
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: const Text('Tải lại'),
+                          ),
+                        )
+                : Column(
+                    children: [
+                      Expanded(
+                        child: HighlightPulse(
+                          active: widget.highlight,
+                          child: RefreshIndicator(
+                            color: AppColors.primary,
+                            onRefresh: _refresh,
+                            child: _Body(record: record),
+                          ),
+                        ),
+                      ),
+                      if (canReview)
+                        _ActionBar(
+                          busy: _busy,
+                          onApprove: () => _review(record, true),
+                          onReject: () => _review(record, false),
+                        ),
+                    ],
+                  ),
+          ),
+        ],
       ),
-      body: record == null
-          ? (state.loading || _fetching)
-                ? const LoadingState(label: 'Đang tải phiếu đánh giá...')
-                : state.error != null
-                ? ErrorState(message: state.error!, onRetry: _retryFetch)
-                : EmptyState(
-                    icon: Icons.search_off_rounded,
-                    title: 'Không tìm thấy phiếu đánh giá',
-                    message:
-                        'Phiếu có thể đã bị thu hồi hoặc bạn không có quyền xem.',
-                    action: OutlinedButton.icon(
-                      onPressed: _retryFetch,
-                      icon: const Icon(Icons.refresh_rounded, size: 18),
-                      label: const Text('Tải lại'),
-                    ),
-                  )
-          : Column(
-              children: [
-                Expanded(
-                  child: HighlightPulse(
-                    active: widget.highlight,
-                    child: _Body(record: record),
-                  ),
-                ),
-                if (canReview)
-                  _ActionBar(
-                    busy: _busy,
-                    onApprove: () => _review(record, true),
-                    onReject: () => _review(record, false),
-                  ),
-              ],
-            ),
     );
   }
 }
@@ -191,6 +213,7 @@ class _Body extends StatelessWidget {
     final stepStates = _evaluationStepStates(r);
 
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(top: AppSpacing.md, bottom: AppSpacing.xl),
       children: [
         Padding(
@@ -769,7 +792,11 @@ class _ActionBar extends StatelessWidget {
                 builder: (context, constraints) {
                   final textScale = MediaQuery.textScalerOf(context).scale(1);
                   final stack = constraints.maxWidth < 330 || textScale > 1.25;
-                  final reject = OutlinedButton.icon(
+                  final reject = Semantics(
+                    button: true,
+                    enabled: !busy,
+                    label: 'Từ chối phiếu đánh giá',
+                    child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.error,
                       side: BorderSide(
@@ -779,11 +806,17 @@ class _ActionBar extends StatelessWidget {
                     onPressed: busy ? null : onReject,
                     icon: const Icon(Icons.close_rounded, size: 18),
                     label: const Text('Từ chối'),
+                    ),
                   );
-                  final approve = ElevatedButton.icon(
+                  final approve = Semantics(
+                    button: true,
+                    enabled: !busy,
+                    label: 'Duyệt và ký phiếu đánh giá',
+                    child: ElevatedButton.icon(
                     onPressed: busy ? null : onApprove,
                     icon: const Icon(Icons.draw_outlined, size: 18),
                     label: const Text('Duyệt & ký'),
+                    ),
                   );
                   if (stack) {
                     return Column(

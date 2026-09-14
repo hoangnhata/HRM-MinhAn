@@ -102,7 +102,6 @@ class _SalaryScaleScreenState extends ConsumerState<SalaryScaleScreen> {
     final async = ref.watch(_salaryScalesProvider(widget.admin));
     final profileAsync = ref.watch(_mySalaryProfileProvider);
     final topInset = MediaQuery.paddingOf(context).top;
-    final onBrand = Theme.of(context).colorScheme.onPrimary;
     final scales = async.valueOrNull;
     final scopes =
         scales == null ? const <_ScopeOption>[] : _visibleScopes(scales);
@@ -157,20 +156,25 @@ class _SalaryScaleScreenState extends ConsumerState<SalaryScaleScreen> {
                     icon: Icons.stairs_rounded,
                     onBack: () => context.pop(),
                     footer: scopes.length > 1
-                        ? _HeaderScopeSegment(
-                            options: scopes,
-                            selectedTab: headerTab,
-                            onBrand: onBrand,
-                            onChanged: (tab) {
+                        ? BrandHeaderSegment(
+                            dense: true,
+                            selectedIndex: scopes.indexWhere(
+                              (s) => s.tab == headerTab,
+                            ),
+                            onChanged: (i) {
                               setState(() {
                                 _userPickedScope = true;
-                                _scopeTab = tab;
+                                _scopeTab = scopes[i].tab;
                                 _userPickedTier = false;
                                 _userToggledExpand = false;
                                 _tierIndex = 0;
                                 _expandedGrade = null;
                               });
                             },
+                            items: [
+                              for (final option in scopes)
+                                BrandSegmentItem(label: option.label),
+                            ],
                           )
                         : null,
                   ),
@@ -582,62 +586,6 @@ class _ScopeOption {
   final int tab;
   final String label;
   final String code;
-}
-
-class _HeaderScopeSegment extends StatelessWidget {
-  const _HeaderScopeSegment({
-    required this.options,
-    required this.selectedTab,
-    required this.onBrand,
-    required this.onChanged,
-  });
-
-  final List<_ScopeOption> options;
-  final int selectedTab;
-  final Color onBrand;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: onBrand.withValues(alpha: 0.14),
-        borderRadius: AppRadius.brMd,
-      ),
-      child: Row(
-        children: [
-          for (final option in options)
-            Expanded(
-              child: Material(
-                color: selectedTab == option.tab
-                    ? onBrand
-                    : Colors.transparent,
-                borderRadius: AppRadius.brSm,
-                child: InkWell(
-                  onTap: () => onChanged(option.tab),
-                  borderRadius: AppRadius.brSm,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 9),
-                    child: Text(
-                      option.label,
-                      textAlign: TextAlign.center,
-                      style: AppTypography.style(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
-                        color: selectedTab == option.tab
-                            ? AppColors.primaryDark
-                            : onBrand.withValues(alpha: 0.9),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
 class _TierChips extends StatelessWidget {

@@ -8,6 +8,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/user_role.dart';
+import '../../../core/widgets/app_month_picker.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_motion.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -45,15 +46,16 @@ class AttendanceMonthTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(attendanceMonthControllerProvider(employeeId));
-    final controller =
-        ref.read(attendanceMonthControllerProvider(employeeId).notifier);
+    final controller = ref.read(
+      attendanceMonthControllerProvider(employeeId).notifier,
+    );
     final role = ref.watch(authControllerProvider).role;
     final canAssignContinuous =
-        role == UserRole.admin || role == UserRole.headDepartment;
+        role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role);
     final canProposeYoungChild =
-        role == UserRole.admin || role == UserRole.headDepartment;
+        role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role);
     final canManageDutyQuangTrung =
-        role == UserRole.admin || role == UserRole.headDepartment;
+        role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role);
 
     if (employeeId <= 0) {
       return const EmptyState(
@@ -130,19 +132,19 @@ class AttendanceMonthTab extends ConsumerWidget {
                     : null,
                 onProposeShiftConfigChange: canAssignContinuous
                     ? () => context.push(
-                          RoutePaths.requestCreatePath(
-                            'shift-config-change',
-                            employeeId: employeeId,
-                          ),
-                        )
+                        RoutePaths.requestCreatePath(
+                          'shift-config-change',
+                          employeeId: employeeId,
+                        ),
+                      )
                     : null,
                 onProposeYoungChild: canProposeYoungChild
                     ? () => context.push(
-                          RoutePaths.requestCreatePath(
-                            'young-child',
-                            employeeId: employeeId,
-                          ),
-                        )
+                        RoutePaths.requestCreatePath(
+                          'young-child',
+                          employeeId: employeeId,
+                        ),
+                      )
                     : null,
               ),
               loading: () => const Padding(
@@ -256,7 +258,9 @@ class _DayDetailsSectionState extends State<_DayDetailsSection> {
       final today = DateTime(now.year, now.month, now.day);
       final match = widget.days.where((d) => d.workDate != null).where((d) {
         final wd = d.workDate!;
-        return wd.year == today.year && wd.month == today.month && wd.day == today.day;
+        return wd.year == today.year &&
+            wd.month == today.month &&
+            wd.day == today.day;
       }).toList();
       if (match.isNotEmpty) return match.take(1).toList();
       return widget.days.take(1).toList();
@@ -285,7 +289,9 @@ class _DayDetailsSectionState extends State<_DayDetailsSection> {
               decoration: BoxDecoration(
                 color: AppColors.primary.withValues(alpha: 0.08),
                 borderRadius: AppRadius.brPill,
-                border: Border.all(color: AppColors.primary.withValues(alpha: 0.12)),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -353,8 +359,7 @@ class _DayDetailsSectionState extends State<_DayDetailsSection> {
                       isSplitDay: widget.splitDates.contains(_dayKey(day)),
                     ),
                   ],
-                  if (showTodayOnly)
-                    const SizedBox(height: 2),
+                  if (showTodayOnly) const SizedBox(height: 2),
                 ],
               ),
             ),
@@ -394,11 +399,11 @@ class _MonthSwitcher extends StatelessWidget {
 
   Future<void> _openPicker(BuildContext context) async {
     if (loading) return;
-    final picked = await showModalBottomSheet<(int, int)>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _MonthYearPickerSheet(year: year, month: month),
+    final picked = await showAppMonthPicker(
+      context,
+      year: year,
+      month: month,
+      title: 'Chọn tháng / năm',
     );
     if (picked == null) return;
     onPickMonth(picked.$1, picked.$2);
@@ -480,240 +485,6 @@ class _MonthSwitcher extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MonthYearPickerSheet extends StatefulWidget {
-  const _MonthYearPickerSheet({required this.year, required this.month});
-
-  final int year;
-  final int month;
-
-  @override
-  State<_MonthYearPickerSheet> createState() => _MonthYearPickerSheetState();
-}
-
-class _MonthYearPickerSheetState extends State<_MonthYearPickerSheet> {
-  static const _monthShort = [
-    'T1',
-    'T2',
-    'T3',
-    'T4',
-    'T5',
-    'T6',
-    'T7',
-    'T8',
-    'T9',
-    'T10',
-    'T11',
-    'T12',
-  ];
-
-  late int _year;
-  late int _month;
-  final now = DateTime.now();
-
-  @override
-  void initState() {
-    super.initState();
-    _year = widget.year;
-    _month = widget.month;
-  }
-
-  bool _isFuture(int year, int month) =>
-      year > now.year || (year == now.year && month > now.month);
-
-  @override
-  Widget build(BuildContext context) {
-    final bottom = MediaQuery.paddingOf(context).bottom;
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        AppSpacing.page,
-        10,
-        AppSpacing.page,
-        bottom + AppSpacing.md,
-      ),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.only(bottom: 14),
-            decoration: BoxDecoration(
-              color: AppColors.textTertiary.withValues(alpha: 0.35),
-              borderRadius: AppRadius.brPill,
-            ),
-          ),
-          Text(
-            'Chọn tháng / năm',
-            style: AppTypography.style(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              _YearNavButton(
-                icon: Icons.chevron_left_rounded,
-                onPressed: () => setState(() {
-                  _year -= 1;
-                }),
-              ),
-              Expanded(
-                child: Text(
-                  'Năm $_year',
-                  textAlign: TextAlign.center,
-                  style: AppTypography.style(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primaryDark,
-                  ),
-                ),
-              ),
-              _YearNavButton(
-                icon: Icons.chevron_right_rounded,
-                onPressed: _year >= now.year
-                    ? null
-                    : () => setState(() {
-                          _year += 1;
-                          if (_isFuture(_year, _month)) {
-                            _month = now.month;
-                          }
-                        }),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: 12,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: 1.35,
-            ),
-            itemBuilder: (context, index) {
-              final m = index + 1;
-              final isSelected = m == _month;
-              final disabled = _isFuture(_year, m);
-              final isCurrent = _year == now.year && m == now.month;
-
-              return Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: disabled
-                      ? null
-                      : () => setState(() => _month = m),
-                  borderRadius: AppRadius.brMd,
-                  child: Ink(
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? AppColors.primary
-                          : disabled
-                              ? AppColors.surfaceMuted
-                              : AppColors.primary.withValues(alpha: 0.06),
-                      borderRadius: AppRadius.brMd,
-                      border: Border.all(
-                        color: isCurrent && !isSelected
-                            ? AppColors.primary.withValues(alpha: 0.35)
-                            : Colors.transparent,
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        _monthShort[index],
-                        style: AppTypography.style(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w800,
-                          color: isSelected
-                              ? Colors.white
-                              : disabled
-                                  ? AppColors.textTertiary
-                                  : AppColors.primaryDark,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(46),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: AppRadius.brMd,
-                    ),
-                  ),
-                  child: const Text('Hủy'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 1,
-                child: FilledButton(
-                  onPressed: _isFuture(_year, _month)
-                      ? null
-                      : () => Navigator.pop(context, (_year, _month)),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(46),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: AppRadius.brMd,
-                    ),
-                  ),
-                  child: const Text('Áp dụng'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _YearNavButton extends StatelessWidget {
-  const _YearNavButton({required this.icon, required this.onPressed});
-
-  final IconData icon;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: onPressed == null
-          ? AppColors.surfaceMuted
-          : AppColors.primary.withValues(alpha: 0.08),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onPressed,
-        child: SizedBox(
-          width: 40,
-          height: 40,
-          child: Icon(
-            icon,
-            color: onPressed == null
-                ? AppColors.textTertiary
-                : AppColors.primary,
           ),
         ),
       ),
@@ -925,13 +696,16 @@ class _MonthHero extends StatelessWidget {
                   runSpacing: 6,
                   children: [
                     _HeroBreakdownChip(
-                      label: '${AppFormat.compactNumber(summary.clockedWorkUnits)} chấm',
+                      label:
+                          '${AppFormat.compactNumber(summary.clockedWorkUnits)} chấm',
                     ),
                     _HeroBreakdownChip(
-                      label: '${AppFormat.compactNumber(summary.leaveWorkUnits)} phép',
+                      label:
+                          '${AppFormat.compactNumber(summary.leaveWorkUnits)} phép',
                     ),
                     _HeroBreakdownChip(
-                      label: '${AppFormat.compactNumber(summary.dutyWorkUnitsTotal)} trực',
+                      label:
+                          '${AppFormat.compactNumber(summary.dutyWorkUnitsTotal)} trực',
                     ),
                     _HeroBreakdownChip(
                       label: '$deploymentDayCount đ.động',
@@ -977,7 +751,11 @@ class _MonthHero extends StatelessWidget {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            'Có vi phạm cần xem xét kỷ luật',
+                            summary.requiresDiscipline
+                                ? (summary.latePenalty > 0
+                                      ? 'Muộn ≥201′ · phạt ${AppFormat.currency(summary.latePenalty)} · cần xem xét kỷ luật'
+                                      : 'Muộn ≥201 phút · cần xem xét kỷ luật')
+                                : 'Có vi phạm cần xem xét kỷ luật',
                             style: AppTypography.style(
                               fontSize: 12,
                               color: Colors.white.withValues(alpha: 0.95),
@@ -1110,6 +888,7 @@ class _HeroBreakdownChip extends StatelessWidget {
   });
 
   final String label;
+
   /// Khi true, chip nổi bật hơn (màu trắng đậm hơn).
   final bool highlighted;
   final IconData? icon;
@@ -1298,7 +1077,8 @@ class _MetricsStripState extends State<_MetricsStrip> {
               runSpacing: 6,
               children: [
                 _QuickPill(
-                  label: 'Phép ${AppFormat.compactNumber(s.leaveWorkUnits)}',
+                  label:
+                      'Phép ${AppFormat.compactNumber(s.leaveWorkUnits)} (không tính tổng)',
                   color: const Color(0xFF0F766E),
                 ),
                 _QuickPill(
@@ -1413,8 +1193,9 @@ class _MetricsStripState extends State<_MetricsStrip> {
                                 icon: Icons.payments_outlined,
                                 color: const Color(0xFF7C3AED),
                                 label: 'Tiền hỗ trợ',
-                                value:
-                                    AppFormat.currency(s.seminarSupportTotal),
+                                value: AppFormat.currency(
+                                  s.seminarSupportTotal,
+                                ),
                                 sub: s.seminarSupportCount > 0
                                     ? '${s.seminarSupportCount} hội thảo'
                                     : null,
@@ -1423,8 +1204,9 @@ class _MetricsStripState extends State<_MetricsStrip> {
                                 icon: Icons.local_hospital_outlined,
                                 color: const Color(0xFF0F766E),
                                 label: 'PC Quang Trung',
-                                value:
-                                    AppFormat.currency(s.quangTrungAllowance),
+                                value: AppFormat.currency(
+                                  s.quangTrungAllowance,
+                                ),
                                 sub:
                                     '${s.quangTrungAllowanceCount} ngày × ${AppFormat.currency(s.quangTrungAllowanceRate)}',
                               ),
@@ -1712,7 +1494,8 @@ class _DayRow extends StatelessWidget {
         day.morningCheckIn != null || day.morningCheckOut != null;
     final hasAfternoon =
         day.afternoonCheckIn != null || day.afternoonCheckOut != null;
-    final hasLegacyOnly = !hasMorning &&
+    final hasLegacyOnly =
+        !hasMorning &&
         !hasAfternoon &&
         (day.checkIn != null || day.checkOut != null);
     final accent = _statusColor(day.status);
@@ -1734,9 +1517,7 @@ class _DayRow extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: AppRadius.brLg,
-            border: Border.all(
-              color: accent.withValues(alpha: 0.14),
-            ),
+            border: Border.all(color: accent.withValues(alpha: 0.14)),
             boxShadow: AppShadows.soft,
           ),
           child: Row(
@@ -1762,9 +1543,7 @@ class _DayRow extends StatelessWidget {
                 child: Column(
                   children: [
                     Text(
-                      date == null
-                          ? '--'
-                          : date.day.toString().padLeft(2, '0'),
+                      date == null ? '--' : date.day.toString().padLeft(2, '0'),
                       style: AppTypography.style(
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
@@ -1797,10 +1576,12 @@ class _DayRow extends StatelessWidget {
                       _CompactShiftTimes(
                         morningFrom: hasMorning ? day.morningCheckIn : null,
                         morningTo: hasMorning ? day.morningCheckOut : null,
-                        afternoonFrom:
-                            hasAfternoon ? day.afternoonCheckIn : null,
-                        afternoonTo:
-                            hasAfternoon ? day.afternoonCheckOut : null,
+                        afternoonFrom: hasAfternoon
+                            ? day.afternoonCheckIn
+                            : null,
+                        afternoonTo: hasAfternoon
+                            ? day.afternoonCheckOut
+                            : null,
                       )
                     else if (hasLegacyOnly)
                       _ShiftTimeLine(
@@ -1835,8 +1616,8 @@ class _DayRow extends StatelessWidget {
                           icon: day.status == 'PRESENT'
                               ? Icons.check_rounded
                               : day.status == 'ABSENT'
-                                  ? Icons.close_rounded
-                                  : null,
+                              ? Icons.close_rounded
+                              : null,
                         ),
                         _DayTag(
                           label:

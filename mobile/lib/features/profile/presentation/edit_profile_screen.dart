@@ -142,10 +142,20 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: const GradientAppBar(title: 'Chỉnh sửa hồ sơ'),
-      body: Form(
-        key: _formKey,
-        child: ListView(
+      body: Column(
+        children: [
+          AppScreenHeader(
+            dense: true,
+            title: 'Chỉnh sửa hồ sơ',
+            icon: Icons.badge_outlined,
+            eyebrow: 'Cá nhân',
+            subtitle: 'Thông tin liên hệ',
+            onBack: () => Navigator.of(context).maybePop(),
+          ),
+          Expanded(
+            child: Form(
+              key: _formKey,
+              child: ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.page,
             AppSpacing.lg,
@@ -351,8 +361,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
               ),
             ),
           ],
+                ),
+              ),
+            ),
+          ],
         ),
-      ),
-    );
+      );
   }
 }

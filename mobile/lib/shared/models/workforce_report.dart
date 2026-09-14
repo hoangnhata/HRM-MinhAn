@@ -9,6 +9,9 @@ class WorkforceReport {
   String get generatedAt => (raw['generatedAt'] as String?) ?? '';
   int get grandTotal => (raw['grandTotal'] as num?)?.toInt() ?? 0;
   int get departmentCount => (raw['departmentCount'] as num?)?.toInt() ?? 0;
+  int get absentTotal => (raw['absentTotal'] as num?)?.toInt() ?? 0;
+  int get absentDepartmentCount =>
+      (raw['absentDepartmentCount'] as num?)?.toInt() ?? 0;
 
   List<WorkforceCategory> get categories {
     final list = raw['categories'];
@@ -39,6 +42,18 @@ class WorkforceReport {
         .toList();
   }
 
+  List<WorkforceAbsentDepartment> get absentByDepartment {
+    final list = raw['absentByDepartment'];
+    if (list is! List) return const [];
+    return list
+        .whereType<Map>()
+        .map(
+          (e) =>
+              WorkforceAbsentDepartment.fromJson(e.cast<String, dynamic>()),
+        )
+        .toList();
+  }
+
   WorkforceCategory? get topCategory {
     if (categories.isEmpty) return null;
     final ranked = [
@@ -51,6 +66,15 @@ class WorkforceReport {
     final top = topCategory;
     if (top == null) return 0;
     return totals[top.key] ?? 0;
+  }
+
+  /// Xếp hạng chức vụ có số > 0 — dùng cho view mobile thay ma trận web.
+  List<(WorkforceCategory, int)> get rankedCategories {
+    final ranked = [
+      for (final c in categories)
+        if ((totals[c.key] ?? 0) > 0) (c, totals[c.key]!),
+    ]..sort((a, b) => b.$2.compareTo(a.$2));
+    return ranked;
   }
 
   factory WorkforceReport.fromJson(Map<String, dynamic> json) =>
@@ -77,6 +101,14 @@ class WorkforceDepartmentRow {
   String get departmentName => (raw['departmentName'] as String?) ?? '';
   int get total => (raw['total'] as num?)?.toInt() ?? 0;
   Map<String, int> get counts => _intMap(raw['counts']);
+
+  List<(String, int)> breakdownFor(List<WorkforceCategory> categories) {
+    final items = [
+      for (final c in categories)
+        if ((counts[c.key] ?? 0) > 0) (c.label, counts[c.key]!),
+    ]..sort((a, b) => b.$2.compareTo(a.$2));
+    return items;
+  }
 
   factory WorkforceDepartmentRow.fromJson(Map<String, dynamic> json) =>
       WorkforceDepartmentRow(raw: json);
@@ -150,6 +182,53 @@ class WorkforceDetailRow {
 
   factory WorkforceDetailRow.fromJson(Map<String, dynamic> json) =>
       WorkforceDetailRow(raw: json);
+}
+
+class WorkforceAbsentDepartment {
+  WorkforceAbsentDepartment({required this.raw});
+  final Map<String, dynamic> raw;
+
+  int get departmentId => (raw['departmentId'] as num?)?.toInt() ?? 0;
+  String get departmentName => (raw['departmentName'] as String?) ?? '';
+  int get total => (raw['total'] as num?)?.toInt() ?? 0;
+
+  List<WorkforceAbsentEmployee> get employees {
+    final list = raw['employees'];
+    if (list is! List) return const [];
+    return list
+        .whereType<Map>()
+        .map(
+          (e) => WorkforceAbsentEmployee.fromJson(e.cast<String, dynamic>()),
+        )
+        .toList();
+  }
+
+  factory WorkforceAbsentDepartment.fromJson(Map<String, dynamic> json) =>
+      WorkforceAbsentDepartment(raw: json);
+}
+
+class WorkforceAbsentEmployee {
+  WorkforceAbsentEmployee({required this.raw});
+  final Map<String, dynamic> raw;
+
+  int get employeeId => (raw['employeeId'] as num?)?.toInt() ?? 0;
+  String get employeeCode => (raw['employeeCode'] as String?) ?? '';
+  String get fullName => (raw['fullName'] as String?) ?? '';
+  int get departmentId => (raw['departmentId'] as num?)?.toInt() ?? 0;
+  String get departmentName => (raw['departmentName'] as String?) ?? '';
+  String get positionTitle => (raw['positionTitle'] as String?) ?? '';
+  String get employeeStatus => (raw['employeeStatus'] as String?) ?? '';
+
+  String get employeeStatusLabel => switch (employeeStatus) {
+        'ACTIVE' => 'Chính thức',
+        'PROBATION' => 'Thử việc',
+        'INTERN' => 'Thực tập',
+        'ON_LEAVE' => 'Tạm nghỉ',
+        _ => employeeStatus.isEmpty ? '—' : employeeStatus,
+      };
+
+  factory WorkforceAbsentEmployee.fromJson(Map<String, dynamic> json) =>
+      WorkforceAbsentEmployee(raw: json);
 }
 
 Map<String, int> _intMap(dynamic raw) {

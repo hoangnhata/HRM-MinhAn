@@ -3,40 +3,159 @@
     android:id="@+id/brandSplashRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/brand_primary_dark"
+    android:background="@drawable/splash_native_background"
     android:clickable="true"
     android:focusable="true">
 
+    <View
+        android:layout_width="230dp"
+        android:layout_height="230dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="-104dp"
+        android:layout_marginEnd="-72dp"
+        android:background="@drawable/splash_ambient_orb"
+        android:importantForAccessibility="no" />
+
+    <View
+        android:layout_width="200dp"
+        android:layout_height="200dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="-82dp"
+        android:layout_marginBottom="-64dp"
+        android:alpha="0.55"
+        android:background="@drawable/splash_ambient_orb"
+        android:importantForAccessibility="no" />
+
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
         android:gravity="center"
         android:orientation="vertical"
-        android:paddingHorizontal="32dp">
+        android:paddingHorizontal="28dp"
+        android:translationY="-10dp">
 
-        <ImageView
-            android:layout_width="176dp"
-            android:layout_height="176dp"
-            android:contentDescription="@null"
-            android:scaleType="fitCenter"
-            android:src="@drawable/splash_mark" />
+        <FrameLayout
+            android:id="@+id/splashLogoStage"
+            android:layout_width="224dp"
+            android:layout_height="224dp">
 
-        <TextView
+            <View
+                android:id="@+id/splashHaloPulse"
+                android:layout_width="224dp"
+                android:layout_height="224dp"
+                android:layout_gravity="center"
+                android:background="@drawable/splash_logo_glow"
+                android:importantForAccessibility="no" />
+
+            <View
+                android:layout_width="204dp"
+                android:layout_height="204dp"
+                android:layout_gravity="center"
+                android:background="@drawable/splash_halo_ring"
+                android:importantForAccessibility="no" />
+
+            <View
+                android:layout_width="190dp"
+                android:layout_height="190dp"
+                android:layout_gravity="center"
+                android:alpha="0.52"
+                android:background="@drawable/splash_halo_ring"
+                android:importantForAccessibility="no" />
+
+            <FrameLayout
+                android:layout_width="178dp"
+                android:layout_height="178dp"
+                android:layout_gravity="center"
+                android:background="@drawable/splash_logo_shell"
+                android:clipToOutline="true"
+                android:elevation="14dp"
+                android:padding="5dp">
+
+                <ImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/splash_mark" />
+            </FrameLayout>
+        </FrameLayout>
+
+        <LinearLayout
+            android:id="@+id/splashCopy"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:letterSpacing="0.02"
-            android:text="Bệnh viện Minh An"
-            android:textColor="#FFFFFF"
-            android:textSize="22sp"
-            android:textStyle="bold" />
+            android:gravity="center"
+            android:orientation="vertical">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="Hệ thống quản trị nhân sự"
-            android:textColor="#CCFFFFFF"
-            android:textSize="14sp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:fontFamily="sans-serif"
+                android:letterSpacing="-0.01"
+                android:text="Bệnh viện Minh An"
+                android:textColor="#FFFFFFFF"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:fontFamily="sans-serif"
+                android:letterSpacing="0.01"
+                android:text="Hệ thống quản trị nhân sự"
+                android:textColor="#DCFFFFFF"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:background="@drawable/splash_secure_chip"
+                android:drawableStart="@drawable/splash_lock"
+                android:drawablePadding="7dp"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:letterSpacing="0.12"
+                android:text="HRM  •  BẢO MẬT"
+                android:textAllCaps="true"
+                android:textColor="#F0FFFFFF"
+                android:textSize="10sp" />
+
+            <ProgressBar
+                android:id="@+id/splashProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="210dp"
+                android:layout_height="3dp"
+                android:layout_marginTop="30dp"
+                android:indeterminate="true"
+                android:indeterminateTint="#FFFFFFFF"
+                android:indeterminateTintMode="src_in" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.02"
+                android:text="Đang khởi tạo hệ thống…"
+                android:textColor="#C8FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/splashFooter"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="24dp"
+        android:fontFamily="sans-serif-medium"
+        android:letterSpacing="0.03"
+        android:text="An toàn  •  Bảo mật  •  Đồng bộ"
+        android:textColor="#70FFFFFF"
+        android:textSize="10sp" />
+
 </FrameLayout>

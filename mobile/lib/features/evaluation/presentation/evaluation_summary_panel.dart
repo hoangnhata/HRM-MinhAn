@@ -11,6 +11,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_motion.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/search_field.dart';
+import '../../../core/widgets/app_choice_chip.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../shared/models/nursing_evaluation.dart';
 import '../data/evaluation_repository.dart';
@@ -176,7 +177,7 @@ class _EvaluationSummaryPanelState
       isScrollControlled: true,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       builder: (ctx) {
         return StatefulBuilder(
@@ -221,13 +222,15 @@ class _EvaluationSummaryPanelState
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        _SheetChip(
+                        AppChoiceChip(
+                          muted: true,
                           label: 'Tất cả',
                           selected: status.isEmpty,
                           onTap: () => setLocal(() => status = ''),
                         ),
                         for (final g in EvaluationEnums.statusFilterGroups)
-                          _SheetChip(
+                          AppChoiceChip(
+                            muted: true,
                             label: g.$2,
                             selected: status == g.$1,
                             onTap: () => setLocal(() => status = g.$1),
@@ -254,13 +257,15 @@ class _EvaluationSummaryPanelState
                           spacing: 6,
                           runSpacing: 6,
                           children: [
-                            _SheetChip(
+                            AppChoiceChip(
+                              muted: true,
                               label: 'Tất cả khoa',
                               selected: dept.isEmpty,
                               onTap: () => setLocal(() => dept = ''),
                             ),
                             for (final d in depts)
-                              _SheetChip(
+                              AppChoiceChip(
+                                muted: true,
                                 label: d,
                                 selected: dept == d,
                                 onTap: () => setLocal(() => dept = d),
@@ -420,7 +425,7 @@ class _EvaluationSummaryPanelState
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _QuickChip(
+                AppChoiceChip(
                   label: 'Tất cả',
                   count: total,
                   selected: _bucket.isEmpty &&
@@ -433,21 +438,21 @@ class _EvaluationSummaryPanelState
                   }),
                 ),
                 const SizedBox(width: 6),
-                _QuickChip(
+                AppChoiceChip(
                   label: 'Đã duyệt',
                   count: approved,
                   selected: _bucket == 'approved',
                   onTap: () => _setBucket('approved'),
                 ),
                 const SizedBox(width: 6),
-                _QuickChip(
+                AppChoiceChip(
                   label: 'Chờ duyệt',
                   count: pending,
                   selected: _bucket == 'pending',
                   onTap: () => _setBucket('pending'),
                 ),
                 const SizedBox(width: 6),
-                _QuickChip(
+                AppChoiceChip(
                   label: 'Từ chối',
                   count: rejected,
                   selected: _bucket == 'rejected',
@@ -455,7 +460,7 @@ class _EvaluationSummaryPanelState
                 ),
                 if (_dept.isNotEmpty) ...[
                   const SizedBox(width: 6),
-                  _QuickChip(
+                  AppChoiceChip(
                     label: _dept,
                     selected: true,
                     onTap: () => setState(() => _dept = ''),
@@ -464,7 +469,7 @@ class _EvaluationSummaryPanelState
                 ],
                 if (_statusFilter.isNotEmpty) ...[
                   const SizedBox(width: 6),
-                  _QuickChip(
+                  AppChoiceChip(
                     label: EvaluationEnums.statusFilterGroups
                         .firstWhere(
                           (g) => g.$1 == _statusFilter,
@@ -768,104 +773,6 @@ class _HeroStatTap extends StatelessWidget {
   }
 }
 
-class _QuickChip extends StatelessWidget {
-  const _QuickChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-    this.count,
-    this.trailing,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  final int? count;
-  final IconData? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected
-          ? AppColors.primary.withValues(alpha: 0.14)
-          : AppColors.surface,
-      borderRadius: AppRadius.brPill,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brPill,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.brPill,
-            border: Border.all(
-              color: selected
-                  ? AppColors.primary.withValues(alpha: 0.4)
-                  : AppColors.borderSoft,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                count == null ? label : '$label · $count',
-                style: AppTypography.style(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: selected
-                      ? AppColors.primaryDark
-                      : AppColors.textSecondary,
-                ),
-              ),
-              if (trailing != null) ...[
-                const SizedBox(width: 4),
-                Icon(trailing, size: 14, color: AppColors.primaryDark),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SheetChip extends StatelessWidget {
-  const _SheetChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected
-          ? AppColors.primary.withValues(alpha: 0.14)
-          : AppColors.surfaceMuted,
-      borderRadius: AppRadius.brPill,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brPill,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-          child: Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: selected
-                  ? AppColors.primaryDark
-                  : AppColors.textSecondary,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({required this.row, this.onTap});
@@ -918,7 +825,7 @@ class _SummaryCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
-                          fontSize: 9.5,
+                          fontSize: 10,
                           fontWeight: FontWeight.w800,
                           color: gradeColor,
                         ),

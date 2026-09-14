@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -8,6 +9,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_ambient_background.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_date_picker.dart';
+import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notice_banner.dart';
@@ -209,6 +211,7 @@ class _AttendanceRequestFormScreenState
     setState(() => _submitting = false);
 
     if (ok) {
+      HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
         _isEditing ? 'Đã lưu thay đổi' : 'Đã gửi đơn nghỉ thành công',
@@ -298,14 +301,23 @@ class _AttendanceRequestFormScreenState
                               ),
                             ),
                     ),
-                    _LeaveTypeSwitch(
-                      selected: _type,
-                      onChanged: _isEditing
-                          ? null
-                          : (value) => setState(() {
-                                _type = value;
-                                _validationMessage = null;
-                              }),
+                    AppSegmentedControl(
+                      enabled: !_isEditing,
+                      selectedIndex: _type == 'UNPAID_LEAVE' ? 1 : 0,
+                      onChanged: (i) => setState(() {
+                        _type = i == 1 ? 'UNPAID_LEAVE' : 'LEAVE';
+                        _validationMessage = null;
+                      }),
+                      items: const [
+                        AppSegmentItem(
+                          label: 'Nghỉ phép năm',
+                          icon: Icons.beach_access_rounded,
+                        ),
+                        AppSegmentItem(
+                          label: 'Không lương',
+                          icon: Icons.money_off_rounded,
+                        ),
+                      ],
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     if (!unpaid) ...[
@@ -945,110 +957,6 @@ class _LeaveFlowStep extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _LeaveTypeSwitch extends StatelessWidget {
-  const _LeaveTypeSwitch({
-    required this.selected,
-    required this.onChanged,
-  });
-
-  final String selected;
-  final ValueChanged<String>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.all(6),
-      child: Row(
-        children: [
-          Expanded(
-            child: _LeaveTypeChip(
-              label: 'Nghỉ phép năm',
-              icon: Icons.beach_access_rounded,
-              selected: selected == 'LEAVE',
-              onTap: onChanged == null ? null : () => onChanged!('LEAVE'),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: _LeaveTypeChip(
-              label: 'Không lương',
-              icon: Icons.money_off_rounded,
-              selected: selected == 'UNPAID_LEAVE',
-              onTap: onChanged == null ? null : () => onChanged!('UNPAID_LEAVE'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LeaveTypeChip extends StatelessWidget {
-  const _LeaveTypeChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected
-          ? AppColors.primary.withValues(alpha: 0.12)
-          : AppColors.surfaceMuted,
-      borderRadius: AppRadius.brMd,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brMd,
-        child: AnimatedContainer(
-          duration: AppDurations.fast,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.brMd,
-            border: Border.all(
-              color: selected
-                  ? AppColors.primary.withValues(alpha: 0.45)
-                  : Colors.transparent,
-              width: 1.4,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 18,
-                color: selected ? AppColors.primary : AppColors.textSecondary,
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800,
-                    color: selected
-                        ? AppColors.primaryDark
-                        : AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

@@ -105,9 +105,6 @@ class RequestGenericCard extends StatelessWidget {
         ? DateTime.tryParse(raw['createdAt'] as String)
         : null;
     final title = employeeName ?? 'Đơn #${raw['id']}';
-    final accent = highlighted
-        ? AppColors.warning
-        : (accentColor ?? AppColors.primary);
     final meta = [
       position,
       department,
@@ -138,7 +135,6 @@ class RequestGenericCard extends StatelessWidget {
         color: AppColors.warning,
         child: AppCard(
           onTap: onTap,
-          accentColor: accent,
           padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,

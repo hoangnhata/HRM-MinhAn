@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/route_paths.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/utils/user_role.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/highlight_pulse.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../../../core/widgets/skeleton.dart';
@@ -124,9 +124,11 @@ class _AttendanceMyRequestsTabState
       );
     }
 
-    final canApprove = RoleGroups.isIn(
-      ref.watch(authControllerProvider).role,
-      RoleGroups.approvalManagers,
+    final auth = ref.watch(authControllerProvider);
+    final canApprove = RoleGroups.canApproveAttendance(
+      auth.role,
+      directorApprovalEnabled:
+          auth.currentUser?.directorApprovalEnabled ?? false,
     );
 
     final emptyTitle = switch (scope) {
@@ -193,9 +195,26 @@ class _AttendanceMyRequestsTabState
                       : 'Tìm tên, nội dung…',
                   leading: scope == AttendanceRequestScope.deployment
                       ? null
-                      : _QuickStatusSwitch(
-                          value: _quickStatus,
-                          onChanged: (v) => setState(() => _quickStatus = v),
+                      : AppSegmentedControl(
+                          expand: false,
+                          style: AppSegmentStyle.soft,
+                          selectedIndex: switch (_quickStatus) {
+                            '__pending__' => 1,
+                            '__done__' => 2,
+                            _ => 0,
+                          },
+                          onChanged: (i) => setState(() {
+                            _quickStatus = switch (i) {
+                              1 => '__pending__',
+                              2 => '__done__',
+                              _ => null,
+                            };
+                          }),
+                          items: const [
+                            AppSegmentItem(label: 'Tất cả'),
+                            AppSegmentItem(label: 'Chờ'),
+                            AppSegmentItem(label: 'Xong'),
+                          ],
                         ),
                 ),
                 const SizedBox(height: 4),
@@ -224,86 +243,3 @@ class _AttendanceMyRequestsTabState
   }
 }
 
-class _QuickStatusSwitch extends StatelessWidget {
-  const _QuickStatusSwitch({
-    required this.value,
-    required this.onChanged,
-  });
-
-  final String? value;
-  final ValueChanged<String?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: AppRadius.brPill,
-        border: Border.all(color: AppColors.borderSoft),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _QuickChip(
-            label: 'Tất cả',
-            selected: value == null,
-            onTap: () => onChanged(null),
-          ),
-          _QuickChip(
-            label: 'Chờ',
-            selected: value == '__pending__',
-            color: AppColors.warning,
-            onTap: () => onChanged(
-              value == '__pending__' ? null : '__pending__',
-            ),
-          ),
-          _QuickChip(
-            label: 'Xong',
-            selected: value == '__done__',
-            color: AppColors.success,
-            onTap: () => onChanged(value == '__done__' ? null : '__done__'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _QuickChip extends StatelessWidget {
-  const _QuickChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-    this.color,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = color ?? AppColors.primary;
-    return Material(
-      color: selected ? accent.withValues(alpha: 0.14) : Colors.transparent,
-      borderRadius: AppRadius.brPill,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-              color: selected ? accent : AppColors.textSecondary,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

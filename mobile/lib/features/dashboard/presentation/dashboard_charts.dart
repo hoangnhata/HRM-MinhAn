@@ -202,12 +202,7 @@ class StatusDonutChart extends StatefulWidget {
 class _StatusDonutChartState extends State<StatusDonutChart> {
   int? _touched;
 
-  static const _colors = [
-    AppColors.primary,
-    Color(0xFFE85D4C),
-    Color(0xFF5B8DEF),
-    AppColors.warning,
-  ];
+  static const _colors = AppColors.chartTrendPalette;
 
   void _press(int? index) {
     if (_touched == index) return;
@@ -652,16 +647,16 @@ class _StatusLegendRow extends StatelessWidget {
 Color nursingSubGroupColor(String label) {
   final lower = label.toLowerCase();
   if (lower.contains('điều dưỡng') || lower == 'dd') {
-    return const Color(0xFF0F766E);
+    return AppColors.roleNurse;
   }
-  if (lower.contains('ktv')) return const Color(0xFF0369A1);
+  if (lower.contains('ktv')) return AppColors.roleTechnician;
   if (lower.contains('hộ sinh') || lower.contains('ho sinh')) {
-    return const Color(0xFF7C3AED);
+    return AppColors.roleMidwife;
   }
   if (lower.contains('thư ký') || lower.contains('thu ky')) {
-    return const Color(0xFFBE185D);
+    return AppColors.roleSecretary;
   }
-  return const Color(0xFFB45309);
+  return AppColors.roleOther;
 }
 
 /// Phân bổ chức danh khối ĐD–KTV–HS–Thư ký — đồng bộ `bySubGroup` web.
@@ -792,7 +787,7 @@ class _NursingSubGroupChartState extends State<NursingSubGroupChart> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: AppTypography.style(
-                            fontSize: 9.5,
+                            fontSize: 10,
                             fontWeight: FontWeight.w600,
                             color: AppColors.textSecondary,
                           ),
@@ -937,14 +932,7 @@ class DepartmentBarChart extends StatefulWidget {
   /// `true` = không hiện tiêu đề trong card (đã có section header ngoài).
   final bool compact;
 
-  static const _palette = [
-    AppColors.primary,
-    Color(0xFF2A9D8F),
-    Color(0xFF457B9D),
-    Color(0xFF5C6BC0),
-    Color(0xFFE9A825),
-    Color(0xFF78909C),
-  ];
+  static const _palette = AppColors.chartCategoryPalette;
 
   @override
   State<DepartmentBarChart> createState() => _DepartmentBarChartState();
@@ -1375,7 +1363,7 @@ class _HiresAreaChartState extends State<HiresAreaChart> {
                   label: 'Trung bình',
                   value: avgHires.toStringAsFixed(avgHires >= 10 ? 0 : 1),
                   hint: '/tháng',
-                  color: const Color(0xFF5C6BC0),
+                  color: AppColors.chartIndigo,
                 ),
               ),
               const SizedBox(width: 8),

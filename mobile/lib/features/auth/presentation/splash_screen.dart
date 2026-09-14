@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/brand_mark.dart';
 
 /// Màn mở app — brand + load chuyên nghiệp (không dùng splash logo native).
 class SplashScreen extends StatefulWidget {
@@ -42,7 +43,10 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
-    _entrance.forward();
+    // Overlay brand native (MainActivity) đã chạy intro logo rồi mới fade sang
+    // Flutter. Nếu chạy lại entrance ở đây, người dùng thấy intro hai lần —
+    // nên splash Flutter vào thẳng trạng thái đã hoàn tất, chỉ còn loader động.
+    _entrance.value = 1;
     _statusTimer = Timer.periodic(const Duration(milliseconds: 1600), (_) {
       if (!mounted) return;
       setState(() {
@@ -83,9 +87,10 @@ class _SplashScreenState extends State<SplashScreen>
     ).animate(titleFade);
     final metaFade = _interval(0.38, 0.72);
     final loaderFade = _interval(0.52, 0.9);
-    final pulse = Tween<double>(begin: 0.96, end: 1.04).animate(
-      CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
-    );
+    final pulse = Tween<double>(
+      begin: 0.96,
+      end: 1.04,
+    ).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut));
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
@@ -208,8 +213,9 @@ class _SplashScreenState extends State<SplashScreen>
                                 color: AppColors.secondaryLight,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: AppColors.secondaryLight
-                                        .withValues(alpha: 0.55),
+                                    color: AppColors.secondaryLight.withValues(
+                                      alpha: 0.55,
+                                    ),
                                     blurRadius: 6,
                                   ),
                                 ],
@@ -267,10 +273,7 @@ class _SplashScreenState extends State<SplashScreen>
 }
 
 class _HospitalLogoBadge extends StatelessWidget {
-  const _HospitalLogoBadge({
-    required this.glow,
-    required this.shimmer,
-  });
+  const _HospitalLogoBadge({required this.glow, required this.shimmer});
 
   final Animation<double> glow;
   final Animation<double> shimmer;
@@ -337,7 +340,9 @@ class _HospitalLogoBadge extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.22 + breathe * 0.12),
+                    color: Colors.white.withValues(
+                      alpha: 0.22 + breathe * 0.12,
+                    ),
                     width: 1.6,
                   ),
                   boxShadow: [
@@ -356,18 +361,7 @@ class _HospitalLogoBadge extends StatelessWidget {
                   ],
                 ),
               ),
-              ClipOval(
-                child: Image.asset(
-                  'assets/images/logo_hd.png',
-                  width: _emblem,
-                  height: _emblem,
-                  fit: BoxFit.cover,
-                  filterQuality: FilterQuality.high,
-                  isAntiAlias: true,
-                  gaplessPlayback: true,
-                  semanticLabel: 'Logo Bệnh viện Minh An',
-                ),
-              ),
+              const BrandMark(size: _emblem),
               IgnorePointer(
                 child: Container(
                   width: _emblem,
@@ -450,10 +444,7 @@ class _LogoAuraRingPainter extends CustomPainter {
 }
 
 class _SplashLoader extends StatelessWidget {
-  const _SplashLoader({
-    required this.progress,
-    required this.status,
-  });
+  const _SplashLoader({required this.progress, required this.status});
 
   final Animation<double> progress;
   final String status;
@@ -475,9 +466,7 @@ class _SplashLoader extends StatelessWidget {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      ColoredBox(
-                        color: Colors.white.withValues(alpha: 0.14),
-                      ),
+                      ColoredBox(color: Colors.white.withValues(alpha: 0.14)),
                       FractionallySizedBox(
                         alignment: Alignment(-1.0 + t * 2.0, 0),
                         widthFactor: 0.38,
@@ -537,9 +526,7 @@ class _GlowOrb extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: [color, color.withValues(alpha: 0)],
-          ),
+          gradient: RadialGradient(colors: [color, color.withValues(alpha: 0)]),
         ),
       ),
     );

@@ -189,13 +189,13 @@ class _Body extends ConsumerWidget {
     final canTransfer =
         !terminated && (role == UserRole.admin || role == UserRole.hr);
     final canTrainingSeminar = !terminated &&
-        (role == UserRole.admin || role == UserRole.headDepartment);
+        (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
     final canMainDuty = !terminated &&
         !s.mainDutyAuthorized &&
-        (role == UserRole.admin || role == UserRole.headDepartment);
+        (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
     final canConversion = !terminated &&
         detail.isTrialEmployee &&
-        (role == UserRole.admin || role == UserRole.headDepartment);
+        (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
 
     final action = await showAppBottomSheet<String>(
       context,
@@ -421,14 +421,14 @@ class _Body extends ConsumerWidget {
     final canEditTerminate = role == UserRole.admin || role == UserRole.hr;
     final canTransfer = role == UserRole.admin || role == UserRole.hr;
     final canTrainingSeminar =
-        role == UserRole.admin || role == UserRole.headDepartment;
+        role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role);
     final terminated = (s.status ?? '').toUpperCase() == 'TERMINATED';
     final canMainDuty = !terminated &&
         !s.mainDutyAuthorized &&
-        (role == UserRole.admin || role == UserRole.headDepartment);
+        (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
     final canConversion = !terminated &&
         detail.isTrialEmployee &&
-        (role == UserRole.admin || role == UserRole.headDepartment);
+        (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
     final canShowActions = canEditTerminate ||
         canTransfer ||
         canTrainingSeminar ||

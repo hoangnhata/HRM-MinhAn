@@ -178,9 +178,9 @@ class _ContinuousShiftScreenState extends ConsumerState<ContinuousShiftScreen> {
     return cells;
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     setState(() {
-      _loading = true;
+      if (!silent) _loading = true;
       _error = null;
     });
     try {
@@ -366,7 +366,11 @@ class _ContinuousShiftScreenState extends ConsumerState<ContinuousShiftScreen> {
               Expanded(
                 child: _loading
                     ? const SkeletonList(itemCount: 6)
-                    : ListView(
+                    : RefreshIndicator(
+                        color: AppColors.primary,
+                        onRefresh: () => _load(silent: true),
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(
                           AppSpacing.page,
                           10,
@@ -486,6 +490,7 @@ class _ContinuousShiftScreenState extends ConsumerState<ContinuousShiftScreen> {
                             ),
                           ),
                         ],
+                      ),
                       ),
               ),
             ],
@@ -693,7 +698,7 @@ class _ShiftTypeCard extends StatelessWidget {
                     child: Text(
                       type.kind.shortLabel,
                       style: AppTypography.style(
-                        fontSize: 9.5,
+                        fontSize: 10,
                         fontWeight: FontWeight.w800,
                         color: type.isSplit
                             ? AppColors.primaryDark
@@ -1026,7 +1031,7 @@ class _DayCell extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppTypography.style(
-                      fontSize: 8.5,
+                      fontSize: 10,
                       fontWeight: FontWeight.w800,
                       height: 1.05,
                       color: color,

@@ -82,7 +82,7 @@ class EvaluationCard extends StatelessWidget {
                               Text(
                                 'Th',
                                 style: AppTypography.style(
-                                  fontSize: 9,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.w700,
                                   color: gradeColor.withValues(alpha: 0.8),
                                 ),

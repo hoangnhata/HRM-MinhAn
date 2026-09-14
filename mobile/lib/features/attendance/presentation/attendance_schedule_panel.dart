@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/status_chip.dart';
 import '../../../shared/models/attendance_models.dart';
 import '../application/attendance_schedule_provider.dart';
 
@@ -79,6 +80,8 @@ class AttendanceSchedulePanel extends StatelessWidget {
                           if ((sch.periodLabel ?? '').isNotEmpty)
                             'Áp dụng ${sch.periodLabel}',
                         ].join(' · '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
                           fontSize: 12,
                           color: AppColors.textSecondary,
@@ -101,7 +104,7 @@ class AttendanceSchedulePanel extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _StatusChip(
+                StatusChip(
                   icon: sch.summer
                       ? Icons.wb_sunny_rounded
                       : Icons.ac_unit_rounded,
@@ -116,20 +119,19 @@ class AttendanceSchedulePanel extends StatelessWidget {
                     onTap: onProposeShiftConfigChange!,
                   ),
                 if (youngChild)
-                  _StatusChip(
+                  StatusChip(
                     icon: Icons.child_care_rounded,
                     label: 'Nuôi con nhỏ (−1h)',
                     color: const Color(0xFFC2410C),
-                    emphasized: true,
                   ),
                 if (view.continuousDayCount > 0)
-                  _StatusChip(
+                  StatusChip(
                     icon: Icons.timeline_rounded,
                     label: '${view.continuousDayCount} ngày TT',
                     color: AppColors.success,
                   ),
                 if (view.splitDayCount > 0)
-                  _StatusChip(
+                  StatusChip(
                     icon: Icons.schedule_rounded,
                     label: '${view.splitDayCount} ngày SC',
                     color: AppColors.primaryDark,
@@ -253,47 +255,6 @@ class AttendanceSchedulePanel extends StatelessWidget {
     final a = DayShiftSchedule.displayTime(start) ?? '—';
     final b = DayShiftSchedule.displayTime(end) ?? '—';
     return '$a → $b';
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({
-    required this.icon,
-    required this.label,
-    required this.color,
-    this.emphasized = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color color;
-  final bool emphasized;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: emphasized ? 0.16 : 0.1),
-        borderRadius: AppRadius.brPill,
-        border: Border.all(color: color.withValues(alpha: 0.28)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

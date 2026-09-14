@@ -281,6 +281,8 @@ class TypedDetailKV extends StatelessWidget {
             child: Text(
               value,
               textAlign: TextAlign.right,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
               style: AppTypography.style(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,

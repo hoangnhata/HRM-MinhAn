@@ -27,22 +27,35 @@ class AppRadius {
   static const double bottomSheet = 22;
   static const double snackbar = 12;
 
-  static BorderRadius get brXs => BorderRadius.circular(xs);
-  static BorderRadius get brSm => BorderRadius.circular(sm);
-  static BorderRadius get brMd => BorderRadius.circular(md);
-  static BorderRadius get brLg => BorderRadius.circular(lg);
-  static BorderRadius get brXl => BorderRadius.circular(xl);
-  static BorderRadius get brPill => BorderRadius.circular(pill);
+  /// Bán kính dựng sẵn dạng `const` — dùng được cả trong `const BoxDecoration`,
+  /// nên màn hình không phải viết `BorderRadius.circular(<số>)` nữa.
+  static const BorderRadius brXs = BorderRadius.all(Radius.circular(xs));
+  static const BorderRadius brSm = BorderRadius.all(Radius.circular(sm));
+  static const BorderRadius brMd = BorderRadius.all(Radius.circular(md));
+  static const BorderRadius brLg = BorderRadius.all(Radius.circular(lg));
+  static const BorderRadius brXl = BorderRadius.all(Radius.circular(xl));
+  static const BorderRadius brPill = BorderRadius.all(Radius.circular(pill));
 
-  static BorderRadius get brChipSmall => BorderRadius.circular(chipSmall);
-  static BorderRadius get brChip => BorderRadius.circular(chip);
-  static BorderRadius get brControl => BorderRadius.circular(control);
-  static BorderRadius get brBase => BorderRadius.circular(base);
-  static BorderRadius get brPaper => BorderRadius.circular(paper);
-  static BorderRadius get brCard => BorderRadius.circular(card);
-  static BorderRadius get brDialog => BorderRadius.circular(dialog);
-  static BorderRadius get brBottomSheet => BorderRadius.circular(bottomSheet);
-  static BorderRadius get brSnackbar => BorderRadius.circular(snackbar);
+  static const BorderRadius brChipSmall =
+      BorderRadius.all(Radius.circular(chipSmall));
+  static const BorderRadius brChip = BorderRadius.all(Radius.circular(chip));
+  static const BorderRadius brControl =
+      BorderRadius.all(Radius.circular(control));
+  static const BorderRadius brBase = BorderRadius.all(Radius.circular(base));
+  static const BorderRadius brPaper = BorderRadius.all(Radius.circular(paper));
+  static const BorderRadius brCard = BorderRadius.all(Radius.circular(card));
+  static const BorderRadius brDialog =
+      BorderRadius.all(Radius.circular(dialog));
+  static const BorderRadius brBottomSheet =
+      BorderRadius.all(Radius.circular(bottomSheet));
+  static const BorderRadius brSnackbar =
+      BorderRadius.all(Radius.circular(snackbar));
+
+  /// Đỉnh bottom sheet — dùng cho mọi `showModalBottomSheet` để các sheet
+  /// trong app không lệch nhau 16/20/22/24 như trước.
+  static const BorderRadius brSheetTop = BorderRadius.vertical(
+    top: Radius.circular(bottomSheet),
+  );
 }
 
 /// Thang khoảng cách 4pt, với nhịp chính 8pt giống `theme.spacing = 8` của web.
@@ -188,6 +201,19 @@ class AppGradients {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [AppColors.primary, AppColors.primaryLight],
+  );
+
+  /// Hero gradient trên Dashboard — cùng họ brand nhưng sáng dần về góc phải
+  /// để khối hero không "chìm" vào header.
+  static const LinearGradient brandHero = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      AppColors.primaryDark,
+      AppColors.primary,
+      AppColors.heroGradientEnd,
+    ],
+    stops: [0.0, 0.55, 1.0],
   );
 
   static const LinearGradient gold = LinearGradient(

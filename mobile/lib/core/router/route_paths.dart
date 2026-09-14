@@ -36,6 +36,15 @@ class RoutePaths {
   static const salaryAdminProfile = '/salary/admin/profile';
   static const salaryGradeReviews = '/salary/admin/grade-reviews';
   static const workforceReports = '/reports/workforce';
+  static const workforceDepartmentDetail = '/reports/workforce/department';
+  static const workforceAbsentDepartmentDetail =
+      '/reports/workforce/absent-department';
+  static const nursingDailyReports = '/reports/nursing-daily';
+  static const nursingActivityReports = '/reports/nursing-activity';
+  static const qtktEvaluations = '/reports/qtkt';
+  static const qtktComplianceReports = '/reports/qtkt-compliance';
+  static const professionalQualificationReports =
+      '/reports/professional-qualification';
   static const departments = '/departments';
   static const profileEdit = '/profile/edit';
   static const profileChangePassword = '/profile/change-password';
@@ -48,11 +57,10 @@ class RoutePaths {
   static String employeeDetailPath(int id) => '/employees/$id';
   static const String employeeMePath = '/employees/me';
   static String employeeEditPath(int id) => '/employees/$id/edit';
-  static String employeeCreatePath({bool trial = false}) =>
-      Uri(
-        path: employeeCreate,
-        queryParameters: trial ? {'mode': 'trial'} : null,
-      ).toString();
+  static String employeeCreatePath({bool trial = false}) => Uri(
+    path: employeeCreate,
+    queryParameters: trial ? {'mode': 'trial'} : null,
+  ).toString();
   static String attendanceRequestDetailPath(int id) =>
       '/attendance/requests/$id';
   static String attendanceContinuousShiftPath({
@@ -71,6 +79,7 @@ class RoutePaths {
       },
     ).toString();
   }
+
   static String evaluationDetailPath(int id) => '/evaluation/$id';
   static String evaluationScorePath({
     required int employeeId,
@@ -87,12 +96,12 @@ class RoutePaths {
       },
     ).toString();
   }
-  static String workforceReportsPath({bool daily = false}) => daily
-      ? '$workforceReports?mode=daily'
-      : workforceReports;
+
+  static String workforceReportsPath({bool daily = false}) =>
+      daily ? '$workforceReports?mode=daily' : workforceReports;
   static String requestTypeListPath(String type) => '/requests/$type';
-  static String requestDetailPath(String type, int id) =>
-      '/requests/$type/$id';
+  static String requestDetailPath(String type, int id) => '/requests/$type/$id';
+
   /// Không truyền [employeeId] → màn chọn nhân viên trước khi lập phiếu.
   static String requestCreatePath(
     String type, {
@@ -107,11 +116,7 @@ class RoutePaths {
   }
 
   /// Danh sách + khoanh đơn đích (từ thông báo) — không mở chi tiết.
-  static String withListFocus(
-    String path, {
-    int? id,
-    String? tab,
-  }) {
+  static String withListFocus(String path, {int? id, String? tab}) {
     final params = <String, String>{};
     if (id != null) {
       params['id'] = '$id';

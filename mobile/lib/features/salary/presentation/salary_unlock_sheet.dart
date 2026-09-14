@@ -95,7 +95,7 @@ class _SalaryUnlockSheetState extends State<_SalaryUnlockSheet> {
       child: Container(
         decoration: const BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          borderRadius: AppRadius.brSheetTop,
         ),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),

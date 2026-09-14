@@ -82,6 +82,26 @@ class AppColors {
 
   static const List<Color> appBarGradient = [primaryDark, primary, appBarMid];
 
+  /// Điểm cuối gradient hero trên Dashboard — sáng hơn `brandGradientEnd` để
+  /// khối hero tách khỏi header phía trên.
+  static const Color heroGradientEnd = Color(0xFF15968E);
+
+  /// Sắc trang trí trên nền brand (minh hoạ, ring tiến độ, dot cảnh báo).
+  static const Color onBrandSoft = Color(0xFF8FCFC6);
+  static const Color onBrandRing = Color(0xFF9DE8D6);
+  static const Color onBrandAlert = Color(0xFFFFA8B4);
+  static const Color onBrandAlertSoft = Color(0xFFFFD2D8);
+
+  /// Màu nhận diện từng module nghiệp vụ — dùng chung cho shortcut dashboard,
+  /// chip và biểu đồ để một module luôn xuất hiện với cùng một sắc.
+  static const Color moduleEmployee = Color(0xFF2A7B9B);
+  static const Color moduleEvaluation = Color(0xFF2A7B9B);
+  static const Color moduleNursingDaily = Color(0xFF0F766E);
+  static const Color moduleQtkt = Color(0xFF7C3AED);
+  static const Color moduleNursingActivity = Color(0xFFB45309);
+  static const Color moduleQtktCompliance = Color(0xFFBE185D);
+  static const Color moduleDeployment = Color(0xFF0369A1);
+
   static const List<Color> chartPalette = [
     Color(0xFF0F766E),
     Color(0xFF0369A1),
@@ -91,6 +111,40 @@ class AppColors {
     secondary,
     info,
   ];
+
+  /// Sắc chart bổ trợ — đặt tên để dashboard và báo cáo dùng lại cùng một bộ.
+  static const Color chartCoral = Color(0xFFE85D4C);
+  static const Color chartAzure = Color(0xFF5B8DEF);
+  static const Color chartTeal = Color(0xFF2A9D8F);
+  static const Color chartSteel = Color(0xFF457B9D);
+  static const Color chartIndigo = Color(0xFF5C6BC0);
+  static const Color chartAmber = Color(0xFFE9A825);
+  static const Color chartSlate = Color(0xFF78909C);
+
+  /// Chart xu hướng — ít nhóm, cần tương phản mạnh.
+  static const List<Color> chartTrendPalette = [
+    primary,
+    chartCoral,
+    chartAzure,
+    warning,
+  ];
+
+  /// Chart phân loại nhiều nhóm (pie / stacked) — sắc dịu, không tranh nhau.
+  static const List<Color> chartCategoryPalette = [
+    primary,
+    chartTeal,
+    chartSteel,
+    chartIndigo,
+    chartAmber,
+    chartSlate,
+  ];
+
+  /// Sắc theo chức danh khối Điều dưỡng (ĐD · KTV · Hộ sinh · Thư ký · khác).
+  static const Color roleNurse = Color(0xFF0F766E);
+  static const Color roleTechnician = Color(0xFF0369A1);
+  static const Color roleMidwife = Color(0xFF7C3AED);
+  static const Color roleSecretary = Color(0xFFBE185D);
+  static const Color roleOther = Color(0xFFB45309);
 
   static Color statusColor(String key) {
     switch (key.trim().toLowerCase()) {

@@ -1,8 +1,14 @@
 package com.minhan.hrm.hrm_mobile
 
+import android.animation.Animator
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import io.flutter.embedding.android.FlutterActivity
@@ -13,6 +19,7 @@ import io.flutter.embedding.android.FlutterActivity
  */
 class MainActivity : FlutterActivity() {
   private var brandSplash: View? = null
+  private val splashAnimators = mutableListOf<Animator>()
 
   override fun onCreate(savedInstanceState: Bundle?) {
     val splashScreen = installSplashScreen()
@@ -27,20 +34,102 @@ class MainActivity : FlutterActivity() {
       ),
     )
     brandSplash = overlay
+    startBrandSplashAnimations(overlay)
 
-    // Thoát system splash ngay — overlay brand đã phủ.
+    // Chuyển mềm từ splash hệ thống sang lớp brand đầy đủ.
     splashScreen.setOnExitAnimationListener { provider ->
-      provider.remove()
+      provider.view.animate()
+        .alpha(0f)
+        .setDuration(180)
+        .setInterpolator(DecelerateInterpolator())
+        .withEndAction { provider.remove() }
+        .start()
     }
+  }
+
+  private fun startBrandSplashAnimations(root: View) {
+    val logo = root.findViewById<View>(R.id.splashLogoStage)
+    val copy = root.findViewById<View>(R.id.splashCopy)
+    val footer = root.findViewById<View>(R.id.splashFooter)
+    val halo = root.findViewById<View>(R.id.splashHaloPulse)
+
+    logo.alpha = 0f
+    logo.scaleX = 0.84f
+    logo.scaleY = 0.84f
+    logo.translationY = 18f
+    logo.animate()
+      .alpha(1f)
+      .scaleX(1f)
+      .scaleY(1f)
+      .translationY(0f)
+      .setStartDelay(70)
+      .setDuration(620)
+      .setInterpolator(OvershootInterpolator(0.72f))
+      .start()
+
+    copy.alpha = 0f
+    copy.translationY = 16f
+    copy.animate()
+      .alpha(1f)
+      .translationY(0f)
+      .setStartDelay(220)
+      .setDuration(480)
+      .setInterpolator(DecelerateInterpolator())
+      .start()
+
+    footer.alpha = 0f
+    footer.animate()
+      .alpha(1f)
+      .setStartDelay(420)
+      .setDuration(420)
+      .start()
+
+    val haloPulse = ObjectAnimator.ofPropertyValuesHolder(
+      halo,
+      PropertyValuesHolder.ofFloat(View.SCALE_X, 0.92f, 1.07f),
+      PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.92f, 1.07f),
+      PropertyValuesHolder.ofFloat(View.ALPHA, 0.42f, 0.88f),
+    ).apply {
+      startDelay = 520
+      duration = 1750
+      repeatCount = ObjectAnimator.INFINITE
+      repeatMode = ObjectAnimator.REVERSE
+      interpolator = AccelerateDecelerateInterpolator()
+    }
+
+    val logoBreath = ObjectAnimator.ofPropertyValuesHolder(
+      logo,
+      PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.018f),
+      PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.018f),
+    ).apply {
+      startDelay = 900
+      duration = 2100
+      repeatCount = ObjectAnimator.INFINITE
+      repeatMode = ObjectAnimator.REVERSE
+      interpolator = AccelerateDecelerateInterpolator()
+    }
+
+    splashAnimators += haloPulse
+    splashAnimators += logoBreath
+    haloPulse.start()
+    logoBreath.start()
   }
 
   override fun onFlutterUiDisplayed() {
     super.onFlutterUiDisplayed()
     val view = brandSplash ?: return
     brandSplash = null
+    splashAnimators.forEach(Animator::cancel)
+    splashAnimators.clear()
+    view.findViewById<View>(R.id.splashLogoStage)?.animate()
+      ?.scaleX(1.035f)
+      ?.scaleY(1.035f)
+      ?.setDuration(280)
+      ?.start()
     view.animate()
       .alpha(0f)
-      .setDuration(220)
+      .setDuration(320)
+      .setInterpolator(AccelerateDecelerateInterpolator())
       .withEndAction {
         (view.parent as? ViewGroup)?.removeView(view)
       }

@@ -17,6 +17,7 @@ import '../../../core/widgets/brand_mark.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/notification_bell_button.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/list_section_title.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../notifications/application/notification_controller.dart';
 import '../../profile/data/profile_repository.dart';
@@ -56,9 +57,7 @@ class DashboardScreen extends ConsumerWidget {
         onRefresh: () async {
           final refreshes = <Future<Object?>>[
             ref.read(authControllerProvider.notifier).refreshCurrentUser(),
-            ref
-                .read(notificationControllerProvider.notifier)
-                .pollQuietly(),
+            ref.read(notificationControllerProvider.notifier).pollQuietly(),
           ];
           if (showAdminStats) {
             refreshes.add(ref.refresh(dashboardAdminStatsProvider.future));
@@ -101,7 +100,7 @@ class DashboardScreen extends ConsumerWidget {
 class _DashboardTopBar extends ConsumerWidget {
   const _DashboardTopBar();
 
-  static const double _actionSize = 42;
+  static const double _actionSize = 44;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -151,22 +150,25 @@ class _DashboardTopBar extends ConsumerWidget {
           ),
           Row(
             children: [
-              Container(
-                width: _actionSize,
-                height: _actionSize,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.16),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
+              Transform.translate(
+                offset: const Offset(0, 2),
+                child: Container(
+                  width: _actionSize,
+                  height: _actionSize,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primaryDark.withValues(alpha: 0.26),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: const BrandMark(size: _actionSize),
                 ),
-                clipBehavior: Clip.antiAlias,
-                child: const BrandMark(size: 42),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -253,8 +255,7 @@ class _HeaderAvatarButton extends StatelessWidget {
             child: AppAvatar(
               name: name,
               size: _DashboardTopBar._actionSize,
-              authImageUrl:
-                  hasAvatar ? ProfileRepository.myAvatarUrl : null,
+              authImageUrl: hasAvatar ? ProfileRepository.myAvatarUrl : null,
               borderColor: Colors.white.withValues(alpha: 0.92),
               borderWidth: 1.8,
             ),
@@ -275,7 +276,7 @@ class _WelcomeHeroCard extends ConsumerWidget {
     final name = auth.currentUser?.displayName ?? auth.fullName ?? '';
     final role = auth.role;
     final (title, description) = switch (role) {
-      UserRole.admin || UserRole.hr => (
+      UserRole.admin || UserRole.hr || UserRole.headHr => (
         'Tổng quan nhân sự',
         'Theo dõi nguồn lực, phòng ban và các chỉ số vận hành của bệnh viện.',
       ),
@@ -304,7 +305,7 @@ class _WelcomeHeroCard extends ConsumerWidget {
             ],
             stops: const [0.0, 0.62, 1.0],
           ),
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: AppRadius.brXl,
           border: Border.all(color: AppColors.primary.withValues(alpha: 0.12)),
           boxShadow: [
             BoxShadow(
@@ -469,8 +470,7 @@ class _HospitalPainter extends CustomPainter {
     final h = size.height;
     final building = Paint()..color = AppColors.primary.withValues(alpha: 0.22);
     final accent = Paint()..color = AppColors.primary.withValues(alpha: 0.38);
-    final soft = Paint()
-      ..color = const Color(0xFF8FCFC6).withValues(alpha: 0.45);
+    final soft = Paint()..color = AppColors.onBrandSoft.withValues(alpha: 0.45);
 
     // Cây trái/phải
     canvas.drawCircle(Offset(w * 0.14, h * 0.72), w * 0.12, soft);
@@ -530,98 +530,18 @@ class _HospitalPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    required this.icon,
-    this.actionLabel,
-    this.onAction,
-  });
-
-  final String title;
-  final IconData icon;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.page,
-        AppSpacing.lg,
-        AppSpacing.page,
-        AppSpacing.sm,
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: AppRadius.brSm,
-            ),
-            child: Icon(icon, size: 16, color: AppColors.primary),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              title,
-              style: AppTypography.style(
-                fontSize: 16.5,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.25,
-              ),
-            ),
-          ),
-          if (actionLabel != null)
-            TextButton(
-              onPressed: onAction,
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                minimumSize: const Size(48, 40),
-                foregroundColor: AppColors.primary,
-              ),
-              child: Text(
-                actionLabel!,
-                style: AppTypography.style(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Hero + 2 chỉ số phụ — bố cục mobile, dữ liệu đồng bộ web.
-class _SpotlightMetric {
-  const _SpotlightMetric({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-    this.hint,
-  });
-
-  final String label;
-  final int value;
-  final IconData icon;
-  final Color color;
-  final String? hint;
-}
-
 class _AdminPulseBlock extends StatelessWidget {
   const _AdminPulseBlock({
     required this.working,
     required this.totalEmployees,
+    required this.maternityLeave,
+    required this.departments,
   });
 
   final int working;
   final int totalEmployees;
+  final int maternityLeave;
+  final int departments;
 
   @override
   Widget build(BuildContext context) {
@@ -629,259 +549,252 @@ class _AdminPulseBlock extends StatelessWidget {
         ? 0.0
         : (working / totalEmployees).clamp(0.0, 1.0);
 
-    return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppColors.primaryDark,
-                AppColors.primary,
-                AppColors.primary.withValues(alpha: 0.88),
-              ],
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label:
+          'Tổng quan nhân sự toàn viện, $totalEmployees nhân viên, '
+          '$working đang làm việc, $maternityLeave nghỉ thai sản, '
+          '$departments khoa phòng',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        decoration: BoxDecoration(
+          gradient: AppGradients.brandHero,
+          borderRadius: AppRadius.brXl,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primaryDark.withValues(alpha: 0.24),
+              blurRadius: 30,
+              offset: const Offset(0, 14),
             ),
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primaryDark.withValues(alpha: 0.28),
-                blurRadius: 22,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -18,
-                top: -24,
-                child: IgnorePointer(
-                  child: Container(
-                    width: 110,
-                    height: 110,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.08),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              right: -48,
+              top: -54,
+              child: IgnorePointer(
+                child: Container(
+                  width: 172,
+                  height: 172,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        Colors.white.withValues(alpha: 0.14),
+                        Colors.white.withValues(alpha: 0),
+                      ],
                     ),
                   ),
                 ),
               ),
-              Positioned(
-                right: 8,
-                bottom: -28,
-                child: IgnorePointer(
-                  child: Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.06),
-                    ),
+            ),
+            Positioned(
+              left: -60,
+              bottom: -86,
+              child: IgnorePointer(
+                child: Container(
+                  width: 180,
+                  height: 180,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.secondaryLight.withValues(alpha: 0.06),
                   ),
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: AppRadius.brSm,
-                        ),
-                        child: const Icon(
-                          Icons.trending_up_rounded,
-                          color: Colors.white,
-                          size: 20,
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.14),
+                        borderRadius: AppRadius.brMd,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.14),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Đang làm việc',
-                              style: AppTypography.style(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white.withValues(alpha: 0.9),
-                              ),
-                            ),
-                            Text(
-                              'So với tổng hồ sơ nhân sự',
-                              style: AppTypography.style(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.white.withValues(alpha: 0.68),
-                              ),
-                            ),
-                          ],
-                        ),
+                      child: const Icon(
+                        Icons.groups_rounded,
+                        color: Colors.white,
+                        size: 22,
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: AppRadius.brPill,
-                        ),
-                        child: Text(
-                          '${(ratio * 100).toStringAsFixed(0)}%',
-                          style: AppTypography.style(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'NHÂN SỰ TOÀN VIỆN',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.style(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.9,
+                              color: Colors.white.withValues(alpha: 0.68),
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            AppFormat.number(working),
-                            style: AppTypography.metric(
-                              fontSize: 40,
+                          const SizedBox(height: 3),
+                          Text(
+                            'Quản trị nguồn lực bệnh viện',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.style(
+                              fontSize: 12,
                               fontWeight: FontWeight.w700,
                               color: Colors.white,
                             ),
                           ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.13),
+                        borderRadius: AppRadius.brPill,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.14),
                         ),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          '/ ${AppFormat.number(totalEmployees)} hồ sơ',
-                          style: AppTypography.style(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white.withValues(alpha: 0.75),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: const BoxDecoration(
+                              color: AppColors.onBrandAlert,
+                              shape: BoxShape.circle,
+                            ),
                           ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$maternityLeave nghỉ thai sản',
+                            style: AppTypography.style(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'TỔNG NHÂN SỰ ĐANG QUẢN LÝ',
+                  style: AppTypography.style(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.85,
+                    color: Colors.white.withValues(alpha: 0.62),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Flexible(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                AppFormat.number(totalEmployees),
+                                style: AppTypography.metric(
+                                  fontSize: 48,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Text(
+                              'nhân viên',
+                              style: AppTypography.style(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white.withValues(alpha: 0.82),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    _DashboardRatioRing(
+                      value: ratio,
+                      label: 'đang làm',
+                      color: AppColors.onBrandRing,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.105),
+                    borderRadius: AppRadius.brLg,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.13),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _DashboardHeroStat(
+                          icon: Icons.work_outline_rounded,
+                          label: 'Đang làm',
+                          value: working,
+                        ),
+                      ),
+                      _DashboardGlassDivider(),
+                      Expanded(
+                        child: _DashboardHeroStat(
+                          icon: Icons.pregnant_woman_rounded,
+                          label: 'Nghỉ thai sản',
+                          value: maternityLeave,
+                          highlight: maternityLeave > 0,
+                        ),
+                      ),
+                      _DashboardGlassDivider(),
+                      Expanded(
+                        child: _DashboardHeroStat(
+                          icon: Icons.apartment_rounded,
+                          label: 'Khoa/phòng',
+                          value: departments,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: AppRadius.brPill,
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: ratio),
-                      duration: AppDurations.slow,
-                      curve: Curves.easeOutCubic,
-                      builder: (context, value, _) {
-                        return LinearProgressIndicator(
-                          value: value,
-                          minHeight: 7,
-                          backgroundColor:
-                              Colors.white.withValues(alpha: 0.18),
-                          valueColor: const AlwaysStoppedAnimation(
-                            Colors.white,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-  }
-}
-
-class _SpotlightSideCard extends StatelessWidget {
-  const _SpotlightSideCard({required this.item});
-
-  final _SpotlightMetric item;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: item.color.withValues(alpha: 0.14)),
-        boxShadow: [
-          BoxShadow(
-            color: item.color.withValues(alpha: 0.1),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  item.color.withValues(alpha: 0.2),
-                  item.color.withValues(alpha: 0.08),
-                ],
-              ),
-              borderRadius: AppRadius.brSm,
-            ),
-            child: Icon(item.icon, size: 20, color: item.color),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textSecondary,
-                  ),
                 ),
-                const SizedBox(height: 2),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    AppFormat.number(item.value),
-                    style: AppTypography.metric(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: item.color,
-                    ),
-                  ),
-                ),
-                if (item.hint != null)
-                  Text(
-                    item.hint!,
-                    style: AppTypography.style(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -904,7 +817,7 @@ class SummaryStatGrid extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          const gap = 14.0;
+          const gap = 12.0;
           final scale = MediaQuery.textScalerOf(context).scale(1);
           final columns = constraints.maxWidth < 340 || scale > 1.25 ? 1 : 2;
           final tileW = (constraints.maxWidth - (columns - 1) * gap) / columns;
@@ -915,6 +828,11 @@ class SummaryStatGrid extends StatelessWidget {
               for (final item in items)
                 SizedBox(
                   width: tileW,
+                  height: scale > 1.25
+                      ? 148
+                      : columns == 1
+                      ? 112
+                      : 124,
                   child: _SummaryStatCard(item: item),
                 ),
             ],
@@ -949,118 +867,125 @@ class _SummaryStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.surface,
-            item.color.withValues(alpha: 0.05),
-          ],
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: '${item.label}: ${item.value} ${item.unit}',
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadius.brLg,
+          border: Border.all(color: item.color.withValues(alpha: 0.15)),
+          boxShadow: AppShadows.soft,
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: item.color.withValues(alpha: 0.12)),
-        boxShadow: [
-          BoxShadow(
-            color: item.color.withValues(alpha: 0.07),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          Positioned(
-            right: -16,
-            top: -18,
-            child: IgnorePointer(
-              child: Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: item.color.withValues(alpha: 0.07),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            Positioned(
+              right: -24,
+              top: -26,
+              child: IgnorePointer(
+                child: Container(
+                  width: 76,
+                  height: 76,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: item.color.withValues(alpha: 0.055),
+                  ),
                 ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: item.color.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(item.icon, size: 15, color: item.color),
-                    ),
-                    const Spacer(),
-                    if (item.accent != null)
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
+                        width: 34,
+                        height: 34,
                         decoration: BoxDecoration(
-                          color: item.color.withValues(alpha: 0.12),
-                          borderRadius: AppRadius.brPill,
+                          color: item.color.withValues(alpha: 0.1),
+                          borderRadius: AppRadius.brSm,
                         ),
-                        child: Text(
-                          item.accent!,
-                          style: AppTypography.style(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w800,
-                            color: item.color,
+                        child: Icon(item.icon, size: 17, color: item.color),
+                      ),
+                      const Spacer(),
+                      if (item.accent != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: item.color.withValues(alpha: 0.09),
+                            borderRadius: AppRadius.brPill,
+                          ),
+                          child: Text(
+                            item.accent!,
+                            maxLines: 1,
+                            style: AppTypography.style(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: item.color,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Text(
+                    item.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.style(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            AppFormat.number(item.value),
+                            style: AppTypography.metric(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
                         ),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textSecondary,
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text(
+                            item.unit,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.style(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 2),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    AppFormat.number(item.value),
-                    style: AppTypography.metric(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ),
-                Text(
-                  item.unit,
-                  style: AppTypography.style(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textTertiary,
-                    height: 1.2,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1072,6 +997,7 @@ class _AdminDashboardBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(dashboardAdminStatsProvider);
+    final role = ref.watch(authControllerProvider).role;
 
     return async.when(
       loading: () => const Padding(
@@ -1113,7 +1039,7 @@ class _AdminDashboardBody extends ConsumerWidget {
                         icon: Icons.groups_rounded,
                         title: 'Danh sách nhân viên',
                         subtitle: 'Tra cứu hồ sơ',
-                        color: const Color(0xFF2A7B9B),
+                        color: AppColors.moduleEmployee,
                         onTap: () => context.push(RoutePaths.employees),
                       ),
                     ),
@@ -1122,6 +1048,85 @@ class _AdminDashboardBody extends ConsumerWidget {
               ),
             ),
           ),
+          if (role == UserRole.admin)
+            AppReveal(
+              delay: AppStagger.delayFor(1),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.page,
+                  10,
+                  AppSpacing.page,
+                  0,
+                ),
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _OrgShortcutCard(
+                          icon: Icons.monitor_heart_outlined,
+                          title: 'Báo cáo ĐD hằng ngày',
+                          subtitle: 'Theo dõi toàn khối',
+                          color: AppColors.moduleNursingDaily,
+                          onTap: () =>
+                              context.push(RoutePaths.nursingDailyReports),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _OrgShortcutCard(
+                          icon: Icons.biotech_outlined,
+                          title: 'Đánh giá QTKT',
+                          subtitle: 'Lập phiếu · tổng hợp',
+                          color: AppColors.moduleQtkt,
+                          onTap: () => context.push(RoutePaths.qtktEvaluations),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (role == UserRole.admin)
+            AppReveal(
+              delay: AppStagger.delayFor(1),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.page,
+                  10,
+                  AppSpacing.page,
+                  0,
+                ),
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _OrgShortcutCard(
+                          icon: Icons.analytics_outlined,
+                          title: 'Hoạt động ĐD',
+                          subtitle: 'Module A · tỉ lệ sự cố',
+                          color: AppColors.moduleNursingActivity,
+                          onTap: () =>
+                              context.push(RoutePaths.nursingActivityReports),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _OrgShortcutCard(
+                          icon: Icons.health_and_safety_outlined,
+                          title: 'Tuân thủ QTKT',
+                          subtitle: 'Vệ sinh tay · GDSK',
+                          color: AppColors.moduleQtktCompliance,
+                          onTap: () =>
+                              context.push(RoutePaths.qtktComplianceReports),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           AppReveal(
             delay: AppStagger.delayFor(1),
             child: Padding(
@@ -1134,88 +1139,13 @@ class _AdminDashboardBody extends ConsumerWidget {
               child: _AdminPulseBlock(
                 working: stats.status.working,
                 totalEmployees: stats.totalEmployees,
+                maternityLeave: stats.maternityLeave,
+                departments: stats.departments,
               ),
             ),
           ),
-          AppReveal(
-            delay: AppStagger.delayFor(2),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.page,
-                10,
-                AppSpacing.page,
-                0,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _SpotlightSideCard(
-                      item: _SpotlightMetric(
-                        label: 'Nghỉ thai sản',
-                        value: stats.maternityLeave,
-                        icon: Icons.pregnant_woman_rounded,
-                        color: const Color(0xFFE85D4C),
-                        hint: 'nhân viên',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _SpotlightSideCard(
-                      item: _SpotlightMetric(
-                        label: 'Phòng ban',
-                        value: stats.departments,
-                        icon: Icons.apartment_rounded,
-                        color: const Color(0xFF2A9D8F),
-                        hint: 'khoa/phòng',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          AppReveal(
-            delay: AppStagger.delayFor(3),
-            child: SummaryStatGrid(
-              items: [
-                SummaryStatItem(
-                  label: 'Tổng nhân viên',
-                  value: stats.totalEmployees,
-                  unit: 'hồ sơ',
-                  icon: Icons.groups_rounded,
-                  color: AppColors.primary,
-                ),
-                SummaryStatItem(
-                  label: 'Tài khoản NV',
-                  value: stats.employeeRoleAccounts,
-                  unit: 'tài khoản',
-                  icon: Icons.badge_rounded,
-                  color: const Color(0xFF5C6BC0),
-                  accent: stats.totalEmployees <= 0
-                      ? null
-                      : '${((stats.employeeRoleAccounts / stats.totalEmployees) * 100).round()}%',
-                ),
-                SummaryStatItem(
-                  label: 'Tài liệu PDF',
-                  value: stats.totalPdfDocuments,
-                  unit: 'tài liệu',
-                  icon: Icons.description_rounded,
-                  color: const Color(0xFF7C3AED),
-                ),
-                SummaryStatItem(
-                  label: 'Sắp xét lương',
-                  value: stats.salaryReviewsDueSoon,
-                  unit: 'trong 14 ngày',
-                  icon: Icons.payments_rounded,
-                  color: AppColors.warning,
-                  accent: stats.salaryReviewsDueSoon > 0 ? 'Cần xem' : 'Ổn',
-                ),
-              ],
-            ),
-          ),
-          const _SectionHeader(
+          const BlockSectionTitle(
+            padding: BlockSectionTitle.pagePadding,
             title: 'Phân tích trực quan',
             icon: Icons.insights_rounded,
           ),
@@ -1234,7 +1164,8 @@ class _AdminDashboardBody extends ConsumerWidget {
               child: HiresAreaChart(hires: stats.hiresByMonth),
             ),
           ),
-          _SectionHeader(
+          BlockSectionTitle(
+            padding: BlockSectionTitle.pagePadding,
             title: 'Nhân sự theo phòng ban',
             icon: Icons.people_alt_rounded,
             actionLabel: 'Xem tất cả',
@@ -1315,27 +1246,13 @@ class _NursingDashboardBody extends ConsumerWidget {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.page,
-                  10,
+                  12,
                   AppSpacing.page,
                   0,
                 ),
-                child: FilledButton.icon(
-                  onPressed: () =>
-                      context.push(_firstPendingRoute(stats)),
-                  icon: const Icon(Icons.task_alt_rounded, size: 20),
-                  label: Text('Duyệt đơn (${stats.pendingTotal})'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primaryDark,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 48),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: AppRadius.brMd,
-                    ),
-                    textStyle: AppTypography.style(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+                child: _NursingApprovalAction(
+                  count: stats.pendingTotal,
+                  onTap: () => context.push(_firstPendingRoute(stats)),
                 ),
               ),
             ),
@@ -1367,7 +1284,7 @@ class _NursingDashboardBody extends ConsumerWidget {
                         icon: Icons.fact_check_rounded,
                         title: 'Đánh giá xếp loại',
                         subtitle: 'Duyệt và tổng hợp tháng',
-                        color: const Color(0xFF2A7B9B),
+                        color: AppColors.moduleEmployee,
                         onTap: () => context.push(RoutePaths.evaluation),
                       ),
                     ),
@@ -1378,41 +1295,84 @@ class _NursingDashboardBody extends ConsumerWidget {
           ),
           AppReveal(
             delay: AppStagger.delayFor(2),
-            child: SummaryStatGrid(
-              items: [
-                SummaryStatItem(
-                  label: 'Chính thức',
-                  value: stats.officialCount,
-                  unit: 'nhân viên',
-                  icon: Icons.badge_rounded,
-                  color: AppColors.success,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.page,
+                10,
+                AppSpacing.page,
+                0,
+              ),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _OrgShortcutCard(
+                        icon: Icons.monitor_heart_outlined,
+                        title: 'Báo cáo ĐD hằng ngày',
+                        subtitle: 'Xem · sửa toàn khối',
+                        color: AppColors.moduleNursingDaily,
+                        onTap: () =>
+                            context.push(RoutePaths.nursingDailyReports),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: _OrgShortcutCard(
+                        icon: Icons.biotech_outlined,
+                        title: 'Đánh giá QTKT',
+                        subtitle: 'Xem · tổng hợp tháng',
+                        color: AppColors.moduleQtkt,
+                        onTap: () => context.push(RoutePaths.qtktEvaluations),
+                      ),
+                    ),
+                  ],
                 ),
-                SummaryStatItem(
-                  label: 'Thử việc',
-                  value: stats.trialCount,
-                  unit: 'nhân viên',
-                  icon: Icons.school_rounded,
-                  color: AppColors.warning,
+              ),
+            ),
+          ),
+          AppReveal(
+            delay: AppStagger.delayFor(2),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.page,
+                10,
+                AppSpacing.page,
+                0,
+              ),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _OrgShortcutCard(
+                        icon: Icons.analytics_outlined,
+                        title: 'Hoạt động ĐD',
+                        subtitle: 'Module A · sự cố',
+                        color: AppColors.moduleNursingActivity,
+                        onTap: () =>
+                            context.push(RoutePaths.nursingActivityReports),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: _OrgShortcutCard(
+                        icon: Icons.health_and_safety_outlined,
+                        title: 'Tuân thủ QTKT',
+                        subtitle: 'Vệ sinh tay · GDSK',
+                        color: AppColors.moduleQtktCompliance,
+                        onTap: () =>
+                            context.push(RoutePaths.qtktComplianceReports),
+                      ),
+                    ),
+                  ],
                 ),
-                SummaryStatItem(
-                  label: 'Trực chính',
-                  value: stats.mainDutyAuthorized,
-                  unit: 'nhân viên',
-                  icon: Icons.verified_user_rounded,
-                  color: AppColors.info,
-                ),
-                SummaryStatItem(
-                  label: 'Khoa/phòng',
-                  value: stats.departmentsCovered,
-                  unit: 'đơn vị',
-                  icon: Icons.apartment_rounded,
-                  color: const Color(0xFF5C6BC0),
-                ),
-              ],
+              ),
             ),
           ),
           if (stats.bySubGroup.isNotEmpty) ...[
-            const _SectionHeader(
+            const BlockSectionTitle(
+              padding: BlockSectionTitle.pagePadding,
               title: 'Phân bổ chức danh',
               icon: Icons.pie_chart_outline_rounded,
             ),
@@ -1424,7 +1384,8 @@ class _NursingDashboardBody extends ConsumerWidget {
               ),
             ),
           ],
-          _SectionHeader(
+          BlockSectionTitle(
+            padding: BlockSectionTitle.pagePadding,
             title: 'Công việc chờ xử lý',
             icon: Icons.pending_actions_rounded,
             actionLabel: stats.pendingTotal > 0 ? 'Xem tất cả' : null,
@@ -1442,7 +1403,7 @@ class _NursingDashboardBody extends ConsumerWidget {
                     label: 'Điều động',
                     count: stats.pendingDeployments,
                     icon: Icons.swap_horiz_rounded,
-                    color: const Color(0xFF0369A1),
+                    color: AppColors.moduleDeployment,
                     onTap: () => context.push(
                       RoutePaths.withListFocus(
                         RoutePaths.attendanceDeploymentRequests,
@@ -1455,7 +1416,7 @@ class _NursingDashboardBody extends ConsumerWidget {
                     label: 'Lên chính thức',
                     count: stats.pendingProbation,
                     icon: Icons.how_to_reg_outlined,
-                    color: const Color(0xFF0F766E),
+                    color: AppColors.moduleNursingDaily,
                     onTap: () => context.push(
                       RoutePaths.withListFocus(
                         RoutePaths.requestTypeListPath('probation-conversion'),
@@ -1468,7 +1429,7 @@ class _NursingDashboardBody extends ConsumerWidget {
                     label: 'Trực chính',
                     count: stats.pendingMainDuty,
                     icon: Icons.assignment_ind_outlined,
-                    color: const Color(0xFF7C3AED),
+                    color: AppColors.moduleQtkt,
                     onTap: () => context.push(
                       RoutePaths.withListFocus(
                         RoutePaths.requestTypeListPath(
@@ -1482,7 +1443,8 @@ class _NursingDashboardBody extends ConsumerWidget {
               ),
             ),
           ),
-          const _SectionHeader(
+          const BlockSectionTitle(
+            padding: BlockSectionTitle.pagePadding,
             title: 'Theo khoa/phòng',
             icon: Icons.apartment_rounded,
           ),
@@ -1500,7 +1462,8 @@ class _NursingDashboardBody extends ConsumerWidget {
           ),
           AppReveal(
             delay: AppStagger.delayFor(6),
-            child: const _SectionHeader(
+            child: const BlockSectionTitle(
+              padding: BlockSectionTitle.pagePadding,
               title: 'Hồ sơ của tôi',
               icon: Icons.badge_outlined,
             ),
@@ -1526,198 +1489,394 @@ class _NursingPulseBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final total = stats.totalInBlock;
-    final officialRatio =
-        total <= 0 ? 0.0 : (stats.officialCount / total).clamp(0.0, 1.0);
+    final officialRatio = total <= 0
+        ? 0.0
+        : (stats.officialCount / total).clamp(0.0, 1.0);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primaryDark,
-            AppColors.primary,
-            AppColors.primary.withValues(alpha: 0.9),
+    return Semantics(
+      container: true,
+      label:
+          'Tổng quan khối Điều dưỡng, $total nhân viên, '
+          '${stats.pendingTotal} hồ sơ chờ duyệt',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        decoration: BoxDecoration(
+          gradient: AppGradients.brandHero,
+          borderRadius: AppRadius.brXl,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primaryDark.withValues(alpha: 0.24),
+              blurRadius: 30,
+              offset: const Offset(0, 14),
+            ),
           ],
         ),
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: AppShadows.tinted(AppColors.primary),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          Positioned(
-            right: -24,
-            top: -30,
-            child: IgnorePointer(
-              child: Container(
-                width: 110,
-                height: 110,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.08),
-                ),
-              ),
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.16),
-                      borderRadius: AppRadius.brSm,
-                    ),
-                    child: const Icon(
-                      Icons.monitor_heart_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'NHÂN SỰ KHỐI',
-                          style: AppTypography.style(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.7,
-                            color: Colors.white.withValues(alpha: 0.72),
-                          ),
-                        ),
-                        Text(
-                          'ĐD · KTV · Hộ sinh · Thư ký',
-                          style: AppTypography.style(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white.withValues(alpha: 0.88),
-                          ),
-                        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              right: -48,
+              top: -54,
+              child: IgnorePointer(
+                child: Container(
+                  width: 172,
+                  height: 172,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        Colors.white.withValues(alpha: 0.14),
+                        Colors.white.withValues(alpha: 0),
                       ],
                     ),
                   ),
-                  if (stats.pendingTotal > 0)
+                ),
+              ),
+            ),
+            Positioned(
+              left: -60,
+              bottom: -86,
+              child: IgnorePointer(
+                child: Container(
+                  width: 180,
+                  height: 180,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.secondaryLight.withValues(alpha: 0.06),
+                  ),
+                ),
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
+                      width: 44,
+                      height: 44,
                       decoration: BoxDecoration(
-                        color: AppColors.error.withValues(alpha: 0.92),
-                        borderRadius: AppRadius.brPill,
+                        color: Colors.white.withValues(alpha: 0.14),
+                        borderRadius: AppRadius.brMd,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.16),
+                        ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                      child: const Icon(
+                        Icons.medical_services_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(
-                            Icons.notifications_active_rounded,
-                            size: 14,
-                            color: Colors.white,
-                          ),
-                          const SizedBox(width: 4),
                           Text(
-                            '${stats.pendingTotal} đơn',
+                            'KHỐI ĐIỀU DƯỠNG',
                             style: AppTypography.style(
-                              fontSize: 11.5,
+                              fontSize: 10.5,
                               fontWeight: FontWeight.w800,
-                              color: Colors.white,
+                              letterSpacing: 1.05,
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'ĐD · KTV · Hộ sinh · Thư ký',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.style(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white.withValues(alpha: 0.94),
                             ),
                           ),
                         ],
                       ),
                     ),
-                ],
+                    if (stats.pendingTotal > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: AppRadius.brPill,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.16),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: const BoxDecoration(
+                                color: AppColors.onBrandAlert,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${stats.pendingTotal} chờ duyệt',
+                              style: AppTypography.style(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'TỔNG NHÂN SỰ ĐANG QUẢN LÝ',
+                            style: AppTypography.style(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.65,
+                              color: Colors.white.withValues(alpha: 0.62),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                AppFormat.number(total),
+                                style: AppTypography.metric(
+                                  fontSize: 48,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Text(
+                                  'nhân viên',
+                                  style: AppTypography.style(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white.withValues(alpha: 0.82),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Align(
+                      alignment: Alignment.center,
+                      child: _DashboardRatioRing(
+                        value: officialRatio,
+                        label: 'chính thức',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.105),
+                    borderRadius: AppRadius.brLg,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.13),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _DashboardHeroStat(
+                          icon: Icons.badge_outlined,
+                          label: 'Chính thức',
+                          value: stats.officialCount,
+                        ),
+                      ),
+                      _DashboardGlassDivider(),
+                      Expanded(
+                        child: _DashboardHeroStat(
+                          icon: Icons.pending_actions_rounded,
+                          label: 'Chờ duyệt',
+                          value: stats.pendingTotal,
+                          highlight: stats.pendingTotal > 0,
+                        ),
+                      ),
+                      _DashboardGlassDivider(),
+                      Expanded(
+                        child: _DashboardHeroStat(
+                          icon: Icons.apartment_rounded,
+                          label: 'Khoa/phòng',
+                          value: stats.departmentsCovered,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardRatioRing extends StatelessWidget {
+  const _DashboardRatioRing({
+    required this.value,
+    required this.label,
+    this.color = AppColors.secondaryLight,
+  });
+
+  final double value;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = value.clamp(0.0, 1.0);
+    // CircularProgressIndicator bắt đầu từ đỉnh và để phần còn thiếu lệch
+    // sang trái. Xoay nửa khoảng trống để khe hở luôn cân giữa ở 12 giờ.
+    final centeredGapAngle = (1 - progress) * 3.141592653589793;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: progress),
+      duration: const Duration(milliseconds: 850),
+      curve: Curves.easeOutCubic,
+      builder: (context, animatedValue, _) {
+        return SizedBox.square(
+          dimension: 72,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox.square(
+                dimension: 72,
+                child: Transform.rotate(
+                  angle: centeredGapAngle,
+                  child: CircularProgressIndicator(
+                    value: animatedValue,
+                    strokeWidth: 6,
+                    strokeCap: StrokeCap.round,
+                    backgroundColor: Colors.white.withValues(alpha: 0.14),
+                    valueColor: AlwaysStoppedAnimation(color),
+                  ),
+                ),
               ),
-              const SizedBox(height: 14),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
-                    AppFormat.number(total),
+                    '${(animatedValue * 100).round()}%',
+                    textAlign: TextAlign.center,
                     style: AppTypography.metric(
-                      fontSize: 42,
+                      fontSize: 16,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      'nhân viên',
-                      style: AppTypography.style(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white.withValues(alpha: 0.9),
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      '${(officialRatio * 100).round()}% chính thức',
-                      style: AppTypography.style(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              ClipRRect(
-                borderRadius: AppRadius.brPill,
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: officialRatio),
-                  duration: AppDurations.slow,
-                  curve: Curves.easeOutCubic,
-                  builder: (context, value, _) {
-                    return LinearProgressIndicator(
-                      value: value,
-                      minHeight: 6,
-                      backgroundColor: Colors.white.withValues(alpha: 0.18),
-                      valueColor: const AlwaysStoppedAnimation(Colors.white),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _NursingHeroStat(
-                      label: 'Chính thức',
-                      value: stats.officialCount,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: _NursingHeroStat(
-                      label: 'Chờ duyệt',
-                      value: stats.pendingTotal,
-                      highlight: stats.pendingTotal > 0,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: _NursingHeroStat(
-                      label: 'Khoa/phòng',
-                      value: stats.departmentsCovered,
+                  const SizedBox(height: 3),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: AppTypography.style(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      height: 1,
+                      color: Colors.white.withValues(alpha: 0.68),
                     ),
                   ),
                 ],
               ),
             ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DashboardGlassDivider extends StatelessWidget {
+  const _DashboardGlassDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 34,
+      color: Colors.white.withValues(alpha: 0.14),
+    );
+  }
+}
+
+class _DashboardHeroStat extends StatelessWidget {
+  const _DashboardHeroStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final int value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = highlight ? AppColors.onBrandAlertSoft : Colors.white;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 13, color: foreground.withValues(alpha: 0.78)),
+              const SizedBox(width: 5),
+              Text(
+                AppFormat.number(value),
+                style: AppTypography.metric(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: foreground,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.style(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Colors.white.withValues(alpha: 0.7),
+            ),
           ),
         ],
       ),
@@ -1725,53 +1884,117 @@ class _NursingPulseBlock extends StatelessWidget {
   }
 }
 
-class _NursingHeroStat extends StatelessWidget {
-  const _NursingHeroStat({
-    required this.label,
-    required this.value,
-    this.highlight = false,
-  });
+class _NursingApprovalAction extends StatelessWidget {
+  const _NursingApprovalAction({required this.count, required this.onTap});
 
-  final String label;
-  final int value;
-  final bool highlight;
+  final int count;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-      decoration: BoxDecoration(
-        color: highlight
-            ? AppColors.error.withValues(alpha: 0.22)
-            : Colors.white.withValues(alpha: 0.14),
-        borderRadius: AppRadius.brMd,
-        border: highlight
-            ? Border.all(color: Colors.white.withValues(alpha: 0.28))
-            : null,
-      ),
-      child: Column(
-        children: [
-          Text(
-            AppFormat.number(value),
-            style: AppTypography.metric(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
+    return Semantics(
+      button: true,
+      label: 'Duyệt $count hồ sơ đang chờ xử lý',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: AppRadius.brLg,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: AppRadius.brLg,
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  AppColors.surface,
+                  AppColors.primaryContainer.withValues(alpha: 0.8),
+                ],
+              ),
+              borderRadius: AppRadius.brLg,
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.13),
+              ),
+              boxShadow: AppShadows.soft,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 11, 10, 11),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      gradient: AppGradients.brand,
+                      borderRadius: AppRadius.brMd,
+                      boxShadow: AppShadows.tinted(AppColors.primary),
+                    ),
+                    child: const Icon(
+                      Icons.fact_check_rounded,
+                      size: 22,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Duyệt hồ sơ chờ xử lý',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '$count yêu cầu cần kiểm tra và phê duyệt',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 10.8,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.errorLight,
+                      borderRadius: AppRadius.brPill,
+                    ),
+                    child: Text(
+                      AppFormat.number(count),
+                      style: AppTypography.metric(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.errorText,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 15,
+                    color: AppColors.primary,
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.style(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              color: Colors.white.withValues(alpha: 0.85),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1832,6 +2055,8 @@ class _NursingPendingTile extends StatelessWidget {
                     children: [
                       Text(
                         label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
                           fontSize: 14,
                           fontWeight: FontWeight.w800,
@@ -1844,9 +2069,7 @@ class _NursingPendingTile extends StatelessWidget {
                         style: AppTypography.style(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: hasPending
-                              ? color
-                              : AppColors.textTertiary,
+                          color: hasPending ? color : AppColors.textTertiary,
                         ),
                       ),
                     ],
@@ -1898,7 +2121,8 @@ class _EmployeeDashboardBody extends ConsumerWidget {
         'Bảng công của bạn',
         'Xem số công, đi muộn / về sớm và số phép còn lại.',
         AppColors.primary,
-        () => ref.read(shellTabProvider.notifier).state = AppShellTab.attendance,
+        () =>
+            ref.read(shellTabProvider.notifier).state = AppShellTab.attendance,
       ),
       (
         Icons.post_add_outlined,
@@ -1921,7 +2145,8 @@ class _EmployeeDashboardBody extends ConsumerWidget {
       children: [
         AppReveal(
           delay: AppStagger.delayFor(0),
-          child: const _SectionHeader(
+          child: const BlockSectionTitle(
+            padding: BlockSectionTitle.pagePadding,
             title: 'Hồ sơ của tôi',
             icon: Icons.badge_outlined,
           ),
@@ -1955,9 +2180,118 @@ class _EmployeeDashboardBody extends ConsumerWidget {
               ),
             ),
           ),
+        if (RoleGroups.canViewEmployeeDirectory(
+              auth.role,
+              hospitalWideEmployeeViewEnabled:
+                  me?.hospitalWideEmployeeViewEnabled ?? false,
+            ) &&
+            auth.role != UserRole.admin &&
+            auth.role != UserRole.hr)
+          AppReveal(
+            delay: const Duration(milliseconds: 180),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.page,
+                AppSpacing.sm,
+                AppSpacing.page,
+                0,
+              ),
+              child: _OrgShortcutCard(
+                icon: Icons.groups_rounded,
+                title: 'Danh sách nhân viên',
+                subtitle:
+                    me?.hospitalWideEmployeeViewEnabled == true &&
+                        !RoleGroups.isIn(auth.role, RoleGroups.adminHrHeads)
+                    ? 'Xem hồ sơ toàn viện'
+                    : 'Tra cứu hồ sơ trong phạm vi của bạn',
+                color: AppColors.moduleEmployee,
+                onTap: () => context.push(RoutePaths.employees),
+              ),
+            ),
+          ),
+        if (RoleGroups.canEnterNursingDailyReports(auth.role))
+          AppReveal(
+            delay: AppStagger.delayFor(3),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.page,
+                AppSpacing.sm,
+                AppSpacing.page,
+                0,
+              ),
+              child: _OrgShortcutCard(
+                icon: Icons.local_hospital_outlined,
+                title: 'Báo cáo ĐD hằng ngày',
+                subtitle:
+                    'ĐD trưởng khoa nhập · Trưởng phòng ĐD xem/sửa toàn bộ',
+                color: AppColors.moduleNursingDaily,
+                onTap: () => context.push(RoutePaths.nursingDailyReports),
+              ),
+            ),
+          ),
+        if (RoleGroups.canEnterQtkt(auth.role))
+          AppReveal(
+            delay: AppStagger.delayFor(4),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.page,
+                AppSpacing.sm,
+                AppSpacing.page,
+                0,
+              ),
+              child: _OrgShortcutCard(
+                icon: Icons.biotech_outlined,
+                title: 'Đánh giá quy trình kỹ thuật',
+                subtitle: 'Lập và chấm phiếu nhân viên khoa phụ trách',
+                color: AppColors.moduleQtkt,
+                onTap: () => context.push(RoutePaths.qtktEvaluations),
+              ),
+            ),
+          ),
+        if (RoleGroups.canViewNursingAnalytics(auth.role))
+          AppReveal(
+            delay: AppStagger.delayFor(4),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.page,
+                AppSpacing.sm,
+                AppSpacing.page,
+                0,
+              ),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _OrgShortcutCard(
+                        icon: Icons.analytics_outlined,
+                        title: 'Hoạt động ĐD',
+                        subtitle: 'Module A',
+                        color: AppColors.moduleNursingActivity,
+                        onTap: () =>
+                            context.push(RoutePaths.nursingActivityReports),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _OrgShortcutCard(
+                        icon: Icons.health_and_safety_outlined,
+                        title: 'Tuân thủ QTKT',
+                        subtitle: 'Tỉ lệ đạt',
+                        color: AppColors.moduleQtktCompliance,
+                        onTap: () =>
+                            context.push(RoutePaths.qtktComplianceReports),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         AppReveal(
           delay: AppStagger.delayFor(2),
-          child: const _SectionHeader(
+          child: const BlockSectionTitle(
+            padding: BlockSectionTitle.pagePadding,
             title: 'Bắt đầu với HRM',
             icon: Icons.tips_and_updates_outlined,
           ),
@@ -2027,10 +2361,9 @@ class _MyProfileHomeCard extends ConsumerWidget {
               AppAvatar(
                 name: name,
                 size: 58,
-                authImageUrl:
-                    me?.hasAvatar == true
-                        ? ProfileRepository.myAvatarUrl
-                        : null,
+                authImageUrl: me?.hasAvatar == true
+                    ? ProfileRepository.myAvatarUrl
+                    : null,
                 borderColor: Colors.white,
                 borderWidth: 2.5,
               ),
@@ -2070,7 +2403,7 @@ class _MyProfileHomeCard extends ConsumerWidget {
                           borderRadius: AppRadius.brPill,
                         ),
                         child: Text(
-                          'CCCD: $code',
+                          'Mã NV: $code',
                           style: AppTypography.caption(
                             color: AppColors.primaryDark,
                             fontWeight: FontWeight.w700,
@@ -2105,10 +2438,7 @@ class _MyProfileHomeCard extends ConsumerWidget {
             const SizedBox(height: AppSpacing.sm),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 8,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: AppColors.surfaceMuted,
                 borderRadius: AppRadius.brSm,
@@ -2140,9 +2470,7 @@ class _MyProfileHomeCard extends ConsumerWidget {
           ],
           const SizedBox(height: AppSpacing.sm),
           _ProfileMetaChip(
-            icon: hasSignature
-                ? Icons.verified_rounded
-                : Icons.draw_outlined,
+            icon: hasSignature ? Icons.verified_rounded : Icons.draw_outlined,
             label: hasSignature ? 'Đã có chữ ký số' : 'Chưa có chữ ký số',
             color: hasSignature ? AppColors.success : AppColors.warning,
           ),
@@ -2247,73 +2575,73 @@ class _OrgShortcutCard extends StatelessWidget {
           child: ClipRRect(
             borderRadius: AppRadius.brLg,
             child: Stack(
-            children: [
-              Positioned(
-                right: -16,
-                top: -18,
-                child: IgnorePointer(
-                  child: Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: color.withValues(alpha: 0.07),
+              children: [
+                Positioned(
+                  right: -16,
+                  top: -18,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: color.withValues(alpha: 0.07),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: color.withValues(alpha: 0.12),
-                            borderRadius: AppRadius.brSm,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.12),
+                              borderRadius: AppRadius.brSm,
+                            ),
+                            child: Icon(icon, size: 20, color: color),
                           ),
-                          child: Icon(icon, size: 20, color: color),
-                        ),
-                        const Spacer(),
-                        Icon(
-                          Icons.arrow_forward_ios_rounded,
-                          size: 12,
-                          color: color.withValues(alpha: 0.7),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
-                        height: 1.2,
-                        letterSpacing: -0.2,
+                          const Spacer(),
+                          Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 12,
+                            color: color.withValues(alpha: 0.7),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary,
+                      const SizedBox(height: 12),
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          height: 1.2,
+                          letterSpacing: -0.2,
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2340,13 +2668,13 @@ class _QuickActionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: AppColors.surface,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: AppRadius.brLg,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Ink(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: AppRadius.brLg,
             border: Border.all(color: AppColors.borderSoft),
             boxShadow: [
               BoxShadow(
@@ -2390,10 +2718,7 @@ class _QuickActionTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        body,
-                        style: AppTypography.listSubtitle(),
-                      ),
+                      Text(body, style: AppTypography.listSubtitle()),
                     ],
                   ),
                 ),

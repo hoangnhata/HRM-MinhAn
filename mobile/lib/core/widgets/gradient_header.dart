@@ -36,17 +36,27 @@ class GradientHeader extends StatelessWidget {
       width: double.infinity,
       decoration: BoxDecoration(
         gradient: gradient,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(bottomRadius),
-          bottomRight: Radius.circular(bottomRadius),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryDark.withValues(alpha: 0.22),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        borderRadius: bottomRadius > 0
+            ? BorderRadius.only(
+                bottomLeft: Radius.circular(bottomRadius),
+                bottomRight: Radius.circular(bottomRadius),
+              )
+            : null,
+        boxShadow: bottomRadius > 0
+            ? [
+                BoxShadow(
+                  color: AppColors.primaryDark.withValues(alpha: 0.22),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: AppColors.primaryDark.withValues(alpha: 0.14),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -154,7 +164,8 @@ class AppScreenHeader extends StatelessWidget {
         AppSpacing.page,
         bottomPad,
       ),
-      bottomRadius: dense ? 22 : 26,
+      // Dense + nội dung sát dưới: cắt thẳng để không lộ khoảng trắng ở góc bo.
+      bottomRadius: dense ? 0 : 26,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -181,12 +192,10 @@ class AppScreenHeader extends StatelessWidget {
                         eyebrow!.toUpperCase(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
+                        style: AppTypography.uppercase(
                           color: onBrand.withValues(alpha: 0.72),
                           fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
                           letterSpacing: 0.85,
-                          height: 1.15,
                         ),
                       ),
                       SizedBox(height: dense ? (isNested ? 5 : 3) : 5),
@@ -202,22 +211,22 @@ class AppScreenHeader extends StatelessWidget {
                                 color: onBrand,
                                 fontSize: isNested ? 18.5 : 17.5,
                                 fontWeight: FontWeight.w800,
-                                height: 1.22,
-                                letterSpacing: -0.25,
+                                height: AppTypography.uppercaseHeight,
+                                letterSpacing: -0.1,
                               )
                             : AppTypography.pageTitle(color: onBrand),
                       ),
                     ),
                     if (showSubtitle) ...[
-                      SizedBox(height: dense ? (isNested ? 5 : 2) : 4),
+                      SizedBox(height: dense ? (isNested ? 6 : 4) : 4),
                       Text(
                         subtitle!,
-                        maxLines: dense && !isNested ? 1 : 2,
+                        maxLines: dense && !isNested ? 2 : 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w500,
-                          height: 1.35,
+                          height: AppTypography.uppercaseHeight,
                           color: onBrand.withValues(alpha: 0.82),
                         ),
                       ),
@@ -388,7 +397,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
                       fontSize: 17.5,
                       fontWeight: FontWeight.w800,
                       letterSpacing: -0.2,
-                      height: 1.15,
+                      height: AppTypography.uppercaseHeight,
                     ),
                   ),
                   if (subtitle != null) ...[
@@ -569,11 +578,13 @@ class BrandHeaderTabBar extends StatelessWidget {
         labelStyle: AppTypography.style(
           fontSize: dense ? 12.5 : 13,
           fontWeight: FontWeight.w800,
-          letterSpacing: -0.1,
+          letterSpacing: -0.05,
+          height: AppTypography.uppercaseHeight,
         ),
         unselectedLabelStyle: AppTypography.style(
           fontSize: dense ? 12.5 : 13,
           fontWeight: FontWeight.w600,
+          height: AppTypography.uppercaseHeight,
         ),
         tabs: [
           for (final (index, item) in items.indexed)
@@ -598,6 +609,252 @@ class BrandHeaderTabBar extends StatelessWidget {
   }
 }
 
+/// Một lựa chọn trên [BrandHeaderSegment].
+class BrandSegmentItem {
+  const BrandSegmentItem({
+    required this.label,
+    this.icon,
+    this.count,
+    this.semanticsLabel,
+  });
+
+  final String label;
+  final IconData? icon;
+
+  /// Badge số bên phải nhãn — bỏ qua khi null hoặc 0.
+  final int? count;
+
+  /// Nhãn đọc cho screen reader khi [label] viết tắt.
+  final String? semanticsLabel;
+
+  bool get _hasBadge => (count ?? 0) > 0;
+}
+
+/// Segmented control trên nền brand — dùng cho [AppScreenHeader.footer] khi màn
+/// hình có hai/ba chế độ xem ngang hàng (không phải tab có nội dung riêng).
+///
+/// Con trỏ chọn là một thẻ trắng trượt mượt giữa các ô thay vì tô lại từng ô,
+/// nên chuyển chế độ trông liền mạch và giữ nhịp gọn của header.
+class BrandHeaderSegment extends StatelessWidget {
+  const BrandHeaderSegment({
+    super.key,
+    required this.items,
+    required this.selectedIndex,
+    required this.onChanged,
+    this.dense = false,
+  }) : assert(items.length >= 2, 'Segment cần tối thiểu hai lựa chọn');
+
+  final List<BrandSegmentItem> items;
+  final int selectedIndex;
+  final ValueChanged<int> onChanged;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final onBrand = Theme.of(context).colorScheme.onPrimary;
+    final tileHeight = dense ? 40.0 : 44.0;
+    // Pill lồng pill: con trỏ chọn và rãnh đồng tâm nên hai ô luôn cân nhau.
+    final tileRadius = tileHeight / 2;
+    const trackPad = 4.0;
+    final index = selectedIndex.clamp(0, items.length - 1);
+    final slot = items.length == 1
+        ? 0.0
+        : -1 + 2 * index / (items.length - 1);
+
+    return Container(
+      height: tileHeight + trackPad * 2,
+      padding: const EdgeInsets.all(trackPad),
+      decoration: BoxDecoration(
+        color: onBrand.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(tileRadius + trackPad),
+        border: Border.all(color: onBrand.withValues(alpha: 0.18)),
+      ),
+      child: Stack(
+        children: [
+          AnimatedAlign(
+            duration: AppDurations.normal,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment(slot, 0),
+            child: FractionallySizedBox(
+              widthFactor: 1 / items.length,
+              heightFactor: 1,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(tileRadius),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primaryDark.withValues(alpha: 0.14),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              for (final (i, item) in items.indexed)
+                Expanded(
+                  child: _BrandSegmentTile(
+                    item: item,
+                    selected: i == index,
+                    onBrand: onBrand,
+                    dense: dense,
+                    radius: tileRadius,
+                    onTap: () {
+                      if (i == index) return;
+                      HapticFeedback.selectionClick();
+                      onChanged(i);
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BrandSegmentTile extends StatelessWidget {
+  const _BrandSegmentTile({
+    required this.item,
+    required this.selected,
+    required this.onBrand,
+    required this.dense,
+    required this.radius,
+    required this.onTap,
+  });
+
+  final BrandSegmentItem item;
+  final bool selected;
+  final Color onBrand;
+  final bool dense;
+  final double radius;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = selected
+        ? AppColors.primaryDark
+        : onBrand.withValues(alpha: 0.86);
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: item.semanticsLabel ?? item.label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(radius),
+          splashColor: selected
+              ? AppColors.primary.withValues(alpha: 0.08)
+              : onBrand.withValues(alpha: 0.12),
+          highlightColor: Colors.transparent,
+          // Row co theo nội dung rồi mới căn giữa: icon + nhãn + badge luôn là
+          // một khối cân giữa ô, không lệch khi nhãn dài ngắn khác nhau.
+          child: ExcludeSemantics(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (item.icon != null) ...[
+                        TweenAnimationBuilder(
+                          tween: ColorTween(end: foreground),
+                          duration: AppDurations.normal,
+                          curve: Curves.easeOutCubic,
+                          builder: (context, color, _) => Icon(
+                            item.icon,
+                            size: dense ? 15 : 16,
+                            color: color ?? foreground,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      AnimatedDefaultTextStyle(
+                        duration: AppDurations.normal,
+                        curve: Curves.easeOutCubic,
+                        style: AppTypography.style(
+                          fontSize: dense ? 12.5 : 13,
+                          fontWeight: selected
+                              ? FontWeight.w800
+                              : FontWeight.w600,
+                          color: foreground,
+                          letterSpacing: -0.1,
+                          height: AppTypography.uppercaseHeight,
+                        ),
+                        child: Text(
+                          item.label,
+                          maxLines: 1,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      if (item._hasBadge) ...[
+                        const SizedBox(width: 6),
+                        _BrandSegmentBadge(
+                          count: item.count!,
+                          selected: selected,
+                          onBrand: onBrand,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BrandSegmentBadge extends StatelessWidget {
+  const _BrandSegmentBadge({
+    required this.count,
+    required this.selected,
+    required this.onBrand,
+  });
+
+  final int count;
+  final bool selected;
+  final Color onBrand;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: AppDurations.normal,
+      curve: Curves.easeOutCubic,
+      constraints: const BoxConstraints(minWidth: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: selected
+            ? AppColors.primary.withValues(alpha: 0.12)
+            : onBrand.withValues(alpha: 0.2),
+        borderRadius: AppRadius.brPill,
+      ),
+      child: Text(
+        count > 99 ? '99+' : '$count',
+        textAlign: TextAlign.center,
+        style: AppTypography.style(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          color: selected ? AppColors.primary : onBrand,
+          height: 1.1,
+          tabular: true,
+        ),
+      ),
+    );
+  }
+}
+
 class _BrandTabLabel extends StatelessWidget {
   const _BrandTabLabel({
     required this.item,
@@ -616,57 +873,61 @@ class _BrandTabLabel extends StatelessWidget {
     final fg = selected ? AppColors.primaryDark : unselectedColor;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (item.icon != null) ...[
-            Icon(
-              item.icon,
-              size: dense ? 15 : 16,
-              color: fg,
-            ),
-            const SizedBox(width: 5),
-          ],
-          Flexible(
-            child: Text(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (item.icon != null) ...[
+              Icon(
+                item.icon,
+                size: dense ? 15 : 16,
+                color: fg,
+              ),
+              const SizedBox(width: 5),
+            ],
+            Text(
               item.label,
               maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: TextStyle(color: fg),
-            ),
-          ),
-          if (item._hasBadge) ...[
-            const SizedBox(width: 6),
-            AnimatedContainer(
-              duration: AppDurations.fast,
-              constraints: const BoxConstraints(minWidth: 20),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: selected
-                    ? AppColors.primary.withValues(alpha: 0.12)
-                    : const Color(0x33FFFFFF),
-                borderRadius: AppRadius.brPill,
-                border: selected
-                    ? Border.all(
-                        color: AppColors.primary.withValues(alpha: 0.18),
-                      )
-                    : null,
+              style: TextStyle(
+                color: fg,
+                height: AppTypography.uppercaseHeight,
               ),
-              child: Text(
-                item.count! > 99 ? '99+' : '${item.count}',
-                textAlign: TextAlign.center,
-                style: AppTypography.style(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
-                  color: selected ? AppColors.primary : Colors.white,
-                  height: 1.1,
+            ),
+            if (item._hasBadge) ...[
+              const SizedBox(width: 6),
+              AnimatedContainer(
+                duration: AppDurations.fast,
+                constraints: const BoxConstraints(minWidth: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.primary.withValues(alpha: 0.12)
+                      : const Color(0x33FFFFFF),
+                  borderRadius: AppRadius.brPill,
+                  border: selected
+                      ? Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.18),
+                        )
+                      : null,
+                ),
+                child: Text(
+                  item.count! > 99 ? '99+' : '${item.count}',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.style(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    color: selected ? AppColors.primary : Colors.white,
+                    height: 1.1,
+                    tabular: true,
+                  ),
                 ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

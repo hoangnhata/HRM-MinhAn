@@ -3,10 +3,10 @@
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:windowSplashScreenBackground">@color/brand_primary_dark</item>
-        <!-- Logo trên nền brand — tránh màn teal trống trước overlay. -->
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_mark</item>
+        <!-- Bản có safe padding: Android 12 áp mask vẫn giữ trọn chữ và viền logo. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_system_icon</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@color/brand_primary_dark</item>
-        <item name="android:windowSplashScreenAnimationDuration">200</item>
+        <item name="android:windowSplashScreenAnimationDuration">320</item>
         <item name="android:statusBarColor">@color/brand_primary_dark</item>
         <item name="android:navigationBarColor">@color/brand_primary_dark</item>
         <item name="android:windowLightStatusBar">false</item>

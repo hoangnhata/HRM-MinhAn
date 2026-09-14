@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_ambient_background.dart';
+import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/highlight_pulse.dart';
@@ -67,10 +68,19 @@ class _RequestTypeScreenState extends ConsumerState<RequestTypeScreen>
   @override
   void initState() {
     super.initState();
-    final role = ref.read(authControllerProvider).role;
+    final auth = ref.read(authControllerProvider);
+    final role = auth.role;
+    final directorApproval =
+        auth.currentUser?.directorApprovalEnabled ?? false;
     final config = RequestTypeConfig.byKey(widget.typeKey);
-    _canReview = config.canReview(role);
-    _useManagerShell = config.canUseManagerShell(role);
+    _canReview = config.canReview(
+      role,
+      directorApprovalEnabled: directorApproval,
+    );
+    _useManagerShell = config.canUseManagerShell(
+      role,
+      directorApprovalEnabled: directorApproval,
+    );
     if (_useManagerShell) {
       var initial = _canReview ? 1 : 0;
       final tab = widget.initialTab?.toLowerCase();
@@ -454,12 +464,21 @@ class _PendingWithHistoryListState extends State<_PendingWithHistoryList> {
           ),
           child: Row(
             children: [
-              _ModeSwitch(
-                pendingCount: widget.pending.length,
-                historyCount: widget.history.length,
-                showHistory: _showHistory,
-                onPending: () => setState(() => _showHistory = false),
-                onHistory: () => setState(() => _showHistory = true),
+              AppSegmentedControl(
+                expand: false,
+                style: AppSegmentStyle.soft,
+                selectedIndex: _showHistory ? 1 : 0,
+                onChanged: (i) => setState(() => _showHistory = i == 1),
+                items: [
+                  AppSegmentItem(
+                    label: widget.pending.isEmpty ? 'Chờ duyệt' : 'Chờ',
+                    count: widget.pending.length,
+                  ),
+                  AppSegmentItem(
+                    label: 'Đã xử lý',
+                    count: widget.history.length,
+                  ),
+                ],
               ),
               const Spacer(),
               Text(
@@ -495,84 +514,6 @@ class _PendingWithHistoryListState extends State<_PendingWithHistoryList> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _ModeSwitch extends StatelessWidget {
-  const _ModeSwitch({
-    required this.pendingCount,
-    required this.historyCount,
-    required this.showHistory,
-    required this.onPending,
-    required this.onHistory,
-  });
-
-  final int pendingCount;
-  final int historyCount;
-  final bool showHistory;
-  final VoidCallback onPending;
-  final VoidCallback onHistory;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: AppRadius.brPill,
-        border: Border.all(color: AppColors.borderSoft),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _MiniSeg(
-            label: pendingCount > 0 ? 'Chờ $pendingCount' : 'Chờ duyệt',
-            selected: !showHistory,
-            onTap: onPending,
-          ),
-          _MiniSeg(
-            label: historyCount > 0 ? 'Đã xử lý $historyCount' : 'Đã xử lý',
-            selected: showHistory,
-            onTap: onHistory,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniSeg extends StatelessWidget {
-  const _MiniSeg({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.surface : Colors.transparent,
-      borderRadius: AppRadius.brPill,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brPill,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
-              color: selected ? AppColors.primary : AppColors.textSecondary,
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

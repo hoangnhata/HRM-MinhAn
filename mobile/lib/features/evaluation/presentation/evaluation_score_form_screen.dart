@@ -213,7 +213,7 @@ class _EvaluationScoreFormScreenState
       isScrollControlled: true,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       builder: (ctx) {
         return SafeArea(

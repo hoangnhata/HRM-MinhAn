@@ -591,6 +591,22 @@ class AttendanceWorkRequest {
   DateTime? get directorReviewedAt => _parseDt(raw['directorReviewedAt']);
   DateTime? get createdAt => _parseDt(raw['createdAt']);
   bool get hrWaiveForgotFine => raw['hrWaiveForgotFine'] as bool? ?? false;
+  bool get explanationKeepOriginalTimes =>
+      raw['explanationKeepOriginalTimes'] as bool? ?? false;
+
+  /// Log máy chấm trong ngày đơn (UPDATE / EXPLANATION / DEPLOYMENT).
+  List<String> get attendancePunchTimes {
+    final rawList = raw['attendancePunchTimes'];
+    if (rawList is! List) return const [];
+    final times = <String>{};
+    for (final item in rawList) {
+      final s = item?.toString().trim() ?? '';
+      if (s.isEmpty) continue;
+      times.add(s.length >= 5 ? s.substring(0, 5) : s);
+    }
+    final sorted = times.toList()..sort();
+    return sorted;
+  }
 
   String? get requestedStart => _hhmm(raw['requestedStart']);
   String? get requestedEnd => _hhmm(raw['requestedEnd']);

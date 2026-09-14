@@ -446,7 +446,7 @@ class _BulkWorkSupplementSheetState
       builder: (context, scrollController) => Container(
         decoration: const BoxDecoration(
           color: AppColors.background,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: AppRadius.brSheetTop,
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(

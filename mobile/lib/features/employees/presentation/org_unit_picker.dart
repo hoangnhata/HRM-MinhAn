@@ -226,7 +226,7 @@ class _OrgPickerSheetState extends State<_OrgPickerSheet> {
       height: height,
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       child: Column(
         children: [

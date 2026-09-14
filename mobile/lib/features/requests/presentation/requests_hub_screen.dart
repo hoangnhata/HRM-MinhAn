@@ -7,7 +7,6 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/nursing_block.dart';
-import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_motion.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../attendance/application/attendance_requests_controller.dart';
@@ -46,16 +45,23 @@ class _HubGroup {
   final List<_HubEntry> entries;
 }
 
-List<_HubGroup> _buildGroups(String? positionTitle) {
+List<_HubGroup> _buildGroups(String? positionTitle, [String? departmentName]) {
   _HubEntry fromConfig(String key) {
     final c = RequestTypeConfig.byKey(key);
     final stages = switch (key) {
-      'probation-conversion' => probationFlowLabels(positionTitle),
-      'main-duty-authorization' => mainDutyFlowLabels(positionTitle),
+      'probation-conversion' => probationFlowLabels(
+        positionTitle,
+        departmentName,
+      ),
+      'main-duty-authorization' => mainDutyFlowLabels(
+        positionTitle,
+        departmentName,
+      ),
       _ => filterDisplayStages(
-          c.stages.map((s) => s.label),
-          positionTitle: positionTitle,
-        ),
+        c.stages.map((s) => s.label),
+        positionTitle: positionTitle,
+        departmentName: departmentName,
+      ),
     };
     return _HubEntry(
       title: c.label,
@@ -67,7 +73,7 @@ List<_HubGroup> _buildGroups(String? positionTitle) {
     );
   }
 
-  final attendanceStages = attendanceFlowLabels(positionTitle);
+  final attendanceStages = attendanceFlowLabels(positionTitle, departmentName);
 
   return [
     _HubGroup(
@@ -97,7 +103,7 @@ List<_HubGroup> _buildGroups(String? positionTitle) {
               'Lập bởi Trưởng khoa/ĐD trưởng; lãnh đạo duyệt theo luồng.',
           icon: Icons.swap_horiz_rounded,
           color: const Color(0xFF0F766E),
-          stages: deploymentFlowLabels(positionTitle),
+          stages: deploymentFlowLabels(positionTitle, departmentName),
           route: RoutePaths.attendanceDeploymentRequests,
         ),
       ],
@@ -137,7 +143,10 @@ class RequestsHubScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
-    final groups = _buildGroups(auth.currentUser?.positionTitle);
+    final groups = _buildGroups(
+      auth.currentUser?.positionTitle,
+      auth.currentUser?.departmentName,
+    );
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -263,10 +272,7 @@ class _GroupHeader extends StatelessWidget {
 }
 
 class _RequestTypeCard extends StatelessWidget {
-  const _RequestTypeCard({
-    required this.entry,
-    required this.onTap,
-  });
+  const _RequestTypeCard({required this.entry, required this.onTap});
 
   final _HubEntry entry;
   final VoidCallback onTap;
@@ -274,149 +280,153 @@ class _RequestTypeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = entry.color;
+    final radius = BorderRadius.circular(18);
 
-    return AppCard(
-      onTap: onTap,
-      borderRadius: AppRadius.brCard,
-      accentColor: color,
-      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      color.withValues(alpha: 0.16),
-                      color.withValues(alpha: 0.06),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: color.withValues(alpha: 0.18)),
-                ),
-                child: Icon(entry.icon, color: color, size: 24),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.title,
-                      style: AppTypography.style(
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.25,
-                        height: 1.2,
-                      ),
-                    ),
-                    if (entry.description.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        entry.description,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontSize: 12.5,
-                          color: AppColors.textSecondary,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceMuted,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.borderSoft),
-                ),
-                child: const Icon(
-                  Icons.chevron_right_rounded,
-                  size: 18,
-                  color: AppColors.textTertiary,
-                ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: radius,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              // Wash nhẹ: đủ nhận ra nhóm theo màu nhưng thẻ vẫn đọc như nền
+              // trắng, chữ mô tả không bị chìm trong màu.
+              colors: [
+                color.withValues(alpha: 0.05),
+                color.withValues(alpha: 0.015),
+                AppColors.surface,
+              ],
+              stops: const [0.0, 0.35, 0.7],
+            ),
+            border: Border.all(color: color.withValues(alpha: 0.16)),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.06),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
-          if (entry.stages.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.05),
-                borderRadius: AppRadius.brSm,
-                border: Border.all(color: color.withValues(alpha: 0.1)),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.route_rounded,
-                    size: 14,
-                    color: color.withValues(alpha: 0.9),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        for (final (i, stage) in entry.stages.indexed) ...[
-                          if (i > 0)
-                            Icon(
-                              Icons.arrow_forward_ios_rounded,
-                              size: 9,
-                              color: color.withValues(alpha: 0.45),
-                            ),
-                          _StageChip(label: stage, color: color),
-                        ],
-                      ],
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: color.withValues(alpha: 0.18),
+                        ),
+                      ),
+                      child: Icon(entry.icon, color: color, size: 24),
                     ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            entry.title,
+                            style: AppTypography.style(
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.25,
+                              height: 1.2,
+                            ),
+                          ),
+                          if (entry.description.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              entry.description,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.style(
+                                fontSize: 12.5,
+                                color: AppColors.textSecondary,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.borderSoft),
+                      ),
+                      child: const Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: AppColors.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+                if (entry.stages.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: Icon(
+                          Icons.account_tree_outlined,
+                          size: 14,
+                          color: color.withValues(alpha: 0.75),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              for (final (i, stage)
+                                  in entry.stages.indexed) ...[
+                                if (i > 0)
+                                  TextSpan(
+                                    text: '  →  ',
+                                    style: AppTypography.style(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: color.withValues(alpha: 0.45),
+                                    ),
+                                  ),
+                                TextSpan(
+                                  text: stage,
+                                  style: AppTypography.style(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textSecondary,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
-              ),
+              ],
             ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _StageChip extends StatelessWidget {
-  const _StageChip({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadius.brPill,
-        border: Border.all(color: color.withValues(alpha: 0.22)),
-      ),
-      child: Text(
-        label,
-        style: AppTypography.style(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w700,
-          color: AppColors.textSecondary,
+          ),
         ),
       ),
     );

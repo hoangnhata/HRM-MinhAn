@@ -189,35 +189,45 @@ class _ProfileSignatureScreenState
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: GradientAppBar(
-        title: 'Chữ ký số',
-        subtitle: hasSignature ? 'Đã thiết lập' : 'Chưa thiết lập',
+      body: Column(
+        children: [
+          AppScreenHeader(
+            dense: true,
+            title: 'Chữ ký số',
+            icon: Icons.draw_rounded,
+            eyebrow: 'Cá nhân',
+            subtitle: hasSignature ? 'Đã thiết lập' : 'Chưa thiết lập',
+            onBack: () => Navigator.of(context).maybePop(),
+          ),
+          Expanded(
+            child: _mode == _SignatureMode.draw
+                ? _DrawMode(
+                    controller: _controller,
+                    hasStrokes: _hasStrokes,
+                    submitting: _submitting,
+                    onClear: _clearDraw,
+                    onCancel: _backToOverview,
+                    onSave: _saveDraw,
+                  )
+                : _OverviewMode(
+                    hasSignature: hasSignature,
+                    submitting: _submitting,
+                    previewUpload: _previewUpload,
+                    onStartDraw: () => setState(() {
+                      _previewUpload = null;
+                      _mode = _SignatureMode.draw;
+                    }),
+                    onPickUpload: _pickUpload,
+                    onClearUploadPreview: () => setState(() {
+                      _previewUpload = null;
+                      _uploadMime = null;
+                    }),
+                    onSaveUpload: _saveUpload,
+                    onDelete: hasSignature ? _deleteSignature : null,
+                  ),
+          ),
+        ],
       ),
-      body: _mode == _SignatureMode.draw
-          ? _DrawMode(
-              controller: _controller,
-              hasStrokes: _hasStrokes,
-              submitting: _submitting,
-              onClear: _clearDraw,
-              onCancel: _backToOverview,
-              onSave: _saveDraw,
-            )
-          : _OverviewMode(
-              hasSignature: hasSignature,
-              submitting: _submitting,
-              previewUpload: _previewUpload,
-              onStartDraw: () => setState(() {
-                _previewUpload = null;
-                _mode = _SignatureMode.draw;
-              }),
-              onPickUpload: _pickUpload,
-              onClearUploadPreview: () => setState(() {
-                _previewUpload = null;
-                _uploadMime = null;
-              }),
-              onSaveUpload: _saveUpload,
-              onDelete: hasSignature ? _deleteSignature : null,
-            ),
     );
   }
 }

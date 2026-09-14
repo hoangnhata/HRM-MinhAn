@@ -12,18 +12,25 @@ import 'org_unit_picker.dart';
 
 Future<void> showEmployeeFilterSheet(
   BuildContext context,
-  WidgetRef ref,
-) async {
+  WidgetRef ref, {
+  bool workUnitScoped = false,
+  String? lockedWorkUnit,
+  int? lockedDepartmentId,
+  String? lockedDepartmentName,
+}) async {
   final state = ref.read(employeeListControllerProvider);
   await showAppBottomSheet<void>(
     context,
     title: 'Bộ lọc nâng cao',
     child: _EmployeeFilterSheet(
-      initialDepartmentId: state.departmentId,
-      initialDepartmentName: state.departmentName,
-      initialWorkUnit: state.workUnit,
+      initialDepartmentId:
+          workUnitScoped ? lockedDepartmentId : state.departmentId,
+      initialDepartmentName:
+          workUnitScoped ? lockedDepartmentName : state.departmentName,
+      initialWorkUnit: workUnitScoped ? lockedWorkUnit : state.workUnit,
       initialOfficialWorkFilter: state.officialWorkFilter,
       showOfficialWorkFilter: state.status == 'OFFICIAL',
+      scopeLocked: workUnitScoped,
     ),
   );
 }
@@ -35,6 +42,7 @@ class _EmployeeFilterSheet extends ConsumerStatefulWidget {
     required this.initialWorkUnit,
     required this.initialOfficialWorkFilter,
     required this.showOfficialWorkFilter,
+    this.scopeLocked = false,
   });
 
   final int? initialDepartmentId;
@@ -42,6 +50,7 @@ class _EmployeeFilterSheet extends ConsumerStatefulWidget {
   final String? initialWorkUnit;
   final String? initialOfficialWorkFilter;
   final bool showOfficialWorkFilter;
+  final bool scopeLocked;
 
   @override
   ConsumerState<_EmployeeFilterSheet> createState() =>
@@ -109,7 +118,7 @@ class _EmployeeFilterSheetState extends ConsumerState<_EmployeeFilterSheet> {
       context: context,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       builder: (ctx) {
         return SafeArea(
@@ -189,6 +198,8 @@ class _EmployeeFilterSheetState extends ConsumerState<_EmployeeFilterSheet> {
               label: 'Phòng ban',
               value: _departmentName ?? 'Tất cả',
               icon: Icons.apartment_rounded,
+              enabled: !widget.scopeLocked,
+              subtitle: widget.scopeLocked ? 'Đã khóa theo phạm vi tài khoản' : null,
               onTap: () => _pickDepartmentSafe(departments),
             ),
           ),
@@ -197,13 +208,16 @@ class _EmployeeFilterSheetState extends ConsumerState<_EmployeeFilterSheet> {
             label: 'Bộ phận',
             value: _workUnit ?? 'Tất cả',
             icon: Icons.meeting_room_outlined,
-            enabled: _departmentId != null,
-            subtitle: _departmentId == null
-                ? 'Chọn phòng ban trước'
-                : workUnitsAsync?.isLoading == true
-                    ? 'Đang tải…'
-                    : null,
+            enabled: !widget.scopeLocked && _departmentId != null,
+            subtitle: widget.scopeLocked
+                ? 'Đã khóa theo phạm vi tài khoản'
+                : _departmentId == null
+                    ? 'Chọn phòng ban trước'
+                    : workUnitsAsync?.isLoading == true
+                        ? 'Đang tải…'
+                        : null,
             onTap: () {
+              if (widget.scopeLocked) return;
               final units = workUnitsAsync?.valueOrNull ?? const <WorkUnit>[];
               if (_departmentId == null) return;
               _pickWorkUnit(units);
@@ -223,12 +237,14 @@ class _EmployeeFilterSheetState extends ConsumerState<_EmployeeFilterSheet> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () {
-                    ref
-                        .read(employeeListControllerProvider.notifier)
-                        .clearFilters();
-                    Navigator.pop(context);
-                  },
+                  onPressed: widget.scopeLocked
+                      ? null
+                      : () {
+                          ref
+                              .read(employeeListControllerProvider.notifier)
+                              .clearFilters();
+                          Navigator.pop(context);
+                        },
                   child: const Text('Xóa bộ lọc'),
                 ),
               ),

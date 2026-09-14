@@ -18,6 +18,7 @@ class AppSearchField extends StatefulWidget {
     this.debounce = const Duration(milliseconds: 350),
     this.autofocus = false,
     this.dense = false,
+    this.borderRadius,
   });
 
   final ValueChanged<String> onChanged;
@@ -26,6 +27,7 @@ class AppSearchField extends StatefulWidget {
   final Duration debounce;
   final bool autofocus;
   final bool dense;
+  final BorderRadius? borderRadius;
 
   @override
   State<AppSearchField> createState() => _AppSearchFieldState();
@@ -65,6 +67,7 @@ class _AppSearchFieldState extends State<AppSearchField> {
 
   @override
   Widget build(BuildContext context) {
+    final radius = widget.borderRadius ?? AppRadius.brPill;
     return TextField(
       controller: _controller,
       onChanged: _handleChanged,
@@ -89,15 +92,15 @@ class _AppSearchFieldState extends State<AppSearchField> {
           vertical: widget.dense ? 10 : 13,
         ),
         border: OutlineInputBorder(
-          borderRadius: AppRadius.brPill,
+          borderRadius: radius,
           borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: AppRadius.brPill,
+          borderRadius: radius,
           borderSide: const BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: AppRadius.brPill,
+          borderRadius: radius,
           borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
         ),
       ),

@@ -11,6 +11,7 @@ import '../../../core/widgets/app_ambient_background.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/app_motion.dart';
+import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/highlight_pulse.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/widgets/notice_banner.dart';
@@ -130,7 +131,6 @@ class _EvaluationScreenState extends ConsumerState<EvaluationScreen> {
     final controller = ref.read(evaluationControllerProvider.notifier);
     final highlightId = widget.highlightEvaluationId;
     final modes = _modes;
-    final onBrand = Theme.of(context).colorScheme.onPrimary;
     final activeMode = modes.contains(_mode) ? _mode : modes.first;
 
     if (activeMode != _mode) {
@@ -169,15 +169,17 @@ class _EvaluationScreenState extends ConsumerState<EvaluationScreen> {
                 eyebrow: 'Năng suất & chất lượng',
                 subtitle: modes.length == 1
                     ? 'Kết quả sau khi đủ 4 bước duyệt'
-                    : 'Chấm · Duyệt · Xếp loại khối ĐD',
+                    : 'Chấm · Duyệt · Xếp loại khối ĐD (+ NV YHCT/Khám bệnh)',
                 onBack: () => context.pop(),
                 footer: modes.length > 1
-                    ? _ModeSegment(
-                        modes: modes,
-                        selected: activeMode,
-                        onBrand: onBrand,
-                        labelOf: (m) => _modeLabel(m, state),
-                        onChanged: (m) => setState(() => _mode = m),
+                    ? BrandHeaderSegment(
+                        dense: true,
+                        selectedIndex: modes.indexOf(activeMode),
+                        onChanged: (i) => setState(() => _mode = modes[i]),
+                        items: [
+                          for (final m in modes)
+                            BrandSegmentItem(label: _modeLabel(m, state)),
+                        ],
                       )
                     : null,
               ),
@@ -251,30 +253,17 @@ class _ApprovePanel extends StatelessWidget {
             AppSpacing.page,
             0,
           ),
-          child: Container(
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              color: AppColors.surface.withValues(alpha: 0.94),
-              borderRadius: AppRadius.brPill,
-              border: Border.all(color: AppColors.borderSoft),
-              boxShadow: AppShadows.soft,
-            ),
-            child: Row(
-              children: [
-                _Seg(
-                  label: pending.isEmpty
-                      ? 'Chờ duyệt'
-                      : 'Chờ duyệt (${pending.length})',
-                  selected: !showHistory,
-                  onTap: () => onToggleHistory(false),
-                ),
-                _Seg(
-                  label: 'Đã xử lý',
-                  selected: showHistory,
-                  onTap: () => onToggleHistory(true),
-                ),
-              ],
-            ),
+          child: AppSegmentedControl(
+            style: AppSegmentStyle.soft,
+            selectedIndex: showHistory ? 1 : 0,
+            onChanged: (i) => onToggleHistory(i == 1),
+            items: [
+              AppSegmentItem(
+                label: 'Chờ duyệt',
+                count: pending.length,
+              ),
+              const AppSegmentItem(label: 'Đã xử lý'),
+            ],
           ),
         ),
         Expanded(
@@ -473,104 +462,6 @@ class _QueueHero extends StatelessWidget {
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ModeSegment extends StatelessWidget {
-  const _ModeSegment({
-    required this.modes,
-    required this.selected,
-    required this.onBrand,
-    required this.labelOf,
-    required this.onChanged,
-  });
-
-  final List<_EvalMode> modes;
-  final _EvalMode selected;
-  final Color onBrand;
-  final String Function(_EvalMode) labelOf;
-  final ValueChanged<_EvalMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: onBrand.withValues(alpha: 0.14),
-        borderRadius: AppRadius.brPill,
-      ),
-      child: Row(
-        children: [
-          for (final m in modes)
-            Expanded(
-              child: Material(
-                color: selected == m ? onBrand : Colors.transparent,
-                borderRadius: AppRadius.brPill,
-                child: InkWell(
-                  onTap: () => onChanged(m),
-                  borderRadius: AppRadius.brPill,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 9),
-                    child: Text(
-                      labelOf(m),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: selected == m
-                            ? AppColors.primaryDark
-                            : onBrand.withValues(alpha: 0.9),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Seg extends StatelessWidget {
-  const _Seg({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Material(
-        color: selected ? AppColors.surface : Colors.transparent,
-        borderRadius: AppRadius.brPill,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: AppRadius.brPill,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 9),
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: AppTypography.style(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w800,
-                color: selected
-                    ? AppColors.primaryDark
-                    : AppColors.textSecondary,
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }

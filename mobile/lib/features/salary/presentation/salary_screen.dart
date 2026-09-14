@@ -362,8 +362,8 @@ class _HeaderScaleButton extends StatelessWidget {
             customBorder: const CircleBorder(),
             onTap: onTap,
             child: SizedBox(
-              width: 40,
-              height: 40,
+              width: 44,
+              height: 44,
               child: Icon(
                 Icons.stairs_rounded,
                 color: onBrand,
@@ -651,8 +651,8 @@ class _SalaryHero extends StatelessWidget {
                           customBorder: const CircleBorder(),
                           onTap: onToggleReveal,
                           child: SizedBox(
-                            width: 40,
-                            height: 40,
+                            width: 44,
+                            height: 44,
                             child: Icon(
                               showAmounts
                                   ? Icons.visibility_off_rounded

@@ -8,6 +8,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_ambient_background.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_date_picker.dart';
+import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/app_time_picker.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/gradient_header.dart';
@@ -603,22 +604,35 @@ class _AttendanceWorkRequestFormState
                       forgotShifts: _day?.forgotShifts,
                     ),
                     const SizedBox(height: AppSpacing.sm),
-                    _TypeSwitch(
-                      selected: _type,
-                      canExplain: canExplain || _type == 'EXPLANATION',
-                      canUpdate: needsUpdate || _type == 'UPDATE',
-                      locked: _isEditing,
-                      onChanged: (v) => setState(() {
-                        _type = v;
-                        _validationMessage = null;
-                        if (v == 'UPDATE' && _updateScenario != null) {
-                          _updateKind = _updateScenario!.updateKind;
-                          _kindLocked = _updateScenario!.locked;
-                          if (_schedule != null) {
-                            _applyScheduleTimes(_schedule!, _updateScenario!);
+                    AppSegmentedControl(
+                      enabled: !_isEditing,
+                      selectedIndex: _type == 'UPDATE' ? 1 : 0,
+                      onChanged: (i) {
+                        final v = i == 1 ? 'UPDATE' : 'EXPLANATION';
+                        setState(() {
+                          _type = v;
+                          _validationMessage = null;
+                          if (v == 'UPDATE' && _updateScenario != null) {
+                            _updateKind = _updateScenario!.updateKind;
+                            _kindLocked = _updateScenario!.locked;
+                            if (_schedule != null) {
+                              _applyScheduleTimes(_schedule!, _updateScenario!);
+                            }
                           }
-                        }
-                      }),
+                        });
+                      },
+                      items: [
+                        AppSegmentItem(
+                          label: 'Giải trình',
+                          icon: Icons.schedule_rounded,
+                          enabled: canExplain || _type == 'EXPLANATION',
+                        ),
+                        AppSegmentItem(
+                          label: 'Cập nhật công',
+                          icon: Icons.touch_app_rounded,
+                          enabled: needsUpdate || _type == 'UPDATE',
+                        ),
+                      ],
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     if (_isExplanation) ...[
@@ -851,125 +865,6 @@ class _DayInsightBanner extends StatelessWidget {
       message: forgotShifts != null && forgotShifts!.isNotEmpty
           ? 'Thiếu: $forgotShifts · đơn này trừ khoảng $forgotUnits lần quên chấm.'
           : 'Thiếu mốc chấm · đơn này trừ khoảng $forgotUnits lần quên chấm.',
-    );
-  }
-}
-
-class _TypeSwitch extends StatelessWidget {
-  const _TypeSwitch({
-    required this.selected,
-    required this.canExplain,
-    required this.canUpdate,
-    required this.onChanged,
-    this.locked = false,
-  });
-
-  final String selected;
-  final bool canExplain;
-  final bool canUpdate;
-  final ValueChanged<String> onChanged;
-  final bool locked;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.all(6),
-      child: Opacity(
-        opacity: locked ? 0.55 : 1,
-        child: Row(
-          children: [
-            Expanded(
-              child: _TypeChip(
-                label: 'Giải trình',
-                icon: Icons.schedule_rounded,
-                selected: selected == 'EXPLANATION',
-                enabled: !locked && (canExplain || selected == 'EXPLANATION'),
-                onTap: () => onChanged('EXPLANATION'),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _TypeChip(
-                label: 'Cập nhật công',
-                icon: Icons.touch_app_rounded,
-                selected: selected == 'UPDATE',
-                enabled: !locked && (canUpdate || selected == 'UPDATE'),
-                onTap: () => onChanged('UPDATE'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TypeChip extends StatelessWidget {
-  const _TypeChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: enabled ? 1 : 0.45,
-      child: Material(
-        color: selected
-            ? AppColors.primary.withValues(alpha: 0.12)
-            : AppColors.surfaceMuted,
-        borderRadius: AppRadius.brMd,
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          borderRadius: AppRadius.brMd,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-            decoration: BoxDecoration(
-              borderRadius: AppRadius.brMd,
-              border: Border.all(
-                color: selected
-                    ? AppColors.primary.withValues(alpha: 0.45)
-                    : Colors.transparent,
-                width: 1.4,
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 17,
-                  color: selected ? AppColors.primary : AppColors.textSecondary,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.style(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                      color: selected
-                          ? AppColors.primaryDark
-                          : AppColors.textSecondary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

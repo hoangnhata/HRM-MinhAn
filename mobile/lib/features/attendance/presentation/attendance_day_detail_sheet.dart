@@ -140,7 +140,7 @@ class _AttendanceDayDetailSheetState
     final canSupplement = day.status == 'PARTIAL' || day.status == 'ABSENT';
     final role = ref.watch(authControllerProvider).role;
     final canManageDutyQuangTrung =
-        role == UserRole.admin || role == UserRole.headDepartment;
+        role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role);
     final missingMorning = _isMissingShift(
       hasSchedule: _schedule?.morningStart != null ||
           (scheduleUnknown && canSupplement && day.morningWorkUnits <= 0),
@@ -166,7 +166,7 @@ class _AttendanceDayDetailSheetState
         return Container(
           decoration: const BoxDecoration(
             color: AppColors.background,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+            borderRadius: AppRadius.brSheetTop,
           ),
           child: ListView(
             controller: scrollController,
@@ -211,7 +211,12 @@ class _AttendanceDayDetailSheetState
               ),
               if (name.isNotEmpty) ...[
                 const SizedBox(height: 4),
-                Text(name, style: AppTypography.listSubtitle()),
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.listSubtitle(),
+                ),
               ],
               const SizedBox(height: 12),
               Wrap(
@@ -975,7 +980,7 @@ class _SupplementModeSheet extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.background,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: SafeArea(
@@ -1372,7 +1377,7 @@ class _DutyShiftSupplementSheetState
         child: Container(
           decoration: BoxDecoration(
             color: AppColors.background,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            borderRadius: AppRadius.brSheetTop,
           ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Column(
@@ -1652,7 +1657,7 @@ class _QuangTrungSupplementSheetState
       builder: (context, scrollController) => Container(
         decoration: const BoxDecoration(
           color: AppColors.background,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: AppRadius.brSheetTop,
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(

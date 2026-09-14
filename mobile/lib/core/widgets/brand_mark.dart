@@ -22,18 +22,29 @@ class BrandMark extends StatelessWidget {
   /// Bản HD đã xử lý răng cưa / nền đen.
   static const assetPath = 'assets/images/logo_hd.png';
 
+  // Nội dung hữu hình trong PNG 1254×1254 lệch lên 19 px và sang trái 0,5 px.
+  // Bù theo tỉ lệ để huy hiệu luôn đồng tâm với nền tròn ở mọi kích thước.
+  static const _sourceSize = 1254.0;
+  static const _visualCenterCorrection = Offset(0.5, 19);
+
   @override
   Widget build(BuildContext context) {
     final image = ClipOval(
-      child: Image.asset(
-        assetPath,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        filterQuality: FilterQuality.high,
-        isAntiAlias: true,
-        gaplessPlayback: true,
-        semanticLabel: 'Logo Bệnh viện Minh An',
+      child: Transform.translate(
+        offset: Offset(
+          size * _visualCenterCorrection.dx / _sourceSize,
+          size * _visualCenterCorrection.dy / _sourceSize,
+        ),
+        child: Image.asset(
+          assetPath,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
+          isAntiAlias: true,
+          gaplessPlayback: true,
+          semanticLabel: 'Logo Bệnh viện Minh An',
+        ),
       ),
     );
 
@@ -71,11 +82,7 @@ class BrandMark extends StatelessWidget {
 
 /// Logo ứng dụng HRM — chữ **MA** như favicon trang web.
 class AppMark extends StatelessWidget {
-  const AppMark({
-    super.key,
-    this.size = 76,
-    this.heroTag,
-  });
+  const AppMark({super.key, this.size = 76, this.heroTag});
 
   final double size;
   final String? heroTag;

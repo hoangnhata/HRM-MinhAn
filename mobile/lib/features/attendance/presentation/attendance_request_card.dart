@@ -107,7 +107,7 @@ class AttendanceRequestCard extends StatelessWidget {
                         style: AppTypography.style(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w800,
-                          height: 1.25,
+                          height: AppTypography.uppercaseHeight,
                         ),
                       ),
                     ),
@@ -141,7 +141,7 @@ class AttendanceRequestCard extends StatelessWidget {
                       fontSize: 11.5,
                       fontWeight: FontWeight.w600,
                       color: AppColors.primaryDark,
-                      height: 1.3,
+                      height: AppTypography.uppercaseHeight,
                     ),
                   ),
                 ],

@@ -63,9 +63,15 @@ class GenericRequestController extends StateNotifier<GenericRequestState> {
 
   Future<void> _load({required bool showError}) async {
     try {
-      final role = _ref.read(authControllerProvider).role;
-      final reviewStages = config.stagesFor(role);
-      final isListViewer = config.listViewerRoles.contains(role);
+      final auth = _ref.read(authControllerProvider);
+      final role = auth.role;
+      final directorApproval =
+          auth.currentUser?.directorApprovalEnabled ?? false;
+      final reviewStages = config.stagesFor(
+        role,
+        directorApprovalEnabled: directorApproval,
+      );
+      final isListViewer = config.canListView(role);
 
       // Nuốt 403/lỗi từng endpoint — giống đơn công: một API lỗi không sập cả màn.
       final related = await _safeList(() => _repository.related(config));

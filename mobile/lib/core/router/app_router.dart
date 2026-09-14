@@ -25,7 +25,13 @@ import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/profile/presentation/edit_profile_screen.dart';
 import '../../features/profile/presentation/profile_change_password_screen.dart';
 import '../../features/profile/presentation/profile_signature_screen.dart';
+import '../../features/reports/presentation/workforce_department_detail_screen.dart';
 import '../../features/reports/presentation/workforce_report_screen.dart';
+import '../../features/reports/presentation/nursing_activity_report_screen.dart';
+import '../../features/reports/presentation/professional_qualification_report_screen.dart';
+import '../../features/reports/presentation/qtkt_compliance_report_screen.dart';
+import '../../features/nursing_daily_report/presentation/nursing_daily_report_list_screen.dart';
+import '../../features/qtkt/presentation/qtkt_evaluations_screen.dart';
 import '../../features/requests/presentation/employee_proposal_create_screen.dart';
 import '../../features/requests/presentation/employee_select_for_request_screen.dart';
 import '../../features/requests/presentation/main_duty_authorization_create_screen.dart';
@@ -48,7 +54,9 @@ class _AuthRefreshNotifier extends ChangeNotifier {
   }
 }
 
-final _authRefreshProvider = Provider<_AuthRefreshNotifier>((ref) => _AuthRefreshNotifier(ref));
+final _authRefreshProvider = Provider<_AuthRefreshNotifier>(
+  (ref) => _AuthRefreshNotifier(ref),
+);
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refreshNotifier = ref.watch(_authRefreshProvider);
@@ -68,25 +76,49 @@ final routerProvider = Provider<GoRouter>((ref) {
         return loc == RoutePaths.login ? null : RoutePaths.login;
       }
       if (auth.status == AuthStatus.mustChangePassword) {
-        return loc == RoutePaths.changePassword ? null : RoutePaths.changePassword;
+        return loc == RoutePaths.changePassword
+            ? null
+            : RoutePaths.changePassword;
       }
       if (auth.status == AuthStatus.mustSetSignature) {
-        return loc == RoutePaths.signatureSetup ? null : RoutePaths.signatureSetup;
+        return loc == RoutePaths.signatureSetup
+            ? null
+            : RoutePaths.signatureSetup;
       }
       // Da dang nhap day du - khong o lai cac man hinh chi danh cho luc chua vao app.
-      if (publicLocations.contains(loc) || loc == RoutePaths.changePassword || loc == RoutePaths.signatureSetup) {
+      if (publicLocations.contains(loc) ||
+          loc == RoutePaths.changePassword ||
+          loc == RoutePaths.signatureSetup) {
         return RoutePaths.dashboard;
       }
       return null;
     },
     routes: [
-      GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
-      GoRoute(path: RoutePaths.login, builder: (context, state) => const LoginScreen()),
-      GoRoute(path: RoutePaths.changePassword, builder: (context, state) => const ChangePasswordRequiredScreen()),
-      GoRoute(path: RoutePaths.signatureSetup, builder: (context, state) => const SignatureSetupScreen()),
-      GoRoute(path: RoutePaths.dashboard, builder: (context, state) => const AppShell()),
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.login,
+        builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.changePassword,
+        builder: (context, state) => const ChangePasswordRequiredScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.signatureSetup,
+        builder: (context, state) => const SignatureSetupScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.dashboard,
+        builder: (context, state) => const AppShell(),
+      ),
 
-      GoRoute(path: RoutePaths.employees, builder: (context, state) => const EmployeesScreen()),
+      GoRoute(
+        path: RoutePaths.employees,
+        builder: (context, state) => const EmployeesScreen(),
+      ),
       GoRoute(
         path: RoutePaths.employeeCreate,
         builder: (context, state) => EmployeeCreateScreen(
@@ -109,7 +141,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           employeeId: int.parse(state.pathParameters['id']!),
         ),
       ),
-      GoRoute(path: RoutePaths.departments, builder: (context, state) => const DepartmentsScreen()),
+      GoRoute(
+        path: RoutePaths.departments,
+        builder: (context, state) => const DepartmentsScreen(),
+      ),
 
       GoRoute(
         path: RoutePaths.attendanceRequests,
@@ -164,10 +199,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final q = state.uri.queryParameters;
           final employeeId = int.tryParse(q['employeeId'] ?? '') ?? 0;
-          final year =
-              int.tryParse(q['year'] ?? '') ?? DateTime.now().year;
-          final month =
-              int.tryParse(q['month'] ?? '') ?? DateTime.now().month;
+          final year = int.tryParse(q['year'] ?? '') ?? DateTime.now().year;
+          final month = int.tryParse(q['month'] ?? '') ?? DateTime.now().month;
           return ContinuousShiftScreen(
             employeeId: employeeId,
             year: year,
@@ -203,9 +236,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RoutePaths.evaluationScore,
         builder: (context, state) {
-          final year = int.tryParse(state.uri.queryParameters['year'] ?? '') ??
+          final year =
+              int.tryParse(state.uri.queryParameters['year'] ?? '') ??
               DateTime.now().year;
-          final month = int.tryParse(state.uri.queryParameters['month'] ?? '') ??
+          final month =
+              int.tryParse(state.uri.queryParameters['month'] ?? '') ??
               DateTime.now().month;
           return EvaluationScoreFormScreen(
             employeeId: int.parse(state.pathParameters['employeeId']!),
@@ -223,7 +258,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
 
-      GoRoute(path: RoutePaths.salary, builder: (context, state) => const SalaryScreen()),
+      GoRoute(
+        path: RoutePaths.salary,
+        builder: (context, state) => const SalaryScreen(),
+      ),
       GoRoute(
         path: RoutePaths.salaryScales,
         builder: (context, state) => const SalaryScaleScreen(),
@@ -252,15 +290,72 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
+        path: RoutePaths.workforceDepartmentDetail,
+        builder: (context, state) {
+          final args = state.extra;
+          if (args is! WorkforceDeptDetailArgs) {
+            return const Scaffold(
+              body: Center(child: Text('Thiếu dữ liệu khoa')),
+            );
+          }
+          return WorkforceDepartmentDetailScreen(args: args);
+        },
+      ),
+      GoRoute(
+        path: RoutePaths.workforceAbsentDepartmentDetail,
+        builder: (context, state) {
+          final args = state.extra;
+          if (args is! WorkforceAbsentDeptDetailArgs) {
+            return const Scaffold(
+              body: Center(child: Text('Thiếu dữ liệu khoa')),
+            );
+          }
+          return WorkforceAbsentDepartmentDetailScreen(args: args);
+        },
+      ),
+      GoRoute(
+        path: RoutePaths.nursingDailyReports,
+        builder: (context, state) => const NursingDailyReportListScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.nursingActivityReports,
+        builder: (context, state) => const NursingActivityReportScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.qtktEvaluations,
+        builder: (context, state) => const QtktEvaluationsScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.qtktComplianceReports,
+        builder: (context, state) => const QtktComplianceReportScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.professionalQualificationReports,
+        builder: (context, state) =>
+            const ProfessionalQualificationReportScreen(),
+      ),
+      GoRoute(
         path: RoutePaths.notifications,
         builder: (context, state) => const NotificationsScreen(),
       ),
 
-      GoRoute(path: RoutePaths.profileEdit, builder: (context, state) => const EditProfileScreen()),
-      GoRoute(path: RoutePaths.profileChangePassword, builder: (context, state) => const ProfileChangePasswordScreen()),
-      GoRoute(path: RoutePaths.profileSignature, builder: (context, state) => const ProfileSignatureScreen()),
+      GoRoute(
+        path: RoutePaths.profileEdit,
+        builder: (context, state) => const EditProfileScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.profileChangePassword,
+        builder: (context, state) => const ProfileChangePasswordScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.profileSignature,
+        builder: (context, state) => const ProfileSignatureScreen(),
+      ),
 
-      GoRoute(path: RoutePaths.requestsHub, builder: (context, state) => const RequestsHubScreen()),
+      GoRoute(
+        path: RoutePaths.requestsHub,
+        builder: (context, state) => const RequestsHubScreen(),
+      ),
       GoRoute(
         path: RoutePaths.requestCreate,
         builder: (context, state) {

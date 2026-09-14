@@ -8,6 +8,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/user_role.dart';
+import '../../../core/widgets/access_scope_chip.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_motion.dart';
@@ -88,9 +89,7 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
       ),
     );
     if (!mounted || choice == null) return;
-    await context.push(
-      RoutePaths.employeeCreatePath(trial: choice == 'trial'),
-    );
+    await context.push(RoutePaths.employeeCreatePath(trial: choice == 'trial'));
     ref.read(employeeListControllerProvider.notifier).load();
   }
 
@@ -98,9 +97,19 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(employeeListControllerProvider);
     final controller = ref.read(employeeListControllerProvider.notifier);
-    final role = ref.watch(authControllerProvider).role;
+    final auth = ref.watch(authControllerProvider);
+    final role = auth.role;
+    final me = auth.currentUser;
     final canCreate = role == UserRole.admin || role == UserRole.hr;
     final topInset = MediaQuery.paddingOf(context).top;
+    final workUnitScoped = me?.workUnitScoped == true;
+    final workUnit = me?.workUnitDetail?.trim();
+    final hospitalWideOnly =
+        me?.hospitalWideEmployeeViewEnabled == true &&
+        !RoleGroups.isIn(role, RoleGroups.adminHrHeads) &&
+        role != UserRole.hr2 &&
+        role != UserRole.headHr &&
+        role != UserRole.director;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -132,12 +141,44 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
               onQueryChanged: controller.setQuery,
               hasExtraFilters: state.hasExtraFilters,
               activeFilterCount: state.activeFilterCount,
-              onOpenFilters: () => showEmployeeFilterSheet(context, ref),
+              onOpenFilters: () => showEmployeeFilterSheet(
+                context,
+                ref,
+                workUnitScoped: workUnitScoped,
+                lockedWorkUnit: workUnitScoped ? workUnit : null,
+                lockedDepartmentId: workUnitScoped ? me?.departmentId : null,
+                lockedDepartmentName: workUnitScoped
+                    ? me?.departmentName
+                    : null,
+              ),
               statusOptions: _statusOptions,
               selectedStatus: state.status,
               onStatusChanged: controller.setStatus,
               extraFilters: _buildActiveFilters(state, controller),
             ),
+            if (workUnitScoped && workUnit != null && workUnit.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.page,
+                  AppSpacing.sm,
+                  AppSpacing.page,
+                  0,
+                ),
+                child: AccessScopeChip.workUnit(
+                  workUnit: workUnit,
+                  departmentName: me?.departmentName,
+                ),
+              )
+            else if (hospitalWideOnly)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.page,
+                  AppSpacing.sm,
+                  AppSpacing.page,
+                  0,
+                ),
+                child: AccessScopeChip.hospitalWide(),
+              ),
             Expanded(child: _buildContent(state, controller)),
           ],
         ),
@@ -206,7 +247,7 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
   ) {
     final role = ref.watch(authControllerProvider).role;
     final canProposeHeadRequests =
-        role == UserRole.admin || role == UserRole.headDepartment;
+        role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role);
     if (state.loading && state.items.isEmpty) {
       return const SkeletonList(itemCount: 8);
     }
@@ -265,7 +306,8 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
                 AppSpacing.page,
                 100,
               ),
-              itemCount: state.items.length +
+              itemCount:
+                  state.items.length +
                   ((state.loadingMore || state.loadMoreError != null) ? 1 : 0),
               itemBuilder: (context, i) {
                 if (i >= state.items.length) {
@@ -523,7 +565,7 @@ class _EmployeesNav extends StatelessWidget {
                                     child: Text(
                                       '$activeFilterCount',
                                       style: AppTypography.style(
-                                        fontSize: 9,
+                                        fontSize: 10,
                                         fontWeight: FontWeight.w800,
                                         color: Colors.white,
                                       ),
@@ -542,8 +584,7 @@ class _EmployeesNav extends StatelessWidget {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      for (final (index, option)
-                          in statusOptions.indexed) ...[
+                      for (final (index, option) in statusOptions.indexed) ...[
                         if (index > 0) const SizedBox(width: 8),
                         _StatusFilterChip(
                           label: option.$2,
@@ -557,11 +598,7 @@ class _EmployeesNav extends StatelessWidget {
                 ),
                 if (extraFilters.isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: extraFilters,
-                  ),
+                  Wrap(spacing: 6, runSpacing: 6, children: extraFilters),
                 ],
               ],
             ),
@@ -587,8 +624,8 @@ class _NavIconButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
         child: SizedBox(
-          width: 42,
-          height: 42,
+          width: 44,
+          height: 44,
           child: Icon(icon, size: 18, color: Colors.white),
         ),
       ),
@@ -611,39 +648,42 @@ class _StatusFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: selected
-          ? Colors.white
-          : Colors.white.withValues(alpha: 0.14),
-      borderRadius: AppRadius.brPill,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: AppDurations.fast,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 15,
-                color: selected
-                    ? AppColors.primaryDark
-                    : Colors.white.withValues(alpha: 0.92),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: AppTypography.style(
-                  fontSize: 12.5,
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Material(
+        color: selected ? Colors.white : Colors.white.withValues(alpha: 0.14),
+        borderRadius: AppRadius.brPill,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: AppDurations.fast,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 15,
                   color: selected
                       ? AppColors.primaryDark
                       : Colors.white.withValues(alpha: 0.92),
                 ),
-              ),
-            ],
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: AppTypography.style(
+                    fontSize: 12.5,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                    color: selected
+                        ? AppColors.primaryDark
+                        : Colors.white.withValues(alpha: 0.92),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -701,7 +741,8 @@ class _EmployeeCard extends StatelessWidget {
     final terminated = (employee.status ?? '').toUpperCase() == 'TERMINATED';
     final showConversionAction =
         canProposeHeadRequests && !terminated && employee.isTrialEmployee;
-    final showMainDutyAction = canProposeHeadRequests &&
+    final showMainDutyAction =
+        canProposeHeadRequests &&
         !terminated &&
         !employee.mainDutyAuthorized &&
         !employee.isTrialEmployee;
@@ -727,49 +768,32 @@ class _EmployeeCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        employee.fullName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.2,
-                          height: 1.2,
-                        ),
-                      ),
-                    ),
-                    if (position.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: accent.withValues(alpha: 0.1),
-                            borderRadius: AppRadius.brPill,
-                          ),
-                          child: Text(
-                            position,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.style(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: accent,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
+                // Tên là thông tin quan trọng nhất nên chiếm trọn bề ngang;
+                // chức danh xuống dòng phụ thay vì chen cùng hàng và cắt tên.
+                Text(
+                  employee.fullName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.style(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                    height: 1.2,
+                  ),
                 ),
+                if (position.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    position,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.style(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: accent,
+                    ),
+                  ),
+                ],
                 if (unitLine.isNotEmpty) ...[
                   const SizedBox(height: 5),
                   Row(
@@ -807,11 +831,7 @@ class _EmployeeCard extends StatelessWidget {
                     runSpacing: 6,
                     children: [
                       for (final chip in chips)
-                        StatusChip(
-                          label: chip.$1,
-                          color: chip.$2,
-                          dense: true,
-                        ),
+                        StatusChip(label: chip.$1, color: chip.$2, dense: true),
                     ],
                   ),
                 ],
@@ -924,7 +944,7 @@ class _EmployeeCard extends StatelessWidget {
       chips.add(('Đào tạo', const Color(0xFF7C3AED)));
     }
     if (e.probationOverdue) {
-      chips.add(('Quá hạn TV', AppColors.error));
+      chips.add(('Quá hạn thử việc', AppColors.error));
     }
 
     return chips;

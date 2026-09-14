@@ -99,7 +99,11 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  if (RoleGroups.isIn(auth.role, RoleGroups.employeeDirectory))
+                  if (RoleGroups.canViewEmployeeDirectory(
+                    auth.role,
+                    hospitalWideEmployeeViewEnabled:
+                        me?.hospitalWideEmployeeViewEnabled ?? false,
+                  ))
                     AppReveal(
                       delay: const Duration(milliseconds: 150),
                       child: _MenuGroup(
@@ -123,45 +127,99 @@ class ProfileScreen extends ConsumerWidget {
                         ],
                       ),
                     ),
-                  if (RoleGroups.isIn(auth.role, RoleGroups.employeeDirectory))
+                  if (RoleGroups.canViewEmployeeDirectory(
+                    auth.role,
+                    hospitalWideEmployeeViewEnabled:
+                        me?.hospitalWideEmployeeViewEnabled ?? false,
+                  ))
                     const SizedBox(height: AppSpacing.sm),
                   if (RoleGroups.canViewWorkforceReports(
                     auth.role,
                     reportViewEnabled:
                         me?.reportViewEnabled ?? false,
-                  ))
+                  ) ||
+                      RoleGroups.canViewNursingAnalytics(auth.role) ||
+                      RoleGroups.canEnterNursingDailyReports(auth.role) ||
+                      RoleGroups.canEnterQtkt(auth.role))
                     AppReveal(
                       delay: const Duration(milliseconds: 160),
                       child: _MenuGroup(
                         title: 'Báo cáo',
                         items: [
-                          _MenuItem(
-                            icon: Icons.assessment_rounded,
-                            label: 'Nhân lực toàn viện',
-                            description:
-                                'Biên chế theo khoa/phòng và chức vụ',
-                            color: AppColors.primary,
-                            onTap: () =>
-                                context.push(RoutePaths.workforceReports),
-                          ),
-                          _MenuItem(
-                            icon: Icons.event_available_rounded,
-                            label: 'Nhân lực đi làm hằng ngày',
-                            description:
-                                'Quân số có mặt theo khoa/phòng trong ngày',
-                            color: const Color(0xFF0E7490),
-                            onTap: () => context.push(
-                              RoutePaths.workforceReportsPath(daily: true),
+                          if (RoleGroups.canViewWorkforceReports(
+                            auth.role,
+                            reportViewEnabled:
+                                me?.reportViewEnabled ?? false,
+                          )) ...[
+                            _MenuItem(
+                              icon: Icons.assessment_rounded,
+                              label: 'Nhân lực toàn viện',
+                              description:
+                                  'Biên chế theo khoa/phòng và chức vụ',
+                              color: AppColors.primary,
+                              onTap: () =>
+                                  context.push(RoutePaths.workforceReports),
                             ),
-                          ),
+                            _MenuItem(
+                              icon: Icons.event_available_rounded,
+                              label: 'Nhân lực đi làm hằng ngày',
+                              description:
+                                  'Quân số có mặt theo khoa/phòng trong ngày',
+                              color: const Color(0xFF0E7490),
+                              onTap: () => context.push(
+                                RoutePaths.workforceReportsPath(daily: true),
+                              ),
+                            ),
+                          ],
+                          if (RoleGroups.canEnterNursingDailyReports(auth.role))
+                            _MenuItem(
+                              icon: Icons.edit_note_rounded,
+                              label: 'Báo cáo ĐD hằng ngày',
+                              description: 'Nhập số liệu khoa theo ngày',
+                              color: const Color(0xFF0F766E),
+                              onTap: () =>
+                                  context.push(RoutePaths.nursingDailyReports),
+                            ),
+                          if (RoleGroups.canViewNursingAnalytics(auth.role))
+                            _MenuItem(
+                              icon: Icons.monitor_heart_outlined,
+                              label: 'Hoạt động điều dưỡng',
+                              description: 'Module A · tỉ lệ sự cố & giường',
+                              color: const Color(0xFFB45309),
+                              onTap: () => context.push(
+                                RoutePaths.nursingActivityReports,
+                              ),
+                            ),
+                          if (RoleGroups.canEnterQtkt(auth.role)) ...[
+                            _MenuItem(
+                              icon: Icons.checklist_rtl_rounded,
+                              label: 'Đánh giá QTKT',
+                              description: 'Chấm phiếu quy trình kỹ thuật',
+                              color: const Color(0xFF7C3AED),
+                              onTap: () =>
+                                  context.push(RoutePaths.qtktEvaluations),
+                            ),
+                            _MenuItem(
+                              icon: Icons.health_and_safety_outlined,
+                              label: 'Tuân thủ QTKT',
+                              description: 'Vệ sinh tay · QT kỹ thuật · GDSK',
+                              color: const Color(0xFFBE185D),
+                              onTap: () => context.push(
+                                RoutePaths.qtktComplianceReports,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
                   if (RoleGroups.canViewWorkforceReports(
-                    auth.role,
-                    reportViewEnabled:
-                        me?.reportViewEnabled ?? false,
-                  ))
+                        auth.role,
+                        reportViewEnabled:
+                            me?.reportViewEnabled ?? false,
+                      ) ||
+                      RoleGroups.canViewNursingAnalytics(auth.role) ||
+                      RoleGroups.canEnterNursingDailyReports(auth.role) ||
+                      RoleGroups.canEnterQtkt(auth.role))
                     const SizedBox(height: AppSpacing.sm),
                   AppReveal(
                     delay: const Duration(milliseconds: 170),
@@ -194,7 +252,8 @@ class ProfileScreen extends ConsumerWidget {
                         _MenuItem(
                           icon: Icons.fact_check_outlined,
                           label: 'Đánh giá & xếp loại',
-                          description: 'Lập phiếu, duyệt và xem kết quả khối ĐD',
+                          description:
+                              'Khối ĐD–KTV–HS–Thư ký; NV YHCT/Khám bệnh',
                           color: AppColors.success,
                           onTap: () => context.push(RoutePaths.evaluation),
                         ),
@@ -380,6 +439,14 @@ class _IdentityCard extends StatelessWidget {
         (Icons.mail_outline_rounded, 'Email', me.email!),
       if (me.phone != null && me.phone!.isNotEmpty)
         (Icons.phone_outlined, 'Điện thoại', me.phone!),
+      if (me.workUnitScoped &&
+          me.workUnitDetail != null &&
+          me.workUnitDetail!.trim().isNotEmpty)
+        (
+          Icons.filter_alt_outlined,
+          'Phạm vi duyệt',
+          me.workUnitDetail!.trim(),
+        ),
     ];
 
     return Padding(

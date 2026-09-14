@@ -53,10 +53,14 @@ class AttendanceRequestsController
   final Ref _ref;
   final AttendanceRepository _repository;
 
-  bool get _canApprove => RoleGroups.isIn(
-        _ref.read(authControllerProvider).role,
-        RoleGroups.approvalManagers,
-      );
+  bool get _canApprove {
+    final auth = _ref.read(authControllerProvider);
+    return RoleGroups.canApproveAttendance(
+      auth.role,
+      directorApprovalEnabled:
+          auth.currentUser?.directorApprovalEnabled ?? false,
+    );
+  }
 
   Future<void> refreshAll() async {
     state = state.copyWith(loading: true, clearError: true);
@@ -163,6 +167,7 @@ class AttendanceRequestsController
     required bool approved,
     String? comment,
     bool? waiveForgotFine,
+    bool? keepOriginalPunchTimes,
   }) async {
     final slug = AttendanceEnums.reviewEndpointFor(request.status);
     if (slug == null) {
@@ -178,6 +183,7 @@ class AttendanceRequestsController
         approved: approved,
         comment: comment,
         waiveForgotFine: waiveForgotFine,
+        keepOriginalPunchTimes: keepOriginalPunchTimes,
       );
       await refreshAll();
       return true;
@@ -196,6 +202,7 @@ class AttendanceRequestsController
     required bool approved,
     String? comment,
     bool? waiveForgotFine,
+    bool? keepOriginalPunchTimes,
   }) async {
     var succeeded = 0;
     var failed = 0;
@@ -215,12 +222,17 @@ class AttendanceRequestsController
                 request.status == 'PENDING_DIRECTOR') &&
             (request.requestType == 'UPDATE' ||
                 request.requestType == 'EXPLANATION');
+        final applyKeep = approved &&
+            keepOriginalPunchTimes == true &&
+            request.requestType == 'EXPLANATION' &&
+            request.status == 'PENDING_DIRECTOR';
         await _repository.review(
           request.id,
           slug,
           approved: approved,
           comment: comment,
           waiveForgotFine: applyWaive ? waiveForgotFine : null,
+          keepOriginalPunchTimes: applyKeep ? true : null,
         );
         succeeded++;
       } on ApiException catch (e) {

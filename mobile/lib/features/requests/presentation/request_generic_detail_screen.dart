@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -9,7 +10,6 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/nursing_block.dart';
 import '../../../core/utils/request_edit_access.dart';
-import '../../../core/utils/user_role.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/auth_image_preview.dart';
 import '../../../core/widgets/auth_network_image.dart';
@@ -125,6 +125,7 @@ class _RequestGenericDetailScreenState
     setState(() => _busy = false);
 
     if (ok) {
+      HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
         approved ? 'Đã duyệt đơn' : 'Đã từ chối đơn',
@@ -219,27 +220,40 @@ class _RequestGenericDetailScreenState
       final loading = state.loading || _fetching;
       return Scaffold(
         backgroundColor: AppColors.background,
-        appBar: GradientAppBar(title: config.label),
-        body: loading
-            ? const LoadingState(label: 'Đang tải đơn...')
-            : state.error != null
-            ? ErrorState(message: state.error!, onRetry: _retryFetch)
-            : EmptyState(
-                icon: Icons.search_off_rounded,
-                title: 'Không tìm thấy đơn',
-                message: 'Đơn có thể đã bị huỷ hoặc bạn không còn quyền xem.',
-                action: OutlinedButton.icon(
-                  onPressed: _retryFetch,
-                  icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('Tải lại'),
-                ),
-              ),
+        body: Column(
+          children: [
+            AppScreenHeader(
+              dense: true,
+              title: config.label,
+              icon: Icons.assignment_outlined,
+              eyebrow: 'Đơn từ',
+              onBack: () => context.pop(),
+            ),
+            Expanded(
+              child: loading
+                  ? const LoadingState(label: 'Đang tải đơn...')
+                  : state.error != null
+                  ? ErrorState(message: state.error!, onRetry: _retryFetch)
+                  : EmptyState(
+                      icon: Icons.search_off_rounded,
+                      title: 'Không tìm thấy đơn',
+                      message:
+                          'Đơn có thể đã bị huỷ hoặc bạn không còn quyền xem.',
+                      action: OutlinedButton.icon(
+                        onPressed: _retryFetch,
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('Tải lại'),
+                      ),
+                    ),
+            ),
+          ],
+        ),
       );
     }
 
     final status = raw['status'] as String?;
     final canCancel =
-        RoleGroups.isIn(role, config.canCancelRoles) &&
+        config.canCancel(role) &&
         state.related.any(
           (r) => (r['id'] as num).toInt() == widget.requestId,
         ) &&
@@ -254,33 +268,57 @@ class _RequestGenericDetailScreenState
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: GradientAppBar(title: config.shortLabel, subtitle: config.label),
       body: Column(
         children: [
+          AppScreenHeader(
+            dense: true,
+            title: config.shortLabel,
+            subtitle: config.label,
+            icon: Icons.assignment_outlined,
+            eyebrow: 'Đơn từ',
+            onBack: () => context.pop(),
+          ),
           Expanded(
-            child: HighlightPulse(
-              active: widget.highlight,
-              child: _Body(
-                config: config,
-                raw: raw,
-                status: status,
-                stageLabel: pendingItem?.stage.label,
-                currentStage: pendingItem?.stage,
-              ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: HighlightPulse(
+                    active: widget.highlight,
+                    child: RefreshIndicator(
+                      color: AppColors.primary,
+                      onRefresh: () => ref
+                          .read(
+                            genericRequestControllerProvider(
+                              widget.typeKey,
+                            ).notifier,
+                          )
+                          .refreshQuietly(),
+                      child: _Body(
+                        config: config,
+                        raw: raw,
+                        status: status,
+                        stageLabel: pendingItem?.stage.label,
+                        currentStage: pendingItem?.stage,
+                      ),
+                    ),
+                  ),
+                ),
+                if (pendingItem != null || canCancel || canEdit)
+                  _ActionBar(
+                    busy: _busy,
+                    onApprove: pendingItem == null
+                        ? null
+                        : () => _review(pendingItem!, true),
+                    onReject: pendingItem == null
+                        ? null
+                        : () => _review(pendingItem!, false),
+                    onCancel:
+                        canCancel ? () => _cancel(widget.requestId) : null,
+                    onEdit: canEdit ? () => _edit(raw!) : null,
+                  ),
+              ],
             ),
           ),
-          if (pendingItem != null || canCancel || canEdit)
-            _ActionBar(
-              busy: _busy,
-              onApprove: pendingItem == null
-                  ? null
-                  : () => _review(pendingItem!, true),
-              onReject: pendingItem == null
-                  ? null
-                  : () => _review(pendingItem!, false),
-              onCancel: canCancel ? () => _cancel(widget.requestId) : null,
-              onEdit: canEdit ? () => _edit(raw!) : null,
-            ),
         ],
       ),
     );
@@ -330,6 +368,7 @@ class _Body extends StatelessWidget {
         raw['departmentName'] as String? ?? raw['department'] as String?;
 
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(top: AppSpacing.md, bottom: AppSpacing.xl),
       children: [
         Padding(
@@ -736,7 +775,11 @@ class _ApprovalTimeline extends StatelessWidget {
     final nursingTouched = status.contains('NURSING_HEAD') ||
         raw['nursingHeadReviewedAt'] != null;
     final showNursing =
-        nursingTouched || isNursingBlockTitle(raw['positionTitle'] as String?);
+        nursingTouched ||
+            isNursingBlockTitle(
+              raw['positionTitle'] as String?,
+              (raw['department'] ?? raw['departmentName']) as String?,
+            );
 
     final isMainDuty = config.key == 'main-duty-authorization';
     final hrTouched =

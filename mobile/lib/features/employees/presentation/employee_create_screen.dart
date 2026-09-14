@@ -10,6 +10,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_date_picker.dart';
+import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/skeleton.dart';
@@ -505,20 +506,40 @@ class _EmployeeCreateScreenState extends ConsumerState<EmployeeCreateScreen> {
     if (_loadingEdit) {
       return Scaffold(
         backgroundColor: AppColors.background,
-        appBar: GradientAppBar(title: title, subtitle: 'Đang tải hồ sơ…'),
-        body: const SafeArea(child: SkeletonList(itemCount: 6)),
+        body: Column(
+          children: [
+            AppScreenHeader(
+              dense: true,
+              title: title,
+              subtitle: 'Đang tải hồ sơ…',
+              icon: Icons.badge_outlined,
+              eyebrow: 'Nhân sự',
+              onBack: () => context.pop(),
+            ),
+            const Expanded(child: SkeletonList(itemCount: 6)),
+          ],
+        ),
       );
     }
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: GradientAppBar(
-        title: title,
-        subtitle: subtitle,
-      ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
+      body: Column(
+        children: [
+          AppScreenHeader(
+            dense: true,
+            title: title,
+            subtitle: subtitle,
+            icon: _isEdit
+                ? Icons.badge_outlined
+                : Icons.person_add_alt_1_rounded,
+            eyebrow: 'Nhân sự',
+            onBack: () => context.pop(),
+          ),
+          Expanded(
+            child: Form(
+              key: _formKey,
+              child: ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.page,
             AppSpacing.md,
@@ -527,7 +548,20 @@ class _EmployeeCreateScreenState extends ConsumerState<EmployeeCreateScreen> {
           ),
           children: [
             if (!_isEdit) ...[
-              _ModeToggle(trialMode: _trialMode, onChanged: _applyMode),
+              AppSegmentedControl(
+                selectedIndex: _trialMode ? 1 : 0,
+                onChanged: (i) => _applyMode(i == 1),
+                items: const [
+                  AppSegmentItem(
+                    label: 'Chính thức',
+                    icon: Icons.verified_user_outlined,
+                  ),
+                  AppSegmentItem(
+                    label: 'Thử việc / TT',
+                    icon: Icons.school_outlined,
+                  ),
+                ],
+              ),
               const SizedBox(height: 14),
             ],
             _SectionCard(
@@ -924,7 +958,10 @@ class _EmployeeCreateScreenState extends ConsumerState<EmployeeCreateScreen> {
               ),
             ],
           ],
-        ),
+              ),
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
@@ -1008,7 +1045,7 @@ class _PositionPickSheet extends StatelessWidget {
       ),
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       child: Column(
         children: [
@@ -1105,100 +1142,6 @@ class _PositionPickSheet extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ModeToggle extends StatelessWidget {
-  const _ModeToggle({required this.trialMode, required this.onChanged});
-
-  final bool trialMode;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.borderSoft),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryDark.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _ModeChip(
-              icon: Icons.verified_user_outlined,
-              label: 'Chính thức',
-              selected: !trialMode,
-              onTap: () => onChanged(false),
-            ),
-          ),
-          Expanded(
-            child: _ModeChip(
-              icon: Icons.school_outlined,
-              label: 'Thử việc / TT',
-              selected: trialMode,
-              onTap: () => onChanged(true),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ModeChip extends StatelessWidget {
-  const _ModeChip({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.primary : Colors.transparent,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: selected ? Colors.white : AppColors.textSecondary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: AppTypography.style(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: selected ? Colors.white : AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

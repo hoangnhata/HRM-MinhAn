@@ -1,5 +1,6 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -116,12 +117,14 @@ class _AttendanceRequestDetailScreenState
   Future<void> _review(AttendanceWorkRequest r, bool approved) async {
     String? comment;
     bool? waiveForgotFine;
+    bool? keepOriginalPunchTimes;
 
     if (approved) {
       if (_canWaiveFine(r)) {
         final decision = await showApprovalWithFineSheet(context, request: r);
         if (decision == null) return;
         waiveForgotFine = decision.waiveForgotFine;
+        keepOriginalPunchTimes = decision.keepOriginalPunchTimes;
         comment = decision.comment;
       } else {
         final confirm = await showConfirmDialog(
@@ -155,11 +158,13 @@ class _AttendanceRequestDetailScreenState
           approved: approved,
           comment: comment,
           waiveForgotFine: waiveForgotFine,
+          keepOriginalPunchTimes: keepOriginalPunchTimes == true ? true : null,
         );
     if (!mounted) return;
     setState(() => _busy = false);
 
     if (ok) {
+      HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
         approved ? 'Đã duyệt đơn' : 'Đã từ chối đơn',
@@ -207,37 +212,58 @@ class _AttendanceRequestDetailScreenState
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: GradientAppBar(title: _appBarTitle),
-      body: request == null
-          ? state.loading
-                ? const LoadingState(label: 'Đang tải đơn...')
-                : const EmptyState(
-                    icon: Icons.search_off_rounded,
-                    title: 'Không tìm thấy đơn',
-                    message:
-                        'Đơn có thể đã bị rút hoặc bạn không còn quyền xem.',
-                  )
-          : Column(
-              children: [
-                Expanded(
-                  child: HighlightPulse(
-                    active: widget.highlight,
-                    child: _Body(request: request),
+      body: Column(
+        children: [
+          AppScreenHeader(
+            dense: true,
+            title: _appBarTitle,
+            icon: Icons.description_outlined,
+            eyebrow: 'Chấm công',
+            onBack: () => context.pop(),
+          ),
+          Expanded(
+            child: request == null
+                ? state.loading
+                      ? const LoadingState(label: 'Đang tải đơn...')
+                      : const EmptyState(
+                          icon: Icons.search_off_rounded,
+                          title: 'Không tìm thấy đơn',
+                          message:
+                              'Đơn có thể đã bị rút hoặc bạn không còn quyền xem.',
+                        )
+                : Column(
+                    children: [
+                      Expanded(
+                        child: HighlightPulse(
+                          active: widget.highlight,
+                          child: RefreshIndicator(
+                            color: AppColors.primary,
+                            onRefresh: () => ref
+                                .read(
+                                  attendanceRequestsControllerProvider
+                                      .notifier,
+                                )
+                                .refreshQuietly(),
+                            child: _Body(request: request),
+                          ),
+                        ),
+                      ),
+                      if (canReview || canWithdraw || canEdit)
+                        _ActionBar(
+                          busy: _busy,
+                          canReview: canReview,
+                          canWithdraw: canWithdraw,
+                          canEdit: canEdit,
+                          onApprove: () => _review(request, true),
+                          onReject: () => _review(request, false),
+                          onWithdraw: () => _withdraw(request),
+                          onEdit: () => _edit(request),
+                        ),
+                    ],
                   ),
-                ),
-                if (canReview || canWithdraw || canEdit)
-                  _ActionBar(
-                    busy: _busy,
-                    canReview: canReview,
-                    canWithdraw: canWithdraw,
-                    canEdit: canEdit,
-                    onApprove: () => _review(request, true),
-                    onReject: () => _review(request, false),
-                    onWithdraw: () => _withdraw(request),
-                    onEdit: () => _edit(request),
-                  ),
-              ],
-            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -253,6 +279,7 @@ class _Body extends StatelessWidget {
     final typeColor = AttendanceEnums.requestTypeColor(r.requestType);
 
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(top: AppSpacing.sm, bottom: AppSpacing.xl),
       children: [
         _HeroHeader(request: r, typeColor: typeColor),
@@ -260,6 +287,10 @@ class _Body extends StatelessWidget {
         _PersonCard(request: r),
         const SizedBox(height: 10),
         _ContentCard(request: r),
+        if (_showPunchLog(r)) ...[
+          const SizedBox(height: 10),
+          _PunchLogCard(times: r.attendancePunchTimes),
+        ],
         if (_hasTimeBlock(r)) ...[
           const SizedBox(height: 10),
           _TimeBlock(request: r),
@@ -268,6 +299,13 @@ class _Body extends StatelessWidget {
         ApprovalSignaturesSection(steps: _signatureSteps(r)),
       ],
     );
+  }
+
+  bool _showPunchLog(AttendanceWorkRequest r) {
+    return (r.requestType == 'UPDATE' ||
+            r.requestType == 'EXPLANATION' ||
+            r.requestType == 'DEPLOYMENT') &&
+        r.attendancePunchTimes.isNotEmpty;
   }
 
   bool _hasTimeBlock(AttendanceWorkRequest r) {
@@ -476,6 +514,75 @@ class _Chip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PunchLogCard extends StatelessWidget {
+  const _PunchLogCard({required this.times});
+
+  final List<String> times;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: AppSpacing.pageH,
+      child: _Section(
+        title: 'Log máy chấm',
+        icon: Icons.fingerprint_rounded,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Giờ máy ghi nhận trong ngày đơn (đã sắp xếp).',
+              style: AppTypography.body(
+                fontSize: 12.5,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final t in times)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.08),
+                      borderRadius: AppRadius.brSm,
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.22),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.schedule_rounded,
+                          size: 14,
+                          color: AppColors.primaryDark,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          t,
+                          style: AppTypography.style(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primaryDark,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

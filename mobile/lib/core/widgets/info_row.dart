@@ -56,6 +56,8 @@ class InfoRow extends StatelessWidget {
         Text(
           value.isEmpty ? '—' : value,
           textAlign: multiline ? TextAlign.start : TextAlign.end,
+          maxLines: multiline ? 8 : 3,
+          overflow: TextOverflow.ellipsis,
           style: AppTypography.style(
             fontSize: 13.2,
             fontWeight: FontWeight.w600,

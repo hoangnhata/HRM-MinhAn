@@ -357,6 +357,7 @@ class AttendanceRepository {
     required bool approved,
     String? comment,
     bool? waiveForgotFine,
+    bool? keepOriginalPunchTimes,
   }) async {
     await _client.post(
       '/v1/attendance/requests/$id/$endpointSlug',
@@ -364,6 +365,7 @@ class AttendanceRepository {
         'approved': approved,
         if (comment != null && comment.isNotEmpty) 'comment': comment,
         'waiveForgotFine': ?waiveForgotFine,
+        'keepOriginalPunchTimes': ?keepOriginalPunchTimes,
       },
     );
   }

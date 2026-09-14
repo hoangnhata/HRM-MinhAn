@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,6 +18,7 @@ import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/list_section_title.dart';
 import '../../attendance/data/attendance_repository.dart';
 import '../../../shared/models/department.dart';
 import '../../../shared/models/employee.dart';
@@ -514,6 +516,7 @@ class _EmployeeProposalCreateScreenState
       final id = _isEdit
           ? widget.requestId
           : (result['id'] as num?)?.toInt();
+      HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
         _isEdit ? 'Đã lưu thay đổi' : 'Đã gửi phiếu',
@@ -793,10 +796,10 @@ class _EmployeeProposalCreateScreenState
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _SectionTitle(
+                              BlockSectionTitle(
                                 icon: Icons.apartment_rounded,
                                 title: 'Đơn vị đề xuất',
-                                accent: accent,
+                                color: accent,
                               ),
                               const SizedBox(height: 10),
                               _Field(
@@ -819,10 +822,10 @@ class _EmployeeProposalCreateScreenState
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _SectionTitle(
+                              BlockSectionTitle(
                                 icon: Icons.apartment_rounded,
                                 title: 'Khoa/Phòng',
-                                accent: accent,
+                                color: accent,
                               ),
                               const SizedBox(height: 10),
                               Text(
@@ -869,10 +872,10 @@ class _EmployeeProposalCreateScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionTitle(
+          BlockSectionTitle(
             icon: Icons.compare_arrows_rounded,
             title: 'Nội dung luân chuyển',
-            accent: accent,
+            color: accent,
           ),
           const SizedBox(height: 12),
           _PickerTile(
@@ -925,10 +928,10 @@ class _EmployeeProposalCreateScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _SectionTitle(
+              BlockSectionTitle(
                 icon: Icons.school_rounded,
                 title: 'Nội dung đào tạo',
-                accent: accent,
+                color: accent,
               ),
               const SizedBox(height: 12),
               _Field(
@@ -1044,10 +1047,10 @@ class _EmployeeProposalCreateScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _SectionTitle(
+              BlockSectionTitle(
                 icon: Icons.groups_rounded,
                 title: 'Nội dung hội thảo / công tác',
-                accent: accent,
+                color: accent,
               ),
               const SizedBox(height: 12),
               _Field(
@@ -1202,10 +1205,10 @@ class _EmployeeProposalCreateScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionTitle(
+        BlockSectionTitle(
           icon: icon,
           title: title,
-          accent: accent,
+          color: accent,
         ),
         const SizedBox(height: 10),
         Text(
@@ -1309,10 +1312,10 @@ class _EmployeeProposalCreateScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionTitle(
+          BlockSectionTitle(
             icon: Icons.tune_rounded,
             title: 'Đề xuất thay đổi ca sáng/chiều',
-            accent: accent,
+            color: accent,
           ),
           const SizedBox(height: 12),
           Row(
@@ -1848,45 +1851,6 @@ class _EmployeeIdentityCard extends StatelessWidget {
     );
   }
 }
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({
-    required this.icon,
-    required this.title,
-    required this.accent,
-  });
-
-  final IconData icon;
-  final String title;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 30,
-          height: 30,
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.12),
-            borderRadius: AppRadius.brSm,
-          ),
-          child: Icon(icon, size: 16, color: accent),
-        ),
-        const SizedBox(width: 10),
-        Text(
-          title,
-          style: AppTypography.style(
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.2,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _Field extends StatelessWidget {
   const _Field({
     required this.controller,
@@ -2180,10 +2144,10 @@ class _CommitmentsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionTitle(
+          BlockSectionTitle(
             icon: Icons.fact_check_rounded,
             title: 'Cam kết',
-            accent: accent,
+            color: accent,
           ),
           const SizedBox(height: 4),
           Text(
@@ -2400,7 +2364,7 @@ class _PositionSheet extends StatelessWidget {
       ),
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       child: Column(
         children: [

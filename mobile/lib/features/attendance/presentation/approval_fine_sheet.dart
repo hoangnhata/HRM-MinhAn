@@ -7,16 +7,23 @@ import '../../../core/widgets/notice_banner.dart';
 import '../../../shared/models/attendance_models.dart';
 import 'attendance_enums.dart';
 
-/// Quyet dinh cua HCNS / Giam doc khi duyet don cong co lien quan tien phat.
+/// Quyết định HCNS / Giám đốc khi duyệt đơn công liên quan tiền phạt.
 class FineDecision {
-  const FineDecision({required this.waiveForgotFine, this.comment});
+  const FineDecision({
+    required this.waiveForgotFine,
+    this.keepOriginalPunchTimes = false,
+    this.comment,
+  });
 
   final bool waiveForgotFine;
+  /// Chỉ áp dụng đơn giải trình ở bước Giám đốc — giữ giờ máy, miễn phạt.
+  final bool keepOriginalPunchTimes;
   final String? comment;
 }
 
-/// Mo bottom sheet duyet don kem lua chon co / khong tru tien phat quen cham
-/// cong (di muon, ve som). Tra ve `null` neu nguoi dung huy.
+enum _FineChoice { deduct, waive, keepOriginal }
+
+/// Bottom sheet duyệt kèm trừ/miễn phạt (+ giữ giờ gốc cho giải trình / GĐ).
 Future<FineDecision?> showApprovalWithFineSheet(
   BuildContext context, {
   required AttendanceWorkRequest request,
@@ -41,9 +48,11 @@ class _FineSheet extends StatefulWidget {
 
 class _FineSheetState extends State<_FineSheet> {
   final _commentController = TextEditingController();
+  _FineChoice _choice = _FineChoice.deduct;
 
-  /// Mặc định vẫn trừ tiền phạt như quy định.
-  bool _waive = false;
+  bool get _showKeepOriginal =>
+      widget.request.requestType == 'EXPLANATION' &&
+      widget.request.status == 'PENDING_DIRECTOR';
 
   @override
   void dispose() {
@@ -54,6 +63,7 @@ class _FineSheetState extends State<_FineSheet> {
   @override
   Widget build(BuildContext context) {
     final isUpdate = widget.request.requestType == 'UPDATE';
+    final isExplanation = widget.request.requestType == 'EXPLANATION';
     final media = MediaQuery.of(context);
     final keyboardInset = media.viewInsets.bottom;
     final maxHeight =
@@ -67,7 +77,7 @@ class _FineSheetState extends State<_FineSheet> {
         top: false,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxHeight: maxHeight.clamp(240.0, 760.0).toDouble(),
+            maxHeight: maxHeight.clamp(240.0, 820.0).toDouble(),
           ),
           child: SingleChildScrollView(
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -99,7 +109,9 @@ class _FineSheetState extends State<_FineSheet> {
                   color: AppColors.warning,
                   message: isUpdate
                       ? 'Theo quy định, đơn bổ sung công bị trừ tiền quên chấm công. Bạn có thể miễn trừ nếu có lý do chính đáng.'
-                      : 'Đơn giải trình đi muộn/về sớm có thể bị trừ tiền phạt. Bạn có thể miễn trừ nếu có lý do chính đáng.',
+                      : isExplanation && _showKeepOriginal
+                          ? 'Giải trình: trừ phạt / miễn phạt (áp giờ giải trình) / giữ giờ máy gốc và miễn phạt.'
+                          : 'Đơn giải trình đi muộn/về sớm có thể bị trừ tiền phạt. Bạn có thể miễn trừ nếu có lý do chính đáng.',
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Text(
@@ -111,44 +123,36 @@ class _FineSheetState extends State<_FineSheet> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final stack =
-                        constraints.maxWidth < 330 ||
-                        MediaQuery.textScalerOf(context).scale(1) > 1.2;
-                    final deduct = _Choice(
-                      label: 'Vẫn trừ tiền',
-                      icon: Icons.remove_circle_outline_rounded,
-                      selected: !_waive,
-                      color: AppColors.warning,
-                      onTap: () => setState(() => _waive = false),
-                    );
-                    final waive = _Choice(
-                      label: 'Miễn trừ',
-                      icon: Icons.volunteer_activism_outlined,
-                      selected: _waive,
-                      color: AppColors.success,
-                      onTap: () => setState(() => _waive = true),
-                    );
-                    if (stack) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          deduct,
-                          const SizedBox(height: AppSpacing.xs),
-                          waive,
-                        ],
-                      );
-                    }
-                    return Row(
-                      children: [
-                        Expanded(child: deduct),
-                        const SizedBox(width: AppSpacing.xs),
-                        Expanded(child: waive),
-                      ],
-                    );
-                  },
+                _Choice(
+                  label: isExplanation
+                      ? 'Có phạt muộn/sớm'
+                      : 'Vẫn trừ tiền',
+                  icon: Icons.remove_circle_outline_rounded,
+                  selected: _choice == _FineChoice.deduct,
+                  color: AppColors.warning,
+                  onTap: () => setState(() => _choice = _FineChoice.deduct),
                 ),
+                const SizedBox(height: AppSpacing.xs),
+                _Choice(
+                  label: isExplanation
+                      ? 'Miễn phạt · áp giờ giải trình'
+                      : 'Miễn trừ',
+                  icon: Icons.volunteer_activism_outlined,
+                  selected: _choice == _FineChoice.waive,
+                  color: AppColors.success,
+                  onTap: () => setState(() => _choice = _FineChoice.waive),
+                ),
+                if (_showKeepOriginal) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  _Choice(
+                    label: 'Giữ giờ gốc · không trừ tiền',
+                    icon: Icons.history_toggle_off_rounded,
+                    selected: _choice == _FineChoice.keepOriginal,
+                    color: AppColors.info,
+                    onTap: () =>
+                        setState(() => _choice = _FineChoice.keepOriginal),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.md),
                 TextField(
                   controller: _commentController,
@@ -180,9 +184,13 @@ class _FineSheetState extends State<_FineSheet> {
                       child: ElevatedButton.icon(
                         onPressed: () {
                           final comment = _commentController.text.trim();
+                          final keep =
+                              _choice == _FineChoice.keepOriginal;
                           Navigator.of(context).pop(
                             FineDecision(
-                              waiveForgotFine: _waive,
+                              waiveForgotFine:
+                                  _choice != _FineChoice.deduct,
+                              keepOriginalPunchTimes: keep,
                               comment: comment.isEmpty ? null : comment,
                             ),
                           );
@@ -250,23 +258,21 @@ class _Choice extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.xs,
+                  vertical: AppSpacing.sm,
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
                       icon,
                       size: 18,
                       color: selected ? color : AppColors.textTertiary,
                     ),
-                    const SizedBox(width: AppSpacing.xs),
-                    Flexible(
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
                       child: Text(
                         label,
-                        textAlign: TextAlign.center,
                         style: AppTypography.style(
-                          fontSize: 13,
+                          fontSize: 13.5,
                           fontWeight: selected
                               ? FontWeight.w700
                               : FontWeight.w500,
@@ -276,6 +282,8 @@ class _Choice extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (selected)
+                      Icon(Icons.check_circle_rounded, size: 18, color: color),
                   ],
                 ),
               ),
@@ -287,7 +295,6 @@ class _Choice extends StatelessWidget {
   }
 }
 
-/// True khi HCNS/Giám đốc duyệt UPDATE/EXPLANATION cần chọn trừ/miễn phạt.
 bool attendanceNeedsFineDecision(AttendanceWorkRequest r) {
   final atFineStage =
       r.status == 'PENDING_HR' || r.status == 'PENDING_DIRECTOR';
@@ -296,14 +303,24 @@ bool attendanceNeedsFineDecision(AttendanceWorkRequest r) {
   return atFineStage && finableType;
 }
 
-/// Chọn trừ/miễn phạt khi duyệt hàng loạt đơn công.
-/// Trả về `null` nếu huỷ; `true` = không trừ tiền; `false` = trừ tiền.
-Future<bool?> showBulkFineDecisionSheet(
+/// Kết quả chọn phạt khi duyệt hàng loạt.
+class BulkFineDecision {
+  const BulkFineDecision({
+    required this.waiveForgotFine,
+    this.keepOriginalPunchTimes = false,
+  });
+
+  final bool waiveForgotFine;
+  final bool keepOriginalPunchTimes;
+}
+
+Future<BulkFineDecision?> showBulkFineDecisionSheet(
   BuildContext context, {
   required int fineTargetCount,
   required int totalCount,
+  bool includeKeepOriginal = false,
 }) {
-  return showModalBottomSheet<bool>(
+  return showModalBottomSheet<BulkFineDecision>(
     context: context,
     showDragHandle: true,
     useSafeArea: true,
@@ -334,16 +351,10 @@ Future<bool?> showBulkFineDecisionSheet(
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
-              Text(
-                'Lựa chọn gửi qua cùng API duyệt từng đơn (waiveForgotFine), giống web.',
-                style: AppTypography.body(
-                  fontSize: 12.5,
-                  color: AppColors.textTertiary,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
               OutlinedButton.icon(
-                onPressed: () => Navigator.of(ctx).pop(false),
+                onPressed: () => Navigator.of(ctx).pop(
+                  const BulkFineDecision(waiveForgotFine: false),
+                ),
                 icon: const Icon(Icons.payments_outlined),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
@@ -354,13 +365,31 @@ Future<bool?> showBulkFineDecisionSheet(
               ),
               const SizedBox(height: 10),
               FilledButton.icon(
-                onPressed: () => Navigator.of(ctx).pop(true),
+                onPressed: () => Navigator.of(ctx).pop(
+                  const BulkFineDecision(waiveForgotFine: true),
+                ),
                 icon: const Icon(Icons.money_off_rounded),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
                 ),
                 label: const Text('Không trừ tiền phạt'),
               ),
+              if (includeKeepOriginal) ...[
+                const SizedBox(height: 10),
+                FilledButton.tonalIcon(
+                  onPressed: () => Navigator.of(ctx).pop(
+                    const BulkFineDecision(
+                      waiveForgotFine: true,
+                      keepOriginalPunchTimes: true,
+                    ),
+                  ),
+                  icon: const Icon(Icons.history_toggle_off_rounded),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  label: const Text('Giữ giờ gốc (chỉ giải trình)'),
+                ),
+              ],
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
                 child: const Text('Huỷ'),

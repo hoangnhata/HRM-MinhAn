@@ -263,7 +263,7 @@ enum AttendanceRequestScope {
   bool canCreate(UserRole role) => switch (this) {
         leave || work => true,
         deployment =>
-          role == UserRole.admin || role == UserRole.headDepartment,
+          role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role),
       };
 
   List<String> get creatableTypes => switch (this) {

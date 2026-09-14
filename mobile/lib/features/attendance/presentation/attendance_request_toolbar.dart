@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_date_picker.dart';
+import '../../../core/widgets/app_option_picker.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/search_field.dart';
 import '../../../shared/models/attendance_models.dart';
@@ -39,7 +41,7 @@ class AttendanceRequestToolbar extends StatefulWidget {
   final List<({String value, String label})> typeOptions;
   final String searchHint;
 
-  /// Chip chế độ (Chờ duyệt / Đã xử lý) — đặt cùng hàng meta.
+  /// Chip chế độ (Chờ duyệt / Đã xử lý) — cùng hàng meta với «N đơn».
   final Widget? leading;
 
   @override
@@ -129,7 +131,16 @@ class _AttendanceRequestToolbarState extends State<AttendanceRequestToolbar> {
         Row(
           children: [
             if (widget.leading != null) ...[
-              Flexible(child: widget.leading!),
+              Flexible(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: widget.leading!,
+                  ),
+                ),
+              ),
               const SizedBox(width: 8),
             ],
             Text(
@@ -204,8 +215,8 @@ class _ToolIconButton extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Ink(
-            width: 40,
-            height: 40,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
@@ -242,7 +253,7 @@ class _ToolIconButton extends StatelessWidget {
                       child: Text(
                         badge!,
                         style: AppTypography.style(
-                          fontSize: 9,
+                          fontSize: 10,
                           fontWeight: FontWeight.w800,
                           color: active ? AppColors.primary : Colors.white,
                         ),
@@ -379,7 +390,7 @@ Future<AttendanceRequestListFilters?> showAttendanceRequestFilterSheet(
   return showAppBottomSheet<AttendanceRequestListFilters>(
     context,
     title: 'Bộ lọc đơn',
-    subtitle: 'Lọc theo phòng ban, ngày gửi và trạng thái.',
+    subtitle: 'Thu hẹp danh sách theo loại, khoa và trạng thái',
     child: _FilterSheetBody(
       initial: initial,
       sourceItems: sourceItems,
@@ -432,156 +443,204 @@ class _FilterSheetBodyState extends State<_FilterSheetBody> {
     });
   }
 
-  Future<String?> _pickOption({
-    required String title,
-    required List<({String value, String label})> options,
-    required String selected,
-  }) {
-    return showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) {
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                child: Text(title, style: Theme.of(ctx).textTheme.titleMedium),
-              ),
-              for (final o in options)
-                ListTile(
-                  title: Text(o.label),
-                  trailing: o.value == selected
-                      ? const Icon(Icons.check_rounded, color: AppColors.primary)
-                      : null,
-                  onTap: () => Navigator.of(ctx).pop(o.value),
-                ),
-            ],
+  Future<void> _pickDepartment() async {
+    final departments = attendanceDepartmentOptions(widget.sourceItems);
+    final picked = await showAppOptionPicker(
+      context,
+      title: 'Phòng ban',
+      subtitle: 'Lọc đơn theo khoa / phòng',
+      selectedValue: _draft.department,
+      options: [
+        const AppOptionItem(
+          value: '',
+          label: 'Tất cả phòng ban',
+          icon: Icons.apartment_outlined,
+        ),
+        for (final d in departments)
+          AppOptionItem(
+            value: d,
+            label: d,
+            icon: Icons.meeting_room_outlined,
           ),
-        );
-      },
+      ],
     );
+    if (picked == null) return;
+    setState(() => _draft = _draft.copyWith(department: picked));
+  }
+
+  Future<void> _pickStatus() async {
+    final statuses = attendanceStatusFilterOptions(widget.sourceItems);
+    final picked = await showAppOptionPicker(
+      context,
+      title: 'Trạng thái',
+      subtitle: 'Lọc theo tiến độ xử lý đơn',
+      selectedValue: _draft.status,
+      options: [
+        const AppOptionItem(
+          value: '',
+          label: 'Tất cả trạng thái',
+          icon: Icons.filter_list_rounded,
+        ),
+        for (final s in statuses)
+          AppOptionItem(
+            value: s.value,
+            label: s.label,
+            icon: Icons.flag_outlined,
+          ),
+      ],
+    );
+    if (picked == null) return;
+    setState(() => _draft = _draft.copyWith(status: picked));
+  }
+
+  void _reset() {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _draft = AttendanceRequestListFilters.empty.copyWith(
+        query: widget.initial.query,
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final departments = attendanceDepartmentOptions(widget.sourceItems);
-    final statuses = attendanceStatusFilterOptions(widget.sourceItems);
+    final hasDept = _draft.department.isNotEmpty;
+    final hasStatus = _draft.status.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (widget.typeOptions.isNotEmpty) ...[
-          Text(
-            'Loại đơn',
-            style: AppTypography.style(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
-            ),
+          const _FilterSectionLabel(
+            icon: Icons.category_outlined,
+            label: 'Loại đơn',
           ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              SelectablePill(
+              _FilterChip(
                 label: 'Tất cả',
                 selected: _draft.requestType.isEmpty,
-                onTap: () => setState(
-                  () => _draft = _draft.copyWith(requestType: ''),
-                ),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _draft = _draft.copyWith(requestType: ''));
+                },
               ),
               for (final t in widget.typeOptions)
-                SelectablePill(
+                _FilterChip(
                   label: t.label,
                   selected: _draft.requestType == t.value,
-                  color: AttendanceEnums.requestTypeColor(t.value),
-                  onTap: () => setState(
-                    () => _draft = _draft.copyWith(
-                      requestType:
-                          _draft.requestType == t.value ? '' : t.value,
-                    ),
-                  ),
+                  accent: AttendanceEnums.requestTypeColor(t.value),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(
+                      () => _draft = _draft.copyWith(
+                        requestType:
+                            _draft.requestType == t.value ? '' : t.value,
+                      ),
+                    );
+                  },
                 ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: 16),
         ],
-        _OptionField(
-          label: 'Phòng ban',
-          value: _draft.department.isEmpty ? 'Tất cả phòng ban' : _draft.department,
-          onTap: () async {
-            final picked = await _pickOption(
-              title: 'Chọn phòng ban',
-              options: [
-                (value: '', label: 'Tất cả phòng ban'),
-                for (final d in departments) (value: d, label: d),
-              ],
-              selected: _draft.department,
-            );
-            if (picked == null) return;
-            setState(() => _draft = _draft.copyWith(department: picked));
-          },
+        const _FilterSectionLabel(
+          icon: Icons.tune_rounded,
+          label: 'Phạm vi',
         ),
-        const SizedBox(height: AppSpacing.sm),
-        _OptionField(
-          label: 'Trạng thái',
-          value: _draft.status.isEmpty
-              ? 'Tất cả trạng thái'
-              : AttendanceEnums.statusLabel(_draft.status),
-          onTap: () async {
-            final picked = await _pickOption(
-              title: 'Chọn trạng thái',
-              options: [
-                (value: '', label: 'Tất cả trạng thái'),
-                for (final s in statuses) (value: s.value, label: s.label),
-              ],
-              selected: _draft.status,
-            );
-            if (picked == null) return;
-            setState(() => _draft = _draft.copyWith(status: picked));
-          },
-        ),
-        const SizedBox(height: AppSpacing.md),
-        Row(
-          children: [
-            Expanded(
-              child: _DateField(
-                label: 'Từ ngày gửi',
-                value: _draft.dateFrom,
-                onTap: () => _pickDate(from: true),
-                onClear: _draft.dateFrom == null
-                    ? null
-                    : () => setState(
-                          () => _draft = _draft.copyWith(clearDateFrom: true),
-                        ),
+        const SizedBox(height: 8),
+        Material(
+          color: AppColors.surfaceMuted,
+          borderRadius: BorderRadius.circular(16),
+          child: Column(
+            children: [
+              _OptionTile(
+                icon: Icons.apartment_outlined,
+                label: 'Phòng ban',
+                value: hasDept ? _draft.department : 'Tất cả phòng ban',
+                muted: !hasDept,
+                onTap: _pickDepartment,
+                showDivider: true,
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _DateField(
-                label: 'Đến ngày gửi',
-                value: _draft.dateTo,
-                onTap: () => _pickDate(from: false),
-                onClear: _draft.dateTo == null
-                    ? null
-                    : () => setState(
-                          () => _draft = _draft.copyWith(clearDateTo: true),
-                        ),
+              _OptionTile(
+                icon: Icons.flag_outlined,
+                label: 'Trạng thái',
+                value: hasStatus
+                    ? AttendanceEnums.statusLabel(_draft.status)
+                    : 'Tất cả trạng thái',
+                muted: !hasStatus,
+                onTap: _pickStatus,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-        const SizedBox(height: AppSpacing.lg),
+        const SizedBox(height: 16),
+        const _FilterSectionLabel(
+          icon: Icons.date_range_rounded,
+          label: 'Ngày gửi',
+        ),
+        const SizedBox(height: 8),
+        Material(
+          color: AppColors.surfaceMuted,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _DateTile(
+                    label: 'Từ ngày',
+                    value: _draft.dateFrom,
+                    onTap: () => _pickDate(from: true),
+                    onClear: _draft.dateFrom == null
+                        ? null
+                        : () => setState(
+                              () => _draft =
+                                  _draft.copyWith(clearDateFrom: true),
+                            ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 16,
+                    color: AppColors.textTertiary.withValues(alpha: 0.8),
+                  ),
+                ),
+                Expanded(
+                  child: _DateTile(
+                    label: 'Đến ngày',
+                    value: _draft.dateTo,
+                    onTap: () => _pickDate(from: false),
+                    onClear: _draft.dateTo == null
+                        ? null
+                        : () => setState(
+                              () =>
+                                  _draft = _draft.copyWith(clearDateTo: true),
+                            ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () => setState(
-                  () => _draft = AttendanceRequestListFilters.empty.copyWith(
-                    query: widget.initial.query,
+                onPressed: _reset,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                  foregroundColor: AppColors.primaryDark,
+                  backgroundColor: AppColors.surfaceMuted,
+                  side: BorderSide.none,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: const Text('Đặt lại'),
@@ -590,9 +649,19 @@ class _FilterSheetBodyState extends State<_FilterSheetBody> {
             const SizedBox(width: 10),
             Expanded(
               flex: 2,
-              child: FilledButton(
-                onPressed: () => Navigator.of(context).pop(_draft),
-                child: const Text('Áp dụng'),
+              child: FilledButton.icon(
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  Navigator.of(context).pop(_draft);
+                },
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: const Text('Áp dụng'),
               ),
             ),
           ],
@@ -602,64 +671,64 @@ class _FilterSheetBodyState extends State<_FilterSheetBody> {
   }
 }
 
-class _OptionField extends StatelessWidget {
-  const _OptionField({
-    required this.label,
-    required this.value,
-    required this.onTap,
-  });
+class _FilterSectionLabel extends StatelessWidget {
+  const _FilterSectionLabel({required this.icon, required this.label});
 
+  final IconData icon;
   final String label;
-  final String value;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 15, color: AppColors.primaryDark),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: AppTypography.style(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w800,
+            color: AppColors.primaryDark,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.accent = AppColors.primary,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = selected
+        ? accent.withValues(alpha: 0.12)
+        : AppColors.surfaceMuted;
     return Material(
-      color: AppColors.surface,
-      borderRadius: AppRadius.brControl,
+      color: bg,
+      shape: const StadiumBorder(),
       child: InkWell(
         onTap: onTap,
-        borderRadius: AppRadius.brControl,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.brControl,
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: AppTypography.style(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textTertiary,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(
-                Icons.keyboard_arrow_down_rounded,
-                color: AppColors.textTertiary,
-              ),
-            ],
+        customBorder: const StadiumBorder(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 12.5,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              color: selected ? accent : AppColors.textSecondary,
+            ),
           ),
         ),
       ),
@@ -667,8 +736,103 @@ class _OptionField extends StatelessWidget {
   }
 }
 
-class _DateField extends StatelessWidget {
-  const _DateField({
+class _OptionTile extends StatelessWidget {
+  const _OptionTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+    this.muted = false,
+    this.showDivider = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+  final bool muted;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+            borderRadius: showDivider
+                ? AppRadius.brSheetTop
+                : const BorderRadius.vertical(bottom: Radius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(icon, size: 17, color: AppColors.primaryDark),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          style: AppTypography.style(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textTertiary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          value,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            color: muted
+                                ? AppColors.textSecondary
+                                : AppColors.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.textTertiary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (showDivider)
+          Padding(
+            padding: const EdgeInsets.only(left: 56),
+            child: ColoredBox(
+              color: AppColors.border.withValues(alpha: 0.35),
+              child: const SizedBox(height: 1, width: double.infinity),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _DateTile extends StatelessWidget {
+  const _DateTile({
     required this.label,
     required this.value,
     required this.onTap,
@@ -682,24 +846,24 @@ class _DateField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final empty = value == null;
     return Material(
-      color: AppColors.surface,
-      borderRadius: AppRadius.brControl,
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brControl,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.brControl,
-            border: Border.all(color: AppColors.border),
-          ),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
           child: Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.calendar_today_outlined,
-                size: 16,
-                color: AppColors.textTertiary,
+                size: 15,
+                color: empty ? AppColors.textTertiary : AppColors.primaryDark,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -716,11 +880,13 @@ class _DateField extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      value == null ? '—' : AppFormat.date(value),
+                      empty ? 'Chọn ngày' : AppFormat.date(value),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: AppTypography.style(
                         fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: value == null
+                        fontWeight: FontWeight.w800,
+                        color: empty
                             ? AppColors.textTertiary
                             : AppColors.textPrimary,
                       ),
@@ -729,10 +895,17 @@ class _DateField extends StatelessWidget {
                 ),
               ),
               if (onClear != null)
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  onPressed: onClear,
-                  icon: const Icon(Icons.close_rounded, size: 16),
+                InkWell(
+                  onTap: onClear,
+                  borderRadius: BorderRadius.circular(12),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 15,
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
                 ),
             ],
           ),

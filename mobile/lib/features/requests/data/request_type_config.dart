@@ -96,16 +96,50 @@ class RequestTypeConfig {
   /// Anh xa ten field (JSON) -> nhan tieng Viet de hien thi man chi tiet.
   final Map<String, String> fieldLabels;
 
-  List<RequestReviewStage> stagesFor(UserRole role) =>
-      stages.where((s) => s.roles.contains(role)).toList();
+  /// [directorApprovalEnabled]: khớp web — GĐ / tài khoản được cấp quyền duyệt GĐ.
+  List<RequestReviewStage> stagesFor(
+    UserRole role, {
+    bool directorApprovalEnabled = false,
+  }) =>
+      stages.where((s) => _stageAllows(s, role, directorApprovalEnabled)).toList();
 
-  bool canReview(UserRole role) => stagesFor(role).isNotEmpty;
+  bool canReview(
+    UserRole role, {
+    bool directorApprovalEnabled = false,
+  }) =>
+      stagesFor(role, directorApprovalEnabled: directorApprovalEnabled)
+          .isNotEmpty;
 
-  bool canCreate(UserRole role) => canCreateRoles.contains(role);
+  bool canCreate(UserRole role) => RoleGroups.roleAllowsAny(role, canCreateRoles);
+
+  bool canCancel(UserRole role) => RoleGroups.roleAllowsAny(role, canCancelRoles);
+
+  bool canListView(UserRole role) =>
+      RoleGroups.roleAllowsAny(role, listViewerRoles);
 
   /// Mở UI giống đơn công/điều động (2 tab), không chỉ danh sách nhân viên.
-  bool canUseManagerShell(UserRole role) =>
-      canReview(role) || listViewerRoles.contains(role);
+  bool canUseManagerShell(
+    UserRole role, {
+    bool directorApprovalEnabled = false,
+  }) =>
+      canReview(role, directorApprovalEnabled: directorApprovalEnabled) ||
+      canListView(role);
+
+  static bool _stageAllows(
+    RequestReviewStage stage,
+    UserRole role,
+    bool directorApprovalEnabled,
+  ) {
+    return stage.roles.any((allowed) {
+      if (allowed == UserRole.director) {
+        return RoleGroups.canActAsDirectorApprover(
+          role,
+          directorApprovalEnabled: directorApprovalEnabled,
+        );
+      }
+      return RoleGroups.roleAllows(role, allowed);
+    });
+  }
 
   static const List<RequestTypeConfig> all = [
     RequestTypeConfig(

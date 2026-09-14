@@ -185,7 +185,7 @@ class _DeploymentEditSheetState extends ConsumerState<_DeploymentEditSheet> {
         ),
         decoration: const BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: AppRadius.brSheetTop,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

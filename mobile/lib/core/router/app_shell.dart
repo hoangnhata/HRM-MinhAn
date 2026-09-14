@@ -39,9 +39,7 @@ class AppShell extends ConsumerWidget {
       });
     }
 
-    final pages = [
-      for (final tab in tabs) _pageFor(tab),
-    ];
+    final pages = [for (final tab in tabs) _pageFor(tab)];
     final index = tabs.indexOf(effective).clamp(0, pages.length - 1);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -85,7 +83,9 @@ class AppShell extends ConsumerWidget {
   static Widget _pageFor(AppShellTab tab) {
     return switch (tab) {
       AppShellTab.home => const DashboardScreen(),
-      AppShellTab.attendance => const AttendanceScreen(key: ValueKey('attendance-board')),
+      AppShellTab.attendance => const AttendanceScreen(
+        key: ValueKey('attendance-board'),
+      ),
       AppShellTab.requests => const RequestsHubScreen(),
       AppShellTab.salary => const SalaryScreen(embedded: true),
       AppShellTab.profile => const ProfileScreen(),
@@ -297,7 +297,7 @@ class _DockDestination extends StatelessWidget {
                             item.label,
                             maxLines: 1,
                             style: AppTypography.style(
-                              fontSize: compact ? 9.5 : 10.5,
+                              fontSize: compact ? 10.5 : 11.5,
                               fontWeight: selected
                                   ? FontWeight.w700
                                   : FontWeight.w500,

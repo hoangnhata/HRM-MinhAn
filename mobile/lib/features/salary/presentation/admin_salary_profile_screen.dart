@@ -8,12 +8,14 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_ambient_background.dart';
+import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_motion.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/list_section_title.dart';
 import '../../../shared/models/employee.dart';
 import '../../../shared/models/salary_models.dart';
 import '../../attendance/presentation/attendance_employee_picker.dart';
@@ -395,27 +397,36 @@ class _AdminSalaryProfileScreenState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _SectionLabel(text: 'Đối tượng & trình độ'),
+                  const ListSectionTitle(
+                    title: 'Đối tượng & trình độ',
+                    showRail: false,
+                  ),
                   const SizedBox(height: 8),
                   _ConfigCard(
                     children: [
-                      _Segmented(
-                        options: const [
-                          ('EMPLOYEE', 'Nhân viên'),
-                          ('DOCTOR', 'Bác sỹ'),
+                      AppSegmentedControl(
+                        style: AppSegmentStyle.soft,
+                        selectedIndex: _category == 'DOCTOR' ? 1 : 0,
+                        onChanged: (i) => setState(
+                          () => _category = i == 1 ? 'DOCTOR' : 'EMPLOYEE',
+                        ),
+                        items: const [
+                          AppSegmentItem(label: 'Nhân viên'),
+                          AppSegmentItem(label: 'Bác sỹ'),
                         ],
-                        selected: _category,
-                        onSelected: (v) => setState(() => _category = v),
                       ),
                       if (_category == 'EMPLOYEE') ...[
                         const SizedBox(height: 12),
-                        _Segmented(
-                          options: const [
-                            ('DIRECT', 'Trực tiếp'),
-                            ('INDIRECT', 'Gián tiếp'),
+                        AppSegmentedControl(
+                          style: AppSegmentStyle.soft,
+                          selectedIndex: _block == 'INDIRECT' ? 1 : 0,
+                          onChanged: (i) => setState(
+                            () => _block = i == 1 ? 'INDIRECT' : 'DIRECT',
+                          ),
+                          items: const [
+                            AppSegmentItem(label: 'Trực tiếp'),
+                            AppSegmentItem(label: 'Gián tiếp'),
                           ],
-                          selected: _block,
-                          onSelected: (v) => setState(() => _block = v),
                         ),
                         const SizedBox(height: 10),
                         _FieldTile(
@@ -456,7 +467,7 @@ class _AdminSalaryProfileScreenState
                     ],
                   ),
                   const SizedBox(height: 16),
-                  _SectionLabel(text: 'Thâm niên'),
+                  const ListSectionTitle(title: 'Thâm niên', showRail: false),
                   const SizedBox(height: 8),
                   _ConfigCard(
                     children: [
@@ -499,8 +510,9 @@ class _AdminSalaryProfileScreenState
                     ],
                   ),
                   const SizedBox(height: 16),
-                  _SectionLabel(
-                    text: 'Nâng lương sớm',
+                  ListSectionTitle(
+                    title: 'Nâng lương sớm',
+                    showRail: false,
                     action: editable
                         ? TextButton.icon(
                             onPressed: _addEarlyRaise,
@@ -550,7 +562,7 @@ class _AdminSalaryProfileScreenState
                     ],
                   ),
                   const SizedBox(height: 16),
-                  _SectionLabel(text: 'Ghi chú'),
+                  const ListSectionTitle(title: 'Ghi chú', showRail: false),
                   const SizedBox(height: 8),
                   _ConfigCard(
                     children: [
@@ -595,7 +607,7 @@ class _AdminSalaryProfileScreenState
       context: context,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       builder: (ctx) => SafeArea(
         child: Column(
@@ -974,78 +986,196 @@ class _MetricStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _Metric(
-            icon: Icons.calendar_month_rounded,
-            label: 'Bắt đầu',
-            value: start,
+    final emptyStart = start.isEmpty || start == '—';
+    final isHint = seniority.startsWith('Nhập') ||
+        seniority.isEmpty ||
+        seniority == '—';
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderSoft),
+        boxShadow: AppShadows.soft,
+      ),
+      child: Column(
+        children: [
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _MetricTile(
+                    icon: Icons.calendar_month_rounded,
+                    label: 'Bắt đầu thang',
+                    value: emptyStart ? 'Chưa có' : start,
+                    accent: AppColors.primary,
+                    muted: emptyStart,
+                  ),
+                ),
+                Container(
+                  width: 1,
+                  margin: const EdgeInsets.symmetric(vertical: 14),
+                  color: AppColors.borderSoft,
+                ),
+                Expanded(
+                  child: _MetricTile(
+                    icon: Icons.functions_rounded,
+                    label: 'Hệ số',
+                    value: coefficient,
+                    accent: AppColors.info,
+                    muted: coefficient == '—' || coefficient == '0',
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _Metric(
-            icon: Icons.trending_up_rounded,
-            label: 'Thâm niên',
+          Container(height: 1, color: AppColors.borderSoft),
+          _SeniorityBanner(
             value: seniority,
+            isHint: isHint,
           ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _Metric(
-            icon: Icons.functions_rounded,
-            label: 'Hệ số',
-            value: coefficient,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _Metric extends StatelessWidget {
-  const _Metric({
+class _MetricTile extends StatelessWidget {
+  const _MetricTile({
     required this.icon,
     required this.label,
     required this.value,
+    required this.accent,
+    this.muted = false,
   });
+
   final IconData icon;
   final String label;
   final String value;
+  final Color accent;
+  final bool muted;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadius.brMd,
-        border: Border.all(color: AppColors.borderSoft),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 15, color: AppColors.primary),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
-            ),
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, size: 16, color: accent),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.style(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 10),
           Text(
             value,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppTypography.style(
-              fontSize: 12.5,
+              fontSize: 16,
               fontWeight: FontWeight.w800,
-              color: AppColors.primaryDark,
-              height: 1.2,
+              letterSpacing: -0.2,
+              color: muted ? AppColors.textTertiary : AppColors.textPrimary,
+              tabular: true,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SeniorityBanner extends StatelessWidget {
+  const _SeniorityBanner({
+    required this.value,
+    required this.isHint,
+  });
+
+  final String value;
+  final bool isHint;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = isHint ? AppColors.warning : AppColors.success;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.06),
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(15),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              isHint
+                  ? Icons.info_outline_rounded
+                  : Icons.trending_up_rounded,
+              size: 18,
+              color: accent,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Thâm niên tính lương',
+                  style: AppTypography.style(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value.isEmpty ? '—' : value,
+                  style: AppTypography.style(
+                    fontSize: isHint ? 13 : 15.5,
+                    fontWeight: FontWeight.w800,
+                    height: 1.25,
+                    letterSpacing: isHint ? 0 : -0.15,
+                    color: isHint
+                        ? AppColors.warningDark
+                        : AppColors.textPrimary,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1091,32 +1221,6 @@ class _ReadOnlyBanner extends StatelessWidget {
     );
   }
 }
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.text, this.action});
-  final String text;
-  final Widget? action;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(
-          text.toUpperCase(),
-          style: AppTypography.style(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.7,
-            color: AppColors.primaryDark,
-          ),
-        ),
-        const Spacer(),
-        ?action,
-      ],
-    );
-  }
-}
-
 class _ConfigCard extends StatelessWidget {
   const _ConfigCard({required this.children});
   final List<Widget> children;
@@ -1135,60 +1239,6 @@ class _ConfigCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: children,
-      ),
-    );
-  }
-}
-
-class _Segmented extends StatelessWidget {
-  const _Segmented({
-    required this.options,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final List<(String, String)> options;
-  final String selected;
-  final ValueChanged<String> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: AppRadius.brMd,
-      ),
-      child: Row(
-        children: [
-          for (final o in options)
-            Expanded(
-              child: Material(
-                color: o.$1 == selected ? AppColors.surface : Colors.transparent,
-                borderRadius: AppRadius.brSm,
-                elevation: o.$1 == selected ? 1 : 0,
-                shadowColor: AppColors.primaryDark.withValues(alpha: 0.12),
-                child: InkWell(
-                  onTap: () => onSelected(o.$1),
-                  borderRadius: AppRadius.brSm,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 9),
-                    child: Text(
-                      o.$2,
-                      textAlign: TextAlign.center,
-                      style: AppTypography.style(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: o.$1 == selected
-                            ? AppColors.primaryDark
-                            : AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }
@@ -1426,7 +1476,7 @@ class _EarlyRaiseSheetState extends State<_EarlyRaiseSheet> {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
         decoration: const BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          borderRadius: AppRadius.brSheetTop,
         ),
         child: SafeArea(
           top: false,

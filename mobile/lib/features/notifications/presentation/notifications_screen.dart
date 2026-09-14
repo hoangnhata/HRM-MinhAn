@@ -16,6 +16,7 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/list_section_title.dart';
 import '../../../shared/models/app_notification.dart';
 import '../application/notification_controller.dart';
 import 'notification_ui.dart';
@@ -142,9 +143,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                           var cursor = 0;
                           for (final group in groups) {
                             if (index == cursor) {
-                              return _DaySectionHeader(
-                                label: group.$1,
-                                count: group.$2.length,
+                              return Padding(
+                                padding: const EdgeInsets.fromLTRB(2, 6, 2, 10),
+                                child: ListSectionTitle(
+                                  title: group.$1,
+                                  count: group.$2.length,
+                                  showRail: false,
+                                  uppercase: false,
+                                ),
                               );
                             }
                             cursor += 1;
@@ -223,8 +229,8 @@ class _NotificationsHeader extends StatelessWidget {
                     customBorder: const CircleBorder(),
                     onTap: onMarkAllRead,
                     child: const SizedBox(
-                      width: 40,
-                      height: 40,
+                      width: 44,
+                      height: 44,
                       child: Icon(
                         Icons.done_all_rounded,
                         color: Colors.white,
@@ -235,199 +241,25 @@ class _NotificationsHeader extends StatelessWidget {
                 ),
               ),
             ),
-      footer: _NotificationFilterBar(
-        unreadOnly: unreadOnly,
-        unreadCount: unreadCount,
-        onToggleFilter: onToggleFilter,
-      ),
-    );
-  }
-}
-
-class _NotificationFilterBar extends StatelessWidget {
-  const _NotificationFilterBar({
-    required this.unreadOnly,
-    required this.unreadCount,
-    required this.onToggleFilter,
-  });
-
-  final bool unreadOnly;
-  final int unreadCount;
-  final ValueChanged<bool> onToggleFilter;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: 44,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: AppRadius.brPill,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _FilterSegment(
-              label: 'Tất cả',
-              icon: Icons.inbox_rounded,
-              selected: !unreadOnly,
-              onTap: () => onToggleFilter(false),
-            ),
+      footer: BrandHeaderSegment(
+        dense: true,
+        selectedIndex: unreadOnly ? 1 : 0,
+        onChanged: (i) => onToggleFilter(i == 1),
+        items: [
+          const BrandSegmentItem(
+            label: 'Tất cả',
+            icon: Icons.inbox_rounded,
           ),
-          Expanded(
-            child: _FilterSegment(
-              label: unreadCount > 0 ? 'Chưa đọc' : 'Chưa đọc',
-              badge: unreadCount > 0 ? unreadCount : null,
-              icon: Icons.mark_email_unread_rounded,
-              selected: unreadOnly,
-              onTap: () => onToggleFilter(true),
-            ),
+          BrandSegmentItem(
+            label: 'Chưa đọc',
+            icon: Icons.mark_email_unread_rounded,
+            count: unreadCount,
           ),
         ],
       ),
     );
   }
 }
-
-class _FilterSegment extends StatelessWidget {
-  const _FilterSegment({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-    this.badge,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-  final int? badge;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: badge == null ? label : '$label, $badge',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: AppRadius.brPill,
-          child: AnimatedContainer(
-            duration: AppDurations.fast,
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: selected ? Colors.white : Colors.transparent,
-              borderRadius: AppRadius.brPill,
-              boxShadow: selected
-                  ? [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.12),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 15,
-                  color: selected
-                      ? AppColors.primaryDark
-                      : Colors.white.withValues(alpha: 0.88),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    color: selected
-                        ? AppColors.primaryDark
-                        : Colors.white.withValues(alpha: 0.92),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.1,
-                  ),
-                ),
-                if (badge != null) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    constraints: const BoxConstraints(minWidth: 18),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? AppColors.primary.withValues(alpha: 0.12)
-                          : Colors.white.withValues(alpha: 0.18),
-                      borderRadius: AppRadius.brPill,
-                    ),
-                    child: Text(
-                      '$badge',
-                      textAlign: TextAlign.center,
-                      style: AppTypography.style(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w800,
-                        color: selected ? AppColors.primaryDark : Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DaySectionHeader extends StatelessWidget {
-  const _DaySectionHeader({required this.label, required this.count});
-
-  final String label;
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 6, 2, 10),
-      child: Row(
-        children: [
-          Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.6,
-              color: AppColors.primaryDark,
-            ),
-          ),
-          const Spacer(),
-          Text(
-            '$count',
-            style: AppTypography.metric(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textTertiary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _NotificationCard extends ConsumerWidget {
   const _NotificationCard({required this.item, required this.index});
 

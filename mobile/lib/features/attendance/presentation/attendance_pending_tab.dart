@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,6 +8,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/confirm_dialog.dart';
+import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/highlight_pulse.dart';
 import '../../../core/widgets/notice_banner.dart';
@@ -126,17 +128,25 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
     if (targets.isEmpty) return;
 
     bool? waiveForgotFine;
+    bool? keepOriginalPunchTimes;
     final fineTargets = approved
         ? targets.where(attendanceNeedsFineDecision).toList()
         : const <AttendanceWorkRequest>[];
 
     if (fineTargets.isNotEmpty) {
-      waiveForgotFine = await showBulkFineDecisionSheet(
+      final includeKeep = fineTargets.any(
+        (r) =>
+            r.requestType == 'EXPLANATION' && r.status == 'PENDING_DIRECTOR',
+      );
+      final decision = await showBulkFineDecisionSheet(
         context,
         fineTargetCount: fineTargets.length,
         totalCount: targets.length,
+        includeKeepOriginal: includeKeep,
       );
-      if (waiveForgotFine == null || !mounted) return;
+      if (decision == null || !mounted) return;
+      waiveForgotFine = decision.waiveForgotFine;
+      keepOriginalPunchTimes = decision.keepOriginalPunchTimes;
     } else {
       final ok = await showConfirmDialog(
         context,
@@ -164,13 +174,21 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
           targets,
           approved: approved,
           waiveForgotFine: waiveForgotFine,
+          keepOriginalPunchTimes: keepOriginalPunchTimes,
         );
     if (!mounted) return;
     setState(() => _bulkBusy = false);
     _exitSelectModeQuietly();
+    if (result.failed == 0) {
+      HapticFeedback.mediumImpact();
+    }
 
     final fineNote = approved && fineTargets.isNotEmpty
-        ? (waiveForgotFine == true ? ' (không trừ tiền)' : ' (có trừ tiền)')
+        ? (keepOriginalPunchTimes == true
+            ? ' (giữ giờ gốc, không trừ tiền)'
+            : waiveForgotFine == true
+                ? ' (không trừ tiền)'
+                : ' (có trừ tiền)')
         : '';
 
     final messenger = ScaffoldMessenger.of(context);
@@ -272,15 +290,18 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
             selectableCount: canSelect ? filtered.length : 0,
             onSelectModeChanged:
                 canSelect ? (v) => _setSelectMode(v) : null,
-            leading: _CompactModeSwitch(
-              pendingCount: pending.length,
-              historyCount: history.length,
-              showHistory: _showHistory,
-              onPending: () => setState(() {
-                _showHistory = false;
-                _filters = AttendanceRequestListFilters.empty;
-              }),
-              onHistory: () {
+            leading: AppSegmentedControl(
+              expand: false,
+              style: AppSegmentStyle.soft,
+              selectedIndex: _showHistory ? 1 : 0,
+              onChanged: (i) {
+                if (i == 0) {
+                  setState(() {
+                    _showHistory = false;
+                    _filters = AttendanceRequestListFilters.empty;
+                  });
+                  return;
+                }
                 setState(() {
                   _showHistory = true;
                   _filters = AttendanceRequestListFilters.empty;
@@ -291,6 +312,13 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
                 });
                 _notifySelectMode(false);
               },
+              items: [
+                AppSegmentItem(
+                  label: pending.isEmpty ? 'Chờ duyệt' : 'Chờ',
+                  count: pending.length,
+                ),
+                AppSegmentItem(label: 'Đã xử lý', count: history.length),
+              ],
             ),
           ),
         ),
@@ -447,87 +475,164 @@ class _BulkActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final allSelected = count >= totalSelectable && totalSelectable > 0;
+
     return Material(
-      elevation: 0,
-      color: AppColors.primary.withValues(alpha: 0.06),
-      borderRadius: AppRadius.brCard,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        decoration: BoxDecoration(
-          borderRadius: AppRadius.brCard,
-          border: Border.all(
-            color: AppColors.primary.withValues(alpha: 0.18),
-          ),
-        ),
+      color: AppColors.surface,
+      elevation: 8,
+      shadowColor: Colors.black.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
+                    color: AppColors.primary.withValues(alpha: 0.12),
                     borderRadius: AppRadius.brPill,
                   ),
-                  child: Text(
-                    '$count đã chọn',
-                    style: AppTypography.style(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 18,
+                        height: 18,
+                        decoration: const BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          '$count',
+                          style: AppTypography.style(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            tabular: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        'đã chọn',
+                        style: AppTypography.style(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primaryDark,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const Spacer(),
-                TextButton(
-                  onPressed: busy || count >= totalSelectable
-                      ? null
-                      : onSelectAll,
-                  child: Text('Tất cả ($totalSelectable)'),
+                _BulkLink(
+                  label: allSelected
+                      ? 'Đã chọn hết'
+                      : 'Tất cả ($totalSelectable)',
+                  enabled: !busy && !allSelected,
+                  onTap: onSelectAll,
                 ),
-                TextButton(
-                  onPressed: busy ? null : onClear,
-                  child: const Text('Bỏ chọn'),
+                const SizedBox(width: 4),
+                Container(
+                  width: 1,
+                  height: 12,
+                  color: AppColors.border.withValues(alpha: 0.7),
+                ),
+                const SizedBox(width: 4),
+                _BulkLink(
+                  label: 'Bỏ chọn',
+                  enabled: !busy,
+                  onTap: onClear,
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: busy ? null : onReject,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.error,
-                      side: const BorderSide(color: AppColors.error),
-                      minimumSize: const Size.fromHeight(44),
+                  child: Material(
+                    color: AppColors.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: busy ? null : onReject,
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        height: 46,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.close_rounded,
+                              size: 18,
+                              color: busy
+                                  ? AppColors.error.withValues(alpha: 0.4)
+                                  : AppColors.error,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Từ chối',
+                              style: AppTypography.style(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: busy
+                                    ? AppColors.error.withValues(alpha: 0.4)
+                                    : AppColors.error,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                    icon: busy
-                        ? const SizedBox.shrink()
-                        : const Icon(Icons.close_rounded, size: 18),
-                    label: const Text('Từ chối'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  flex: 1,
-                  child: FilledButton.icon(
-                    onPressed: busy ? null : onApprove,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                    ),
-                    icon: busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
+                  child: Material(
+                    color: busy
+                        ? AppColors.primary.withValues(alpha: 0.55)
+                        : AppColors.primary,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: busy ? null : onApprove,
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        height: 46,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (busy)
+                              const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            else
+                              const Icon(
+                                Icons.check_rounded,
+                                size: 18,
+                                color: Colors.white,
+                              ),
+                            const SizedBox(width: 6),
+                            Text(
+                              busy ? 'Đang xử lý…' : 'Duyệt',
+                              style: AppTypography.style(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
                             ),
-                          )
-                        : const Icon(Icons.check_rounded, size: 18),
-                    label: Text(busy ? 'Đang xử lý…' : 'Duyệt'),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -539,77 +644,32 @@ class _BulkActionBar extends StatelessWidget {
   }
 }
 
-class _CompactModeSwitch extends StatelessWidget {
-  const _CompactModeSwitch({
-    required this.pendingCount,
-    required this.historyCount,
-    required this.showHistory,
-    required this.onPending,
-    required this.onHistory,
-  });
-
-  final int pendingCount;
-  final int historyCount;
-  final bool showHistory;
-  final VoidCallback onPending;
-  final VoidCallback onHistory;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: AppRadius.brPill,
-        border: Border.all(color: AppColors.borderSoft),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _MiniSeg(
-            label: pendingCount > 0 ? 'Chờ $pendingCount' : 'Chờ duyệt',
-            selected: !showHistory,
-            onTap: onPending,
-          ),
-          _MiniSeg(
-            label: historyCount > 0 ? 'Xử lý $historyCount' : 'Đã xử lý',
-            selected: showHistory,
-            onTap: onHistory,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniSeg extends StatelessWidget {
-  const _MiniSeg({
+class _BulkLink extends StatelessWidget {
+  const _BulkLink({
     required this.label,
-    required this.selected,
+    required this.enabled,
     required this.onTap,
   });
 
   final String label;
-  final bool selected;
+  final bool enabled;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.surface : Colors.transparent,
-      borderRadius: AppRadius.brPill,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          child: Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 11.5,
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-              color: selected ? AppColors.primary : AppColors.textSecondary,
-            ),
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Text(
+          label,
+          style: AppTypography.style(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+            color: enabled
+                ? AppColors.primaryDark
+                : AppColors.textTertiary,
           ),
         ),
       ),

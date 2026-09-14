@@ -12,6 +12,9 @@ class CurrentUser {
     this.enabled = true,
     this.directorApprovalEnabled = false,
     this.reportViewEnabled = false,
+    this.attendanceExcelExportEnabled = false,
+    this.hospitalWideEmployeeViewEnabled = false,
+    this.professionalQualificationReportEnabled = false,
     this.workUnitScoped = false,
     this.mustChangePassword = false,
     this.phone,
@@ -41,6 +44,11 @@ class CurrentUser {
   final bool enabled;
   final bool directorApprovalEnabled;
   final bool reportViewEnabled;
+  /// Flag xuất Excel công — dùng trên web; mobile không có màn xuất file.
+  final bool attendanceExcelExportEnabled;
+  final bool hospitalWideEmployeeViewEnabled;
+  final bool professionalQualificationReportEnabled;
+  /// Trưởng khoa bị giới hạn đúng bộ phận (backend tự lọc danh sách).
   final bool workUnitScoped;
   final bool mustChangePassword;
   final String? phone;
@@ -75,6 +83,12 @@ class CurrentUser {
       enabled: json['enabled'] as bool? ?? true,
       directorApprovalEnabled: json['directorApprovalEnabled'] as bool? ?? false,
       reportViewEnabled: json['reportViewEnabled'] as bool? ?? false,
+      attendanceExcelExportEnabled:
+          json['attendanceExcelExportEnabled'] as bool? ?? false,
+      hospitalWideEmployeeViewEnabled:
+          json['hospitalWideEmployeeViewEnabled'] as bool? ?? false,
+      professionalQualificationReportEnabled:
+          json['professionalQualificationReportEnabled'] as bool? ?? false,
       workUnitScoped: json['workUnitScoped'] as bool? ?? false,
       mustChangePassword: json['mustChangePassword'] as bool? ?? false,
       phone: json['phone'] as String?,

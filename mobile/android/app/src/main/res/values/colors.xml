@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="brand_primary_dark">#006865</color>
-    <color name="app_background">#ECF1EF</color>
+    <!-- Khớp AppColors.primaryDark / AppColors.background trong Flutter để
+         không nháy lệch sắc teal khi chuyển từ splash native sang Flutter. -->
+    <color name="brand_primary_dark">#045B57</color>
+    <color name="app_background">#EEF4F3</color>
     <color name="ic_launcher_background">#087A75</color>
 </resources>

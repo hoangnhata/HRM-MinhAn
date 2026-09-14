@@ -8,6 +8,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/user_role.dart';
+import '../../../core/widgets/app_month_picker.dart';
 import '../../../core/widgets/app_ambient_background.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_card.dart';
@@ -30,7 +31,11 @@ const _duty = Color(0xFFCA8A04);
 const _quangTrung = Color(0xFF2563EB);
 
 class DepartmentAttendanceScreen extends ConsumerStatefulWidget {
-  const DepartmentAttendanceScreen({super.key, this.initialYear, this.initialMonth});
+  const DepartmentAttendanceScreen({
+    super.key,
+    this.initialYear,
+    this.initialMonth,
+  });
 
   final int? initialYear;
   final int? initialMonth;
@@ -54,7 +59,9 @@ class _DepartmentAttendanceScreenState
       final m = widget.initialMonth;
       if (y != null && m != null) {
         _appliedInitialMonth = true;
-        ref.read(departmentAttendanceControllerProvider.notifier).setMonth(y, m);
+        ref
+            .read(departmentAttendanceControllerProvider.notifier)
+            .setMonth(y, m);
       }
     });
   }
@@ -75,7 +82,9 @@ class _DepartmentAttendanceScreenState
     if (_deptLocked) return;
     final depts = await ref.read(departmentListProvider.future);
     if (!mounted) return;
-    final current = ref.read(departmentAttendanceControllerProvider).departmentId;
+    final current = ref
+        .read(departmentAttendanceControllerProvider)
+        .departmentId;
     final picked = await showDepartmentPicker(
       context,
       departments: depts,
@@ -84,18 +93,17 @@ class _DepartmentAttendanceScreenState
       title: 'Khoa / phòng',
     );
     if (picked == null) return;
-    await ref.read(departmentAttendanceControllerProvider.notifier).setDepartment(
-          picked.cleared ? null : picked.department?.id,
-        );
+    await ref
+        .read(departmentAttendanceControllerProvider.notifier)
+        .setDepartment(picked.cleared ? null : picked.department?.id);
   }
 
   Future<void> _pickMonth() async {
     final state = ref.read(departmentAttendanceControllerProvider);
-    final picked = await showModalBottomSheet<(int, int)>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _MonthYearSheet(year: state.year, month: state.month),
+    final picked = await showAppMonthPicker(
+      context,
+      year: state.year,
+      month: state.month,
     );
     if (picked == null) return;
     await ref
@@ -115,12 +123,15 @@ class _DepartmentAttendanceScreenState
         year: ref.read(departmentAttendanceControllerProvider).year,
         month: ref.read(departmentAttendanceControllerProvider).month,
         daysInMonth:
-            ref.read(departmentAttendanceControllerProvider).matrix?.daysInMonth ??
-                DateTime(
-                  ref.read(departmentAttendanceControllerProvider).year,
-                  ref.read(departmentAttendanceControllerProvider).month + 1,
-                  0,
-                ).day,
+            ref
+                .read(departmentAttendanceControllerProvider)
+                .matrix
+                ?.daysInMonth ??
+            DateTime(
+              ref.read(departmentAttendanceControllerProvider).year,
+              ref.read(departmentAttendanceControllerProvider).month + 1,
+              0,
+            ).day,
         onOpenDetail: () {
           Navigator.pop(ctx);
           context.pop(
@@ -143,10 +154,11 @@ class _DepartmentAttendanceScreenState
     final state = ref.watch(departmentAttendanceControllerProvider);
     final rows = state.visibleRows;
     final matrix = state.matrix;
-    final deptName = matrix?.departmentName ??
+    final deptName =
+        matrix?.departmentName ??
         (_deptLocked
             ? (ref.watch(authControllerProvider).currentUser?.departmentName ??
-                'Khoa của tôi')
+                  'Khoa của tôi')
             : 'Toàn bệnh viện');
 
     return Scaffold(
@@ -161,15 +173,18 @@ class _DepartmentAttendanceScreenState
                 title: 'Bảng công theo khoa',
                 icon: Icons.table_chart_outlined,
                 eyebrow: 'Công tháng',
-                subtitle: '${AppFormat.monthLabelVi(DateTime(state.year, state.month))} · $deptName',
+                subtitle:
+                    '${AppFormat.monthLabelVi(DateTime(state.year, state.month))} · $deptName',
                 onBack: () => context.pop(),
                 trailing: IconButton(
                   tooltip: 'Làm mới',
                   onPressed: state.loading
                       ? null
                       : () => ref
-                          .read(departmentAttendanceControllerProvider.notifier)
-                          .load(),
+                            .read(
+                              departmentAttendanceControllerProvider.notifier,
+                            )
+                            .load(),
                   icon: state.loading
                       ? const SizedBox(
                           width: 18,
@@ -193,20 +208,24 @@ class _DepartmentAttendanceScreenState
                   children: [
                     Row(
                       children: [
-                        Expanded(child: _FilterChip(
-                          icon: Icons.calendar_month_rounded,
-                          label: 'Tháng ${state.month}/${state.year}',
-                          onTap: _pickMonth,
-                        )),
+                        Expanded(
+                          child: _FilterChip(
+                            icon: Icons.calendar_month_rounded,
+                            label: 'Tháng ${state.month}/${state.year}',
+                            onTap: _pickMonth,
+                          ),
+                        ),
                         const SizedBox(width: 8),
-                        Expanded(child: _FilterChip(
-                          icon: Icons.apartment_rounded,
-                          label: state.departmentId == null && !_deptLocked
-                              ? 'Tất cả khoa'
-                              : deptName,
-                          locked: _deptLocked,
-                          onTap: _pickDepartment,
-                        )),
+                        Expanded(
+                          child: _FilterChip(
+                            icon: Icons.apartment_rounded,
+                            label: state.departmentId == null && !_deptLocked
+                                ? 'Tất cả khoa'
+                                : deptName,
+                            locked: _deptLocked,
+                            onTap: _pickDepartment,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
@@ -229,7 +248,10 @@ class _DepartmentAttendanceScreenState
     );
   }
 
-  Widget _buildBody(DepartmentAttendanceState state, List<AttendanceMatrixRow> rows) {
+  Widget _buildBody(
+    DepartmentAttendanceState state,
+    List<AttendanceMatrixRow> rows,
+  ) {
     if (state.loading && state.matrix == null) {
       return const SkeletonList(itemCount: 6);
     }
@@ -250,7 +272,8 @@ class _DepartmentAttendanceScreenState
       );
     }
 
-    final daysInMonth = state.matrix?.daysInMonth ??
+    final daysInMonth =
+        state.matrix?.daysInMonth ??
         DateTime(state.year, state.month + 1, 0).day;
 
     return RefreshIndicator(
@@ -594,31 +617,36 @@ class _EmployeeCard extends StatelessWidget {
                   ),
                 if (stats.missingUnits > 0)
                   StatusChip(
-                    label: 'Thiếu ${AppFormat.workUnits(stats.missingUnits)} công',
+                    label:
+                        'Thiếu ${AppFormat.workUnits(stats.missingUnits)} công',
                     color: AppColors.error,
                     dense: true,
                   ),
                 if (stats.lateMinutes > 0)
                   StatusChip(
-                    label: 'Muộn ${stats.lateCount} lần · ${stats.lateMinutes}’',
+                    label:
+                        'Muộn ${stats.lateCount} lần · ${stats.lateMinutes}’',
                     color: AppColors.warning,
                     dense: true,
                   ),
                 if (row.dutyBonusTotal > 0)
                   StatusChip(
-                    label: 'Thưởng trực ${AppFormat.currency(row.dutyBonusTotal)}',
+                    label:
+                        'Thưởng trực ${AppFormat.currency(row.dutyBonusTotal)}',
                     color: AppColors.primary,
                     dense: true,
                   ),
                 if (row.dutyPostPayTotal > 0)
                   StatusChip(
-                    label: 'Sau trực ${AppFormat.currency(row.dutyPostPayTotal)}',
+                    label:
+                        'Sau trực ${AppFormat.currency(row.dutyPostPayTotal)}',
                     color: AppColors.primary,
                     dense: true,
                   ),
                 if (row.quangTrungAllowance > 0)
                   StatusChip(
-                    label: 'PC QT ${AppFormat.currency(row.quangTrungAllowance)}',
+                    label:
+                        'PC QT ${AppFormat.currency(row.quangTrungAllowance)}',
                     color: _quangTrung,
                     dense: true,
                   ),
@@ -719,7 +747,7 @@ class _StatBox extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTypography.style(
-                fontSize: 9.5,
+                fontSize: 10,
                 color: AppColors.textTertiary,
               ),
             ),
@@ -814,13 +842,17 @@ class _DayCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _dayColor(day, duty);
-    final filled = duty != null || (day != null && (day!.totalWorkUnits > 0 || day!.isLeave));
+    final filled =
+        duty != null ||
+        (day != null && (day!.totalWorkUnits > 0 || day!.isLeave));
     return Opacity(
       opacity: inMonth ? 1 : 0.35,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 6),
         decoration: BoxDecoration(
-          color: filled ? color.withValues(alpha: 0.12) : AppColors.surfaceMuted,
+          color: filled
+              ? color.withValues(alpha: 0.12)
+              : AppColors.surfaceMuted,
           borderRadius: AppRadius.brSm,
           border: Border.all(
             color: today ? AppColors.primary : Colors.transparent,
@@ -832,7 +864,7 @@ class _DayCell extends StatelessWidget {
             Text(
               weekday,
               style: AppTypography.style(
-                fontSize: 9.5,
+                fontSize: 10,
                 fontWeight: FontWeight.w700,
                 color: AppColors.textTertiary,
               ),
@@ -898,7 +930,7 @@ class _EmployeeMonthSheetState extends State<_EmployeeMonthSheet> {
       height: h,
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       child: Column(
         children: [
@@ -1137,8 +1169,8 @@ class _HeatCell extends StatelessWidget {
               color: selected
                   ? color
                   : today
-                      ? AppColors.primary
-                      : Colors.transparent,
+                  ? AppColors.primary
+                  : Colors.transparent,
               width: selected || today ? 1.5 : 0,
             ),
           ),
@@ -1157,11 +1189,7 @@ class _HeatCell extends StatelessWidget {
 }
 
 class _SelectedDayCard extends StatelessWidget {
-  const _SelectedDayCard({
-    required this.date,
-    this.day,
-    this.duty,
-  });
+  const _SelectedDayCard({required this.date, this.day, this.duty});
 
   final String date;
   final AttendanceMatrixDay? day;
@@ -1209,13 +1237,24 @@ class _SelectedDayCard extends StatelessWidget {
                 ].join(' · '),
                 _duty,
               ),
-            if (day?.quangTrung == true) _kv('Địa điểm', 'Quang Trung', _quangTrung),
+            if (day?.quangTrung == true)
+              _kv('Địa điểm', 'Quang Trung', _quangTrung),
             if (day?.isLeave == true)
-              _kv('Nghỉ', day!.status == 'UNPAID_LEAVE' ? 'Không lương' : 'Nghỉ phép / vắng', _leave),
+              _kv(
+                'Nghỉ',
+                day!.status == 'UNPAID_LEAVE'
+                    ? 'Không lương'
+                    : 'Nghỉ phép / vắng',
+                _leave,
+              ),
             if (day != null && day!.lateMinutes > 0 && !day!.lateMinutesExempt)
               _kv('Đi muộn', '${day!.lateMinutes} phút', AppColors.warning),
             if (day != null && day!.totalWorkUnits > 0)
-              _kv('Công ngày', AppFormat.workUnits(day!.totalWorkUnits, suffix: true), AppColors.primary),
+              _kv(
+                'Công ngày',
+                AppFormat.workUnits(day!.totalWorkUnits, suffix: true),
+                AppColors.primary,
+              ),
             if ((day?.note ?? '').trim().isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(
@@ -1260,123 +1299,6 @@ class _SelectedDayCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _MonthYearSheet extends StatefulWidget {
-  const _MonthYearSheet({required this.year, required this.month});
-
-  final int year;
-  final int month;
-
-  @override
-  State<_MonthYearSheet> createState() => _MonthYearSheetState();
-}
-
-class _MonthYearSheetState extends State<_MonthYearSheet> {
-  late int _year = widget.year;
-
-  @override
-  Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final years = [for (var y = now.year - 2; y <= now.year; y++) y];
-    if (!years.contains(_year)) {
-      _year = now.year;
-    }
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.border,
-              borderRadius: AppRadius.brPill,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'Chọn tháng',
-            style: AppTypography.style(fontSize: 16, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              for (final y in years) ...[
-                if (y != years.first) const SizedBox(width: 8),
-                Expanded(
-                  child: SizedBox(
-                    height: 40,
-                    child: _MonthPickChip(
-                      label: '$y',
-                      selected: y == _year,
-                      onTap: () => setState(() => _year = y),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 12),
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 4,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            childAspectRatio: 2.1,
-            children: [
-              for (var m = 1; m <= 12; m++)
-                _MonthPickChip(
-                  label: 'Tháng $m',
-                  selected: _year == widget.year && m == widget.month,
-                  onTap: () => Navigator.pop(context, (_year, m)),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MonthPickChip extends StatelessWidget {
-  const _MonthPickChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.primary : AppColors.surfaceMuted,
-      borderRadius: AppRadius.brMd,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brMd,
-        child: Center(
-          child: Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: selected ? Colors.white : AppColors.textPrimary,
-            ),
-          ),
-        ),
       ),
     );
   }

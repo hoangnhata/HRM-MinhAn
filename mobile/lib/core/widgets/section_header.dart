@@ -55,10 +55,9 @@ class SectionHeader extends StatelessWidget {
                         if (overline != null) ...[
                           Text(
                             overline!.toUpperCase(),
-                            style: AppTypography.style(
+                            style: AppTypography.uppercase(
                               color: AppColors.primaryDark,
                               fontSize: 10.8,
-                              fontWeight: FontWeight.w700,
                               letterSpacing: 0.75,
                             ),
                           ),

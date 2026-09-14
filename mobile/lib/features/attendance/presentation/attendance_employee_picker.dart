@@ -84,10 +84,10 @@ class _AttendanceEmployeePickerSheetState
     super.dispose();
   }
 
-  Future<void> _load({required bool reset}) async {
+  Future<void> _load({required bool reset, bool silent = false}) async {
     if (reset) {
       setState(() {
-        _loading = true;
+        if (!silent) _loading = true;
         _error = null;
         _page = 0;
         _hasMore = true;
@@ -143,7 +143,7 @@ class _AttendanceEmployeePickerSheetState
       height: height,
       decoration: const BoxDecoration(
         color: AppColors.background,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       child: Column(
         children: [
@@ -247,8 +247,12 @@ class _AttendanceEmployeePickerSheetState
         message: 'Thử đổi từ khóa hoặc bộ lọc.',
       );
     }
-    return ListView.separated(
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () => _load(reset: true, silent: true),
+      child: ListView.separated(
       controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       itemCount: _items.length + (_loadingMore ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: 8),
@@ -333,6 +337,7 @@ class _AttendanceEmployeePickerSheetState
           ),
         );
       },
+    ),
     );
   }
 }

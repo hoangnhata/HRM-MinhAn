@@ -76,10 +76,20 @@ class _ProfileChangePasswordScreenState
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: const GradientAppBar(title: 'Đổi mật khẩu'),
-      body: Form(
-        key: _formKey,
-        child: ListView(
+      body: Column(
+        children: [
+          AppScreenHeader(
+            dense: true,
+            title: 'Đổi mật khẩu',
+            icon: Icons.lock_outline_rounded,
+            eyebrow: 'Tài khoản',
+            subtitle: 'Bảo mật đăng nhập',
+            onBack: () => Navigator.of(context).maybePop(),
+          ),
+          Expanded(
+            child: Form(
+              key: _formKey,
+              child: ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.page,
             AppSpacing.md,
@@ -264,9 +274,12 @@ class _ProfileChangePasswordScreenState
               ),
             ),
           ],
+                ),
+              ),
+            ),
+          ],
         ),
-      ),
-    );
+      );
   }
 }
 

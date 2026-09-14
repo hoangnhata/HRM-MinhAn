@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,6 +18,7 @@ import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/list_section_title.dart';
 import '../../../shared/models/employee.dart';
 import '../../employees/data/employee_repository.dart';
 import '../application/generic_request_controller.dart';
@@ -69,11 +71,16 @@ class _ProbationConversionCreateScreenState
   static const _accent = AppColors.success;
 
   bool get _isNurse => _formType == 'NURSE';
-  bool get _nursingFlow =>
-      isNursingBlockTitle(_employee?.summary.positionTitle);
+  bool get _nursingFlow => isNursingBlockTitle(
+        _employee?.summary.positionTitle,
+        _employee?.summary.departmentName,
+      );
 
   List<RequestFlowStep> get _flowSteps => requestCreateFlowSteps(
-        probationFlowLabels(_employee?.summary.positionTitle),
+        probationFlowLabels(
+          _employee?.summary.positionTitle,
+          _employee?.summary.departmentName,
+        ),
       );
 
   String get _statusPhrase {
@@ -274,6 +281,7 @@ class _ProbationConversionCreateScreenState
       final id = _isEdit
           ? widget.requestId
           : (result['id'] as num?)?.toInt();
+      HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
         _isEdit ? 'Đã lưu thay đổi' : 'Đã gửi đơn chuyển chính thức',
@@ -450,11 +458,11 @@ class _ProbationConversionCreateScreenState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const _SectionHeader(
+                            const BlockSectionTitle(
                               icon: Icons.edit_note_rounded,
                               title: 'Nội dung đề nghị',
                               subtitle: 'Ngày chính thức và lý do gửi duyệt',
-                              accent: _accent,
+                              color: _accent,
                             ),
                             const SizedBox(height: 12),
                             _DateTile(
@@ -488,11 +496,11 @@ class _ProbationConversionCreateScreenState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const _SectionHeader(
+                            const BlockSectionTitle(
                               icon: Icons.contact_phone_outlined,
                               title: 'Bổ sung thông tin chính thức',
                               subtitle: 'Đồng bộ hồ sơ — có thể hoàn thiện sau',
-                              accent: _accent,
+                              color: _accent,
                             ),
                             const SizedBox(height: 12),
                             _Field(
@@ -532,11 +540,11 @@ class _ProbationConversionCreateScreenState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const _SectionHeader(
+                            const BlockSectionTitle(
                               icon: Icons.comment_outlined,
                               title: 'Nhận xét chuyên môn',
                               subtitle: 'Không bắt buộc',
-                              accent: _accent,
+                              color: _accent,
                             ),
                             const SizedBox(height: 12),
                             _MultilineField(
@@ -621,65 +629,6 @@ class _MiniChip extends StatelessWidget {
     );
   }
 }
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.icon,
-    required this.title,
-    required this.accent,
-    this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.12),
-            borderRadius: AppRadius.brSm,
-          ),
-          child: Icon(icon, size: 16, color: accent),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppTypography.style(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
-                ),
-              ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  subtitle!,
-                  style: AppTypography.style(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _DateTile extends StatelessWidget {
   const _DateTile({
     required this.label,

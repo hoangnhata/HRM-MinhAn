@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_colors.dart';
 import '../theme/app_tokens.dart';
 import '../theme/app_typography.dart';
 
@@ -67,6 +68,39 @@ class StatusChip extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Badge số nhỏ cạnh tiêu đề nhóm / chip lọc.
+class CountBadge extends StatelessWidget {
+  const CountBadge({
+    super.key,
+    required this.count,
+    this.color = AppColors.primary,
+  });
+
+  final int count;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: AppRadius.brPill,
+      ),
+      child: Text(
+        '$count',
+        textAlign: TextAlign.center,
+        style: AppTypography.metric(
+          fontSize: 11,
+          color: color,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );

@@ -1,7 +1,7 @@
 name: hrm_mobile
 description: "HRM Minh An - ung dung di dong noi bo Benh vien Minh An."
 publish_to: 'none'
-version: 0.1.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.12.2
@@ -23,9 +23,6 @@ dependencies:
 
   # Secure storage for JWT
   flutter_secure_storage: ^9.2.2
-
-  # Fonts (Inter, matches web)
-  google_fonts: ^6.2.1
 
   # UI motion, vector brand assets and touch-first list actions
   flutter_animate: ^4.5.2
@@ -62,3 +59,21 @@ flutter:
 
   assets:
     - assets/images/
+
+  # Inter nhúng sẵn (khớp web) — không tải runtime nên chữ đúng font từ frame
+  # đầu và hoạt động khi offline.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Inter-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/Inter-Black.ttf
+          weight: 900

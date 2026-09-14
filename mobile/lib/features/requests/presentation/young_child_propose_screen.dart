@@ -213,6 +213,7 @@ class _YoungChildProposeScreenState
           ? widget.requestId
           : (result['id'] as num?)?.toInt();
       ref.invalidate(genericRequestControllerProvider('young-child'));
+      HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
         _isEdit ? 'Đã lưu thay đổi' : 'Đã gửi đề xuất nuôi con nhỏ',

@@ -58,9 +58,11 @@ class _AttendanceRequestsScreenState
   @override
   void initState() {
     super.initState();
-    _canApprove = RoleGroups.isIn(
-      ref.read(authControllerProvider).role,
-      RoleGroups.approvalManagers,
+    final auth = ref.read(authControllerProvider);
+    _canApprove = RoleGroups.canApproveAttendance(
+      auth.role,
+      directorApprovalEnabled:
+          auth.currentUser?.directorApprovalEnabled ?? false,
     );
     if (_canApprove) {
       var initial = widget.scope == AttendanceRequestScope.deployment ? 1 : 0;

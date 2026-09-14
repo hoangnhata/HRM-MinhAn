@@ -1,10 +1,19 @@
-/// Khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa
+/// Khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa – Y sĩ
+/// + Dược sĩ chỉ khoa YHCT; Nhân viên khoa YHCT hoặc Khoa khám bệnh
 /// (đồng bộ backend [NursingBlockClassifier] / frontend `nursingBlock.ts`).
 library;
 
 final _blockPattern = RegExp(
   r'dieu\s*duong|\bdd\b|ho\s*sinh|ky\s*thuat\s*vien|\bktv\b|y\s*ta|\bnurse\b'
-  r'|thu\s*ky\s*y\s*khoa|thu\s*ky\s*ykhoa|medical\s*secretar|midwife|technici',
+  r'|thu\s*ky\s*y\s*khoa|thu\s*ky\s*ykhoa|medical\s*secretar|midwife|technici'
+  r'|\by\s*s[iy]\b|assistant\s*physician|physician\s*assistant',
+);
+final _pharmacistPattern = RegExp(r'duoc\s*si|\bduocsy\b|pharmacist');
+final _staffPattern = RegExp(r'\bnhan\s*vien\b');
+final _yhctDeptPattern = RegExp(r'y\s*hoc\s*co\s*truyen|\byhct\b');
+final _outpatientDeptPattern = RegExp(r'khoa\s*kham\s*benh|^kham\s*benh$');
+final _excludedNursingHeadDept = RegExp(
+  r'ke\s*hoach\s*tong\s*hop|kinh\s*doanh|phat\s*trien|^phong\s+dieu\s+duong$',
 );
 
 /// Bảng bỏ dấu tiếng Việt (precomposed) — không phụ thuộc NFD.
@@ -24,26 +33,50 @@ const _vietMap = <String, String>{
   'đ': 'd',
 };
 
-String _normalize(String? positionTitle) {
-  if (positionTitle == null || positionTitle.isEmpty) return '';
-  final lower = positionTitle.toLowerCase();
+String normalizeVi(String? raw) {
+  if (raw == null || raw.isEmpty) return '';
+  final lower = raw.toLowerCase();
   final buf = StringBuffer();
   for (final rune in lower.runes) {
     final ch = String.fromCharCode(rune);
-    if (rune >= 0x0300 && rune <= 0x036F) continue; // combining marks
+    if (rune >= 0x0300 && rune <= 0x036F) continue;
     buf.write(_vietMap[ch] ?? ch);
   }
   return buf.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
 }
 
-/// True nếu chức danh thuộc khối ĐD–KTV–HS–Thư ký y khoa.
-bool isNursingBlockTitle(String? positionTitle) {
-  final norm = _normalize(positionTitle);
-  return norm.isNotEmpty && _blockPattern.hasMatch(norm);
+bool _isExcludedNursingHeadDepartment(String? departmentName) {
+  final dept = normalizeVi(departmentName);
+  return dept.isNotEmpty && _excludedNursingHeadDept.hasMatch(dept);
+}
+
+bool _isYhct(String? departmentName) {
+  final dept = normalizeVi(departmentName);
+  return dept.isNotEmpty && _yhctDeptPattern.hasMatch(dept);
+}
+
+bool _isOutpatient(String? departmentName) {
+  final dept = normalizeVi(departmentName);
+  return dept.isNotEmpty && _outpatientDeptPattern.hasMatch(dept);
+}
+
+bool _isStaffEligibleDept(String? departmentName) =>
+    _isYhct(departmentName) || _isOutpatient(departmentName);
+
+/// True nếu thuộc phạm vi Trưởng phòng ĐD / khối đánh giá ĐD.
+bool isNursingBlockTitle(String? positionTitle, [String? departmentName]) {
+  if (_isExcludedNursingHeadDepartment(departmentName)) return false;
+  final title = normalizeVi(positionTitle);
+  if (title.isEmpty) return false;
+  if (_blockPattern.hasMatch(title)) return true;
+  if (_staffPattern.hasMatch(title) && _isStaffEligibleDept(departmentName)) {
+    return true;
+  }
+  return _pharmacistPattern.hasMatch(title) && _isYhct(departmentName);
 }
 
 bool isNursingHeadStageLabel(String label) {
-  final n = _normalize(label);
+  final n = normalizeVi(label);
   return n.contains('truong phong dd') ||
       n.contains('truong phong dieu duong') ||
       n.contains('dieu duong truong');
@@ -53,17 +86,20 @@ bool isNursingHeadStageLabel(String label) {
 List<String> filterDisplayStages(
   Iterable<String> stages, {
   required String? positionTitle,
+  String? departmentName,
 }) {
-  final nursing = isNursingBlockTitle(positionTitle);
+  final nursing = isNursingBlockTitle(positionTitle, departmentName);
   return [
     for (final s in stages)
       if (nursing || !isNursingHeadStageLabel(s)) s,
   ];
 }
 
-/// Luồng nghỉ phép / đơn công trên hub.
-List<String> attendanceFlowLabels(String? positionTitle) {
-  if (isNursingBlockTitle(positionTitle)) {
+List<String> attendanceFlowLabels(
+  String? positionTitle, [
+  String? departmentName,
+]) {
+  if (isNursingBlockTitle(positionTitle, departmentName)) {
     return const [
       'Trưởng khoa/phòng',
       'Trưởng phòng ĐD',
@@ -78,9 +114,11 @@ List<String> attendanceFlowLabels(String? positionTitle) {
   ];
 }
 
-/// Luồng điều động (nhãn hub / intro).
-List<String> deploymentFlowLabels(String? positionTitle) {
-  if (isNursingBlockTitle(positionTitle)) {
+List<String> deploymentFlowLabels(
+  String? positionTitle, [
+  String? departmentName,
+]) {
+  if (isNursingBlockTitle(positionTitle, departmentName)) {
     return const [
       'Trưởng khoa/phòng',
       'Trưởng phòng ĐD',
@@ -95,9 +133,11 @@ List<String> deploymentFlowLabels(String? positionTitle) {
   ];
 }
 
-/// Luồng lên chính thức.
-List<String> probationFlowLabels(String? positionTitle) {
-  if (isNursingBlockTitle(positionTitle)) {
+List<String> probationFlowLabels(
+  String? positionTitle, [
+  String? departmentName,
+]) {
+  if (isNursingBlockTitle(positionTitle, departmentName)) {
     return const [
       'Trưởng phòng ĐD',
       'HCNS',
@@ -110,9 +150,11 @@ List<String> probationFlowLabels(String? positionTitle) {
   ];
 }
 
-/// Luồng trực chính.
-List<String> mainDutyFlowLabels(String? positionTitle) {
-  if (isNursingBlockTitle(positionTitle)) {
+List<String> mainDutyFlowLabels(
+  String? positionTitle, [
+  String? departmentName,
+]) {
+  if (isNursingBlockTitle(positionTitle, departmentName)) {
     return const [
       'Trưởng phòng ĐD',
       'Giám đốc',
@@ -124,18 +166,20 @@ List<String> mainDutyFlowLabels(String? positionTitle) {
   ];
 }
 
-/// Nhãn luồng duyệt theo loại đơn + chức danh (hub / intro banner).
 List<String> flowLabelsForRequestType(
   String typeKey,
   Iterable<String> configStageLabels,
-  String? positionTitle,
-) {
+  String? positionTitle, [
+  String? departmentName,
+]) {
   return switch (typeKey) {
-    'probation-conversion' => probationFlowLabels(positionTitle),
-    'main-duty-authorization' => mainDutyFlowLabels(positionTitle),
+    'probation-conversion' => probationFlowLabels(positionTitle, departmentName),
+    'main-duty-authorization' =>
+      mainDutyFlowLabels(positionTitle, departmentName),
     _ => filterDisplayStages(
         configStageLabels,
         positionTitle: positionTitle,
+        departmentName: departmentName,
       ),
   };
 }

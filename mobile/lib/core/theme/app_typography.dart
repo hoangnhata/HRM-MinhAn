@@ -1,5 +1,6 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
 
@@ -8,8 +9,21 @@ import 'app_colors.dart';
 /// Scale giữ nhịp chữ cô đọng của web nhưng tăng vùng đọc/tương tác phù hợp
 /// điện thoại. Inter hỗ trợ đầy đủ tiếng Việt; số KPI dùng tabular figures để
 /// không bị xê dịch khi dữ liệu thay đổi.
+///
+/// Font được nhúng trong `assets/fonts` (khai báo ở `pubspec.yaml`) thay vì tải
+/// runtime: chữ hiện đúng Inter ngay từ frame đầu, kể cả khi máy offline.
 class AppTypography {
   AppTypography._();
+
+  /// Family khai báo trong `pubspec.yaml`.
+  static const String fontFamily = 'Inter';
+
+  /// Sàn line-height cho chữ IN HOA tiếng Việt.
+  ///
+  /// Dấu chồng của Ấ Ầ Ẩ Ẫ Ậ Ắ Ằ Ẳ Ẵ Ặ trong Inter cao tới 1,07 em — vượt quá
+  /// ascender mà font khai báo (0,969 em). Dưới mức này hộp dòng cắt mất ngọn
+  /// dấu, thấy rõ nhất ở nhãn in hoa và tên khoa như "CẤP CỨU", "PHẪU THUẬT".
+  static const double uppercaseHeight = 1.32;
 
   static const List<FontFeature> _textFeatures = [
     FontFeature.enable('kern'),
@@ -34,11 +48,18 @@ class AppTypography {
     double? letterSpacing,
     bool tabular = false,
   }) {
-    return GoogleFonts.inter(
+    return TextStyle(
+      fontFamily: fontFamily,
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
-      height: height,
+      // Inter cắt ngọn dấu tiếng Việt nếu hộp dòng < ~1,32 em (Ấ/Ộ/Ễ…).
+      // Giữ nguyên height ≤ 1,1 — ô số / chữ cái trong avatar cố ý khít.
+      height: height == null
+          ? null
+          : height <= 1.1
+          ? height
+          : math.max(height, uppercaseHeight),
       letterSpacing: letterSpacing,
       fontFeatures: tabular ? _numericFeatures : _textFeatures,
     );
@@ -57,7 +78,8 @@ class AppTypography {
         : fontSize >= 16
         ? -0.25
         : -0.1;
-    return GoogleFonts.inter(
+    return TextStyle(
+      fontFamily: fontFamily,
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
@@ -72,7 +94,8 @@ class AppTypography {
     double fontSize = 12,
     Color color = AppColors.textSecondary,
   }) {
-    return GoogleFonts.inter(
+    return TextStyle(
+      fontFamily: fontFamily,
       fontSize: fontSize,
       fontWeight: FontWeight.w500,
       color: color,
@@ -157,7 +180,7 @@ class AppTypography {
 
   /// Nhãn uppercase nhỏ dùng cho overline/eyebrow giống PageHeader web.
   static TextStyle overline({Color color = AppColors.primaryDark}) {
-    return style(
+    return uppercase(
       fontSize: 11,
       fontWeight: FontWeight.w600,
       color: color,
@@ -166,8 +189,27 @@ class AppTypography {
     );
   }
 
+  /// Style cho chữ IN HOA — luôn nâng line-height lên tối thiểu
+  /// [uppercaseHeight] để dấu tiếng Việt không bị cắt ngọn. Mọi nhãn uppercase
+  /// (kể cả `.toUpperCase()` trên dữ liệu động như tên khoa) nên đi qua đây.
+  static TextStyle uppercase({
+    double fontSize = 11,
+    FontWeight fontWeight = FontWeight.w700,
+    Color? color,
+    double letterSpacing = 0.85,
+    double? height,
+  }) {
+    return style(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color,
+      letterSpacing: letterSpacing,
+      height: math.max(height ?? uppercaseHeight, uppercaseHeight),
+    );
+  }
+
   static TextTheme textTheme(TextTheme base) {
-    return GoogleFonts.interTextTheme(base).copyWith(
+    return base.apply(fontFamily: fontFamily).copyWith(
       displayLarge: style(
         fontSize: 32,
         fontWeight: FontWeight.w700,
@@ -267,7 +309,8 @@ class AppTypography {
         fontWeight: FontWeight.w600,
         letterSpacing: 0.15,
         color: AppColors.textTertiary,
-        height: 1.3,
+        // StatusChip in hoa nhãn này nên dùng sàn dấu tiếng Việt.
+        height: uppercaseHeight,
       ),
     );
   }

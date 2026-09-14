@@ -68,7 +68,7 @@ class _AppOptionPickerSheet extends StatelessWidget {
       constraints: BoxConstraints(maxHeight: maxH),
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: AppRadius.brSheetTop,
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(

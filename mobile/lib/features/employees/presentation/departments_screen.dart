@@ -29,43 +29,55 @@ class _DepartmentsScreenState extends ConsumerState<DepartmentsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: GradientAppBar(
-        title: 'Phòng ban',
-        subtitle: async.maybeWhen(
-          data: (list) => '${list.length} khoa/phòng',
-          orElse: () => null,
-        ),
-      ),
       body: Column(
         children: [
-          Container(
-            color: AppColors.surface,
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.page,
-              AppSpacing.sm,
-              AppSpacing.page,
-              AppSpacing.sm,
+          AppScreenHeader(
+            dense: true,
+            title: 'Phòng ban',
+            icon: Icons.apartment_rounded,
+            eyebrow: 'Tổ chức',
+            subtitle: async.maybeWhen(
+              data: (list) => '${list.length} khoa/phòng',
+              orElse: () => null,
             ),
-            child: AppSearchField(
-              hintText: 'Tìm tên, mã hoặc trưởng khoa/phòng...',
-              onChanged: (value) => setState(() => _query = value.trim()),
-            ),
+            onBack: () => Navigator.of(context).maybePop(),
           ),
           Expanded(
-            child: async.when(
-              loading: () =>
-                  const SkeletonList(itemCount: 7, showAvatar: false),
-              error: (e, _) => ErrorState(
-                message: 'Không tải được danh sách phòng ban',
-                onRetry: () => ref.invalidate(departmentListProvider),
-              ),
-              data: (departments) => _DepartmentList(
-                departments: _filter(departments),
-                hasQuery: _query.isNotEmpty,
-                onRefresh: () async {
-                  final _ = await ref.refresh(departmentListProvider.future);
-                },
-              ),
+            child: Column(
+              children: [
+                Container(
+                  color: AppColors.surface,
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.page,
+                    AppSpacing.sm,
+                    AppSpacing.page,
+                    AppSpacing.sm,
+                  ),
+                  child: AppSearchField(
+                    hintText: 'Tìm tên, mã hoặc trưởng khoa/phòng...',
+                    onChanged: (value) => setState(() => _query = value.trim()),
+                  ),
+                ),
+                Expanded(
+                  child: async.when(
+                    loading: () =>
+                        const SkeletonList(itemCount: 7, showAvatar: false),
+                    error: (e, _) => ErrorState(
+                      message: 'Không tải được danh sách phòng ban',
+                      onRetry: () => ref.invalidate(departmentListProvider),
+                    ),
+                    data: (departments) => _DepartmentList(
+                      departments: _filter(departments),
+                      hasQuery: _query.isNotEmpty,
+                      onRefresh: () async {
+                        final _ = await ref.refresh(
+                          departmentListProvider.future,
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -162,6 +174,8 @@ class _DepartmentList extends StatelessWidget {
                             children: [
                               Text(
                                 department.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                                 style: AppTypography.listTitle(),
                               ),
                               const SizedBox(height: 5),

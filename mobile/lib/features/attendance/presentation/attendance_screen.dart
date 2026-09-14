@@ -32,7 +32,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
   bool get _canPickOthers {
     final role = ref.read(authControllerProvider).role;
-    return RoleGroups.workManagers.contains(role);
+    return RoleGroups.isIn(role, RoleGroups.workManagers);
   }
 
   int? get _lockDepartmentId {

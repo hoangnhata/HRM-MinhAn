@@ -13,7 +13,8 @@ class AppFormat {
 
   static String date(DateTime? d) => d == null ? '—' : _dateVi.format(d);
 
-  static String dateTime(DateTime? d) => d == null ? '—' : _dateTimeVi.format(d);
+  static String dateTime(DateTime? d) =>
+      d == null ? '—' : _dateTimeVi.format(d);
 
   static String time(DateTime? d) => d == null ? '—' : _timeVi.format(d);
 
@@ -64,7 +65,7 @@ class AppFormat {
       return '${(value / 1000000).toStringAsFixed(1).replaceAll('.', ',')} tr';
     }
     if (abs >= 1000) {
-      return '${(value / 1000).round()} ng';
+      return '${(value / 1000).round()} nghìn';
     }
     return value.toString();
   }
@@ -111,6 +112,7 @@ class AppFormat {
     if (name == null || name.trim().isEmpty) return '?';
     final parts = name.trim().split(RegExp(r'\s+'));
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
+        .toUpperCase();
   }
 }

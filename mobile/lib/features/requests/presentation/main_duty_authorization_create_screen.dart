@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,6 +18,7 @@ import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/list_section_title.dart';
 import '../../../shared/models/employee.dart';
 import '../../employees/data/employee_repository.dart';
 import '../application/generic_request_controller.dart';
@@ -56,8 +58,10 @@ class _MainDutyAuthorizationCreateScreenState
 
   static const _accent = Color(0xFF5B4BB4);
 
-  bool get _nursingFlow =>
-      isNursingBlockTitle(_employee?.summary.positionTitle);
+  bool get _nursingFlow => isNursingBlockTitle(
+        _employee?.summary.positionTitle,
+        _employee?.summary.departmentName,
+      );
 
   String get _formLabel {
     final p = (_employee?.summary.positionTitle ?? '').toLowerCase();
@@ -76,7 +80,10 @@ class _MainDutyAuthorizationCreateScreenState
   }
 
   List<RequestFlowStep> get _flowSteps => requestCreateFlowSteps(
-        mainDutyFlowLabels(_employee?.summary.positionTitle),
+        mainDutyFlowLabels(
+          _employee?.summary.positionTitle,
+          _employee?.summary.departmentName,
+        ),
       );
 
   @override
@@ -229,6 +236,7 @@ class _MainDutyAuthorizationCreateScreenState
       final id = _isEdit
           ? widget.requestId
           : (result['id'] as num?)?.toInt();
+      HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
         _isEdit ? 'Đã lưu thay đổi' : 'Đã gửi đơn chuyển trực chính',
@@ -392,11 +400,11 @@ class _MainDutyAuthorizationCreateScreenState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const _SectionHeader(
+                            const BlockSectionTitle(
                               icon: Icons.badge_outlined,
                               title: 'Thông tin nhân viên',
                               subtitle: 'Lấy từ hồ sơ — không cần nhập lại',
-                              accent: _accent,
+                              color: _accent,
                             ),
                             const SizedBox(height: 12),
                             _FactGrid(
@@ -457,12 +465,12 @@ class _MainDutyAuthorizationCreateScreenState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const _SectionHeader(
+                            const BlockSectionTitle(
                               icon: Icons.event_available_rounded,
                               title: 'Thời gian & hiệu lực',
                               subtitle:
                                   'Thời gian đã trực kèm và ngày bắt đầu trực chính',
-                              accent: _accent,
+                              color: _accent,
                             ),
                             const SizedBox(height: 14),
                             Row(
@@ -541,11 +549,11 @@ class _MainDutyAuthorizationCreateScreenState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const _SectionHeader(
+                            const BlockSectionTitle(
                               icon: Icons.notes_rounded,
                               title: 'Lý do / đề nghị',
                               subtitle: 'Tuỳ chọn — theo mẫu đơn giấy',
-                              accent: _accent,
+                              color: _accent,
                             ),
                             const SizedBox(height: 12),
                             TextFormField(
@@ -626,65 +634,6 @@ class _MiniChip extends StatelessWidget {
     );
   }
 }
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.icon,
-    required this.title,
-    required this.accent,
-    this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.12),
-            borderRadius: AppRadius.brSm,
-          ),
-          child: Icon(icon, size: 16, color: accent),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppTypography.style(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
-                ),
-              ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  subtitle!,
-                  style: AppTypography.style(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _FactGrid extends StatelessWidget {
   const _FactGrid({required this.accent, required this.items});
 
