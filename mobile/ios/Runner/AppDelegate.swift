@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import UserNotifications
+import FirebaseCore
 import FirebaseMessaging
 
 @main
@@ -9,6 +10,11 @@ import FirebaseMessaging
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Cấu hình Firebase native trước khi gán APNs token (plist phải nằm trong target Resources).
+    if FirebaseApp.app() == nil {
+      FirebaseApp.configure()
+    }
+
     // Cần để nhận push khi app foreground / background (FCM + APNs).
     // Template UIScene của Flutter không tự gọi đủ — phải register tay.
     if #available(iOS 10.0, *) {
