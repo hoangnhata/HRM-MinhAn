@@ -21,12 +21,9 @@ workflows:
       flutter: 3.35.5
       xcode: latest
       cocoapods: default
-      groups:
-        # Thêm group chứa secret nếu bạn nhét GoogleService-Info.plist qua Codemagic
-        # - hrm_ios_secrets
       vars:
         BUNDLE_ID: com.minhan.hrm.hrmMobile
-        # Số App ID trên App Store Connect (App Information → Apple ID). Điền trước khi build.
+        # Số App ID trên App Store Connect (App Information → Apple ID).
         APP_STORE_APPLE_ID: "6811757349"
       ios_signing:
         distribution_type: app_store
