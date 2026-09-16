@@ -40,17 +40,17 @@ public class AttendanceReportExcelService {
     private static final Locale VI = new Locale("vi", "VN");
 
     private static final String[] SUMMARY_HEADERS = {
-            "STT", "Mã NV", "Họ và tên", "Phòng ban", "Chức vụ",
-            "Công chấm", "Công phép", "Công trực", "Tổng công", "Số ca trực",
+            "STT", "Mã NV", "Họ và tên", "Phòng ban", "Bộ phận", "Chức vụ",
+            "Công chấm", "Công điều động", "Công trực", "Công Quang Trung", "Tổng công", "Công phép", "Số ca trực",
             "Phút đi muộn", "Phạt đi muộn (đ)", "Số lần quên chấm", "Phạt quên chấm (đ)",
             "Thưởng trực (đ)", "Phụ cấp ăn (đ)", "Phụ cấp Quang Trung (đ)",
             "Tiền hỗ trợ (đ)", "Kỷ luật"
     };
 
     private static final String[] DETAIL_HEADERS = {
-            "Mã NV", "Họ và tên", "Phòng ban", "Ngày", "Thứ", "Trạng thái",
+            "Mã NV", "Họ và tên", "Phòng ban", "Bộ phận", "Ngày", "Thứ", "Trạng thái",
             "Vào sáng", "Ra sáng", "Vào chiều", "Ra chiều",
-            "Công sáng", "Công chiều", "Ngoài giờ", "Tổng công ngày", "Phút muộn", "Ghi chú"
+            "Công sáng", "Công chiều", "Công điều động", "Tổng công ngày", "Phút muộn", "Ghi chú"
     };
 
     @Transactional(readOnly = true)
@@ -69,6 +69,7 @@ public class AttendanceReportExcelService {
             writeCalendarSheet(wb, styles, rows, year, month, deptName);
             writeDutyCalendarSheet(wb, styles, rows, year, month, deptName);
             writeLeaveCalendarSheet(wb, styles, rows, year, month, deptName);
+            writeQuangTrungCalendarSheet(wb, styles, rows, year, month, deptName);
             writeDetailSheet(wb, styles, rows);
             wb.write(out);
             return out.toByteArray();
@@ -105,7 +106,9 @@ public class AttendanceReportExcelService {
 
         BigDecimal sumAtt = BigDecimal.ZERO;
         BigDecimal sumLeave = BigDecimal.ZERO;
+        BigDecimal sumDeployment = BigDecimal.ZERO;
         BigDecimal sumDuty = BigDecimal.ZERO;
+        BigDecimal sumQuangTrung = BigDecimal.ZERO;
         BigDecimal sumTotal = BigDecimal.ZERO;
         long sumDutyShifts = 0;
         long sumLateMin = 0;
@@ -124,10 +127,13 @@ public class AttendanceReportExcelService {
             Row dr = sheet.createRow(r++);
             dr.setHeightInPoints(18f);
 
-            BigDecimal att = num(row.get("attendanceWorkUnits"));
+            BigDecimal att = clockedWorkUnits(row);
             BigDecimal leave = leaveWorkUnits(row);
+            BigDecimal deployment = deploymentWorkUnits(row);
             BigDecimal duty = num(row.get("dutyWorkUnitsTotal"));
-            BigDecimal total = num(row.get("totalWorkUnits"));
+            BigDecimal quangTrung = quangTrungWorkUnits(row);
+            // Tổng công = chấm + điều động + trực (QT đã nằm trong chấm; phép tách riêng).
+            BigDecimal total = att.add(deployment).add(duty);
             long dutyShifts = lng(row.get("dutyShiftCount"));
             long lateMin = lng(row.get("lateMinutesTotal"));
             BigDecimal latePenalty = num(row.get("latePenalty"));
@@ -140,7 +146,9 @@ public class AttendanceReportExcelService {
 
             sumAtt = sumAtt.add(att);
             sumLeave = sumLeave.add(leave);
+            sumDeployment = sumDeployment.add(deployment);
             sumDuty = sumDuty.add(duty);
+            sumQuangTrung = sumQuangTrung.add(quangTrung);
             sumTotal = sumTotal.add(total);
             sumDutyShifts += dutyShifts;
             sumLateMin += lateMin;
@@ -162,11 +170,14 @@ public class AttendanceReportExcelService {
             setCell(dr, c++, str(row.get("employeeCode")), centerStyle);
             setCell(dr, c++, str(row.get("fullName")), textStyle);
             setCell(dr, c++, str(row.get("department")), textStyle);
+            setCell(dr, c++, str(row.get("workUnitDetail")), textStyle);
             setCell(dr, c++, str(row.get("position")), textStyle);
             setCell(dr, c++, att, numStyle);
-            setCell(dr, c++, leave, numStyle);
+            setCell(dr, c++, deployment, numStyle);
             setCell(dr, c++, duty, numStyle);
+            setCell(dr, c++, quangTrung, numStyle);
             setCell(dr, c++, total, discipline ? s.warnNum2Bold : (zebra ? s.num2BoldZebra : s.num2Bold));
+            setCell(dr, c++, leave, numStyle);
             setCell(dr, c++, dutyShifts, centerStyle);
             setCell(dr, c++, lateMin, centerStyle);
             setCell(dr, c++, latePenalty, moneyStyle);
@@ -184,26 +195,28 @@ public class AttendanceReportExcelService {
         Row totalRow = sheet.createRow(r++);
         totalRow.setHeightInPoints(20f);
         setCell(totalRow, 0, "TỔNG CỘNG", s.totalText);
-        for (int c = 1; c <= 4; c++) {
+        for (int c = 1; c <= 5; c++) {
             setCell(totalRow, c, "", s.totalText);
         }
-        setCell(totalRow, 5, sumAtt, s.totalNum2);
-        setCell(totalRow, 6, sumLeave, s.totalNum2);
-        setCell(totalRow, 7, sumDuty, s.totalNum2);
-        setCell(totalRow, 8, sumTotal, s.totalNum2);
-        setCell(totalRow, 9, sumDutyShifts, s.totalCenter);
-        setCell(totalRow, 10, sumLateMin, s.totalCenter);
-        setCell(totalRow, 11, sumLatePenalty, s.totalMoney);
-        setCell(totalRow, 12, sumForgotCount, s.totalCenter);
-        setCell(totalRow, 13, sumForgotPenalty, s.totalMoney);
-        setCell(totalRow, 14, sumDutyBonus, s.totalMoney);
-        setCell(totalRow, 15, sumMeal, s.totalMoney);
-        setCell(totalRow, 16, sumQuangTrungAllowance, s.totalMoney);
-        setCell(totalRow, 17, sumSupport, s.totalMoney);
-        setCell(totalRow, 18, "", s.totalText);
+        setCell(totalRow, 6, sumAtt, s.totalNum2);
+        setCell(totalRow, 7, sumDeployment, s.totalNum2);
+        setCell(totalRow, 8, sumDuty, s.totalNum2);
+        setCell(totalRow, 9, sumQuangTrung, s.totalNum2);
+        setCell(totalRow, 10, sumTotal, s.totalNum2);
+        setCell(totalRow, 11, sumLeave, s.totalNum2);
+        setCell(totalRow, 12, sumDutyShifts, s.totalCenter);
+        setCell(totalRow, 13, sumLateMin, s.totalCenter);
+        setCell(totalRow, 14, sumLatePenalty, s.totalMoney);
+        setCell(totalRow, 15, sumForgotCount, s.totalCenter);
+        setCell(totalRow, 16, sumForgotPenalty, s.totalMoney);
+        setCell(totalRow, 17, sumDutyBonus, s.totalMoney);
+        setCell(totalRow, 18, sumMeal, s.totalMoney);
+        setCell(totalRow, 19, sumQuangTrungAllowance, s.totalMoney);
+        setCell(totalRow, 20, sumSupport, s.totalMoney);
+        setCell(totalRow, 21, "", s.totalText);
 
         // Độ rộng cột
-        int[] widths = {1600, 2600, 6600, 6200, 5200, 2600, 2600, 2600, 2600, 2200,
+        int[] widths = {1600, 2600, 6600, 6200, 5200, 5200, 2600, 3200, 2600, 3600, 2600, 2600, 2200,
                 2600, 4200, 3400, 4200, 4200, 4200, 5200, 4200, 3000};
         for (int c = 0; c <= lastCol; c++) {
             sheet.setColumnWidth(c, widths[c]);
@@ -217,7 +230,9 @@ public class AttendanceReportExcelService {
         Row noteRow = sheet.createRow(r);
         Cell noteCell = noteRow.createCell(0);
         noteCell.setCellValue("Ghi chú: Đơn vị công = ngày công (1.0 = cả ngày, 0.5 = nửa ngày). "
-                + "Công phép là phần tách riêng từ Công chấm và không cộng lần hai vào Tổng công. "
+                + "Tổng công = Công chấm + Công điều động + Công trực. "
+                + "Công Quang Trung đã nằm trong Công chấm (cột tách để theo dõi, không cộng lần hai). "
+                + "Công phép tách riêng sau Tổng công, không tính vào Tổng công. "
                 + "Dòng tô đỏ là nhân viên cần xem xét kỷ luật do vi phạm giờ giấc.");
         noteCell.setCellStyle(s.footnote);
         sheet.addMergedRegion(new CellRangeAddress(r, r, 0, lastCol));
@@ -342,7 +357,8 @@ public class AttendanceReportExcelService {
         Row noteRow = sheet.createRow(r);
         Cell noteCell = noteRow.createCell(0);
         noteCell.setCellValue("Ghi chú: Ô trống = không có công. Cột ngày cuối tuần được tô nền nhạt. "
-                + "Cột «Tổng công» là tổng công chấm trong tháng (chưa gồm công trực).");
+                + "Cột «Tổng công» = công chấm + công điều động (không gồm công phép, chưa gồm công trực). "
+                + "Công phép xem riêng tại sheet «Bảng công phép».");
         noteCell.setCellStyle(s.footnote);
         sheet.addMergedRegion(new CellRangeAddress(r, r, 0, lastCol));
     }
@@ -647,6 +663,161 @@ public class AttendanceReportExcelService {
         sheet.addMergedRegion(new CellRangeAddress(r, r, 0, lastCol));
     }
 
+    // ----------------------------------------------------------------- Sheet công Quang Trung (lịch)
+
+    private void writeQuangTrungCalendarSheet(
+            XSSFWorkbook wb, Styles s, List<Map<String, Object>> rows, int year, int month, String deptName) {
+        Sheet sheet = wb.createSheet("Bảng công Quang Trung");
+        sheet.setDisplayGridlines(false);
+
+        java.time.YearMonth ym = java.time.YearMonth.of(year, month);
+        int daysInMonth = ym.lengthOfMonth();
+        int fixedCols = 4; // STT, Mã NV, Họ tên, Chức vụ
+        int firstDayCol = fixedCols;
+        int countCol = firstDayCol + daysInMonth;     // Số ngày QT
+        int unitsCol = countCol + 1;                  // Tổng công QT
+        int allowanceCol = unitsCol + 1;              // Phụ cấp QT (đ)
+        int lastCol = allowanceCol;
+
+        int r = 0;
+        r = title(sheet, s, r, lastCol, "BẢNG CÔNG QUANG TRUNG THÁNG " + String.format("%02d/%d", month, year));
+        r = meta(sheet, s, r, lastCol, "Phạm vi: " + deptName
+                + "     •     Công làm tại cơ sở Quang Trung theo từng ngày (đã nằm trong công chấm)");
+        r++;
+
+        int headerTop = r;
+        Row top = sheet.createRow(r++);
+        top.setHeightInPoints(20f);
+        int headerBottom = r;
+        Row bottom = sheet.createRow(r++);
+        bottom.setHeightInPoints(20f);
+
+        String[] fixed = {"TT", "Mã NV", "Họ và tên", "Chức vụ"};
+        for (int c = 0; c < fixedCols; c++) {
+            Cell t = top.createCell(c);
+            t.setCellValue(fixed[c]);
+            t.setCellStyle(s.header);
+            Cell b = bottom.createCell(c);
+            b.setCellStyle(s.header);
+            sheet.addMergedRegion(new CellRangeAddress(headerTop, headerBottom, c, c));
+        }
+
+        Cell groupCell = top.createCell(firstDayCol);
+        groupCell.setCellValue("Ngày trong tháng");
+        groupCell.setCellStyle(s.header);
+        sheet.addMergedRegion(new CellRangeAddress(headerTop, headerTop, firstDayCol, firstDayCol + daysInMonth - 1));
+
+        for (int d = 1; d <= daysInMonth; d++) {
+            int col = firstDayCol + d - 1;
+            LocalDate date = ym.atDay(d);
+            boolean weekend = date.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
+                    || date.getDayOfWeek() == java.time.DayOfWeek.SUNDAY;
+            Cell dayHead = bottom.createCell(col);
+            dayHead.setCellValue(d);
+            dayHead.setCellStyle(weekend ? s.dayHeaderWeekend : s.dayHeader);
+        }
+
+        String[] tail = {"Số ngày QT", "Tổng công QT", "Phụ cấp QT (đ)"};
+        int[] tailCols = {countCol, unitsCol, allowanceCol};
+        for (int i = 0; i < tail.length; i++) {
+            Cell t = top.createCell(tailCols[i]);
+            t.setCellValue(tail[i]);
+            t.setCellStyle(s.header);
+            bottom.createCell(tailCols[i]).setCellStyle(s.header);
+            sheet.addMergedRegion(new CellRangeAddress(headerTop, headerBottom, tailCols[i], tailCols[i]));
+        }
+
+        long sumDaysAll = 0;
+        BigDecimal sumUnitsAll = BigDecimal.ZERO;
+        BigDecimal sumAllowanceAll = BigDecimal.ZERO;
+
+        int idx = 1;
+        for (Map<String, Object> emp : rows) {
+            boolean zebra = idx % 2 == 0;
+            Row dr = sheet.createRow(r++);
+            dr.setHeightInPoints(17f);
+
+            setCell(dr, 0, idx, zebra ? s.centerZebra : s.center);
+            setCell(dr, 1, str(emp.get("employeeCode")), zebra ? s.centerZebra : s.center);
+            setCell(dr, 2, str(emp.get("fullName")), zebra ? s.textZebra : s.text);
+            setCell(dr, 3, str(emp.get("position")), zebra ? s.textZebra : s.text);
+
+            Map<Integer, BigDecimal> unitsByDay = new java.util.HashMap<>();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> days = (List<Map<String, Object>>) emp.get("days");
+            if (days != null) {
+                for (Map<String, Object> day : days) {
+                    if (!isQuangTrungDay(day)) {
+                        continue;
+                    }
+                    LocalDate date = LocalDate.parse(str(day.get("workDate")));
+                    unitsByDay.merge(date.getDayOfMonth(), num(day.get("totalWorkUnits")), BigDecimal::add);
+                }
+            }
+
+            for (int d = 1; d <= daysInMonth; d++) {
+                int col = firstDayCol + d - 1;
+                LocalDate date = ym.atDay(d);
+                boolean weekend = date.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
+                        || date.getDayOfWeek() == java.time.DayOfWeek.SUNDAY;
+                CellStyle style = weekend
+                        ? (zebra ? s.dayCellWeekendZebra : s.dayCellWeekend)
+                        : (zebra ? s.dayCellZebra : s.dayCell);
+                BigDecimal v = unitsByDay.get(d);
+                Cell cell = dr.createCell(col);
+                if (v != null && v.compareTo(BigDecimal.ZERO) > 0) {
+                    cell.setCellValue(v.doubleValue());
+                }
+                cell.setCellStyle(style);
+            }
+
+            long qtDays = unitsByDay.size();
+            BigDecimal qtUnits = unitsByDay.values().stream()
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal allowance = num(emp.get("quangTrungAllowance"));
+            sumDaysAll += qtDays;
+            sumUnitsAll = sumUnitsAll.add(qtUnits);
+            sumAllowanceAll = sumAllowanceAll.add(allowance);
+
+            setCell(dr, countCol, qtDays, zebra ? s.centerZebra : s.center);
+            setCell(dr, unitsCol, qtUnits, zebra ? s.num2BoldZebra : s.num2Bold);
+            setCell(dr, allowanceCol, allowance, zebra ? s.moneyZebra : s.money);
+            idx++;
+        }
+
+        Row totalRow = sheet.createRow(r++);
+        totalRow.setHeightInPoints(20f);
+        setCell(totalRow, 0, "TỔNG CỘNG", s.totalText);
+        for (int c = 1; c < countCol; c++) {
+            setCell(totalRow, c, "", s.totalText);
+        }
+        setCell(totalRow, countCol, sumDaysAll, s.totalCenter);
+        setCell(totalRow, unitsCol, sumUnitsAll, s.totalNum2);
+        setCell(totalRow, allowanceCol, sumAllowanceAll, s.totalMoney);
+
+        sheet.setColumnWidth(0, 1400);
+        sheet.setColumnWidth(1, 2600);
+        sheet.setColumnWidth(2, 6200);
+        sheet.setColumnWidth(3, 5000);
+        for (int d = 1; d <= daysInMonth; d++) {
+            sheet.setColumnWidth(firstDayCol + d - 1, 1150);
+        }
+        sheet.setColumnWidth(countCol, 2800);
+        sheet.setColumnWidth(unitsCol, 3200);
+        sheet.setColumnWidth(allowanceCol, 4200);
+
+        sheet.createFreezePane(fixedCols, headerBottom + 1);
+
+        r++;
+        Row noteRow = sheet.createRow(r);
+        Cell noteCell = noteRow.createCell(0);
+        noteCell.setCellValue("Ghi chú: Chỉ hiển thị ngày có bổ sung công Quang Trung. "
+                + "Công QT đã nằm trong «Công chấm» / «Bảng chấm công» — sheet này tách để theo dõi. "
+                + "Cột «Phụ cấp QT» lấy theo mức phụ cấp Quang Trung đã tính trên sheet Tổng hợp.");
+        noteCell.setCellStyle(s.footnote);
+        sheet.addMergedRegion(new CellRangeAddress(r, r, 0, lastCol));
+    }
+
     // ----------------------------------------------------------------- Sheet chi tiết
 
     private void writeDetailSheet(Workbook wb, Styles s, List<Map<String, Object>> rows) {
@@ -686,6 +857,7 @@ public class AttendanceReportExcelService {
                 setCell(dr, c++, str(emp.get("employeeCode")), centerStyle);
                 setCell(dr, c++, str(emp.get("fullName")), textStyle);
                 setCell(dr, c++, str(emp.get("department")), textStyle);
+                setCell(dr, c++, str(emp.get("workUnitDetail")), textStyle);
                 setCell(dr, c++, date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), centerStyle);
                 setCell(dr, c++, weekdayVi(date), centerStyle);
                 setCell(dr, c++, statusLabel(str(day.get("status"))), centerStyle);
@@ -703,7 +875,7 @@ public class AttendanceReportExcelService {
             block++;
         }
 
-        int[] widths = {2600, 6200, 6000, 2800, 1600, 3000,
+        int[] widths = {2600, 6200, 6000, 5200, 2800, 1600, 3000,
                 2200, 2200, 2200, 2200, 2200, 2200, 2200, 3000, 2200, 8000};
         for (int c = 0; c <= lastCol; c++) {
             sheet.setColumnWidth(c, widths[c]);
@@ -786,7 +958,34 @@ public class AttendanceReportExcelService {
         }
     }
 
+    private static BigDecimal clockedWorkUnits(Map<String, Object> employeeRow) {
+        if (employeeRow.get("clockedWorkUnits") != null) {
+            return num(employeeRow.get("clockedWorkUnits"));
+        }
+        return num(employeeRow.get("attendanceWorkUnits"))
+                .subtract(leaveWorkUnits(employeeRow))
+                .subtract(deploymentWorkUnits(employeeRow))
+                .max(BigDecimal.ZERO);
+    }
+
+    private static BigDecimal deploymentWorkUnits(Map<String, Object> employeeRow) {
+        if (employeeRow.get("deploymentWorkUnits") != null) {
+            return num(employeeRow.get("deploymentWorkUnits"));
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> days = (List<Map<String, Object>>) employeeRow.get("days");
+        if (days == null) {
+            return BigDecimal.ZERO;
+        }
+        return days.stream()
+                .map(day -> num(day.get("overtimeWorkUnits")))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     private static BigDecimal leaveWorkUnits(Map<String, Object> employeeRow) {
+        if (employeeRow.get("leaveWorkUnits") != null) {
+            return num(employeeRow.get("leaveWorkUnits"));
+        }
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> days = (List<Map<String, Object>>) employeeRow.get("days");
         if (days == null) {
@@ -800,6 +999,27 @@ public class AttendanceReportExcelService {
 
     private static boolean isPaidLeave(Map<String, Object> day) {
         return "LEAVE".equals(str(day.get("status")));
+    }
+
+    /** Tổng công các ngày có bổ sung Quang Trung (đã nằm trong công chấm). */
+    private static BigDecimal quangTrungWorkUnits(Map<String, Object> employeeRow) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> days = (List<Map<String, Object>>) employeeRow.get("days");
+        if (days == null) {
+            return BigDecimal.ZERO;
+        }
+        return days.stream()
+                .filter(AttendanceReportExcelService::isQuangTrungDay)
+                .map(day -> num(day.get("totalWorkUnits")))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static boolean isQuangTrungDay(Map<String, Object> day) {
+        if (Boolean.TRUE.equals(day.get("quangTrung"))) {
+            return true;
+        }
+        String note = str(day.get("note"));
+        return note.contains(AttendanceService.QUANG_TRUNG_NOTE_MARKER);
     }
 
     private static String weekdayVi(LocalDate d) {
@@ -937,7 +1157,7 @@ public class AttendanceReportExcelService {
 
         private static XSSFFont font(XSSFWorkbook wb, int size, boolean bold, String hex) {
             XSSFFont f = wb.createFont();
-            f.setFontName("Calibri");
+            f.setFontName("Times New Roman");
             f.setFontHeightInPoints((short) size);
             f.setBold(bold);
             f.setColor(rgb(hex));

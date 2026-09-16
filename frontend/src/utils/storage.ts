@@ -23,6 +23,12 @@ export type StoredUser = {
   directorApprovalEnabled?: boolean;
   /** Được xem menu báo cáo nhân lực (cấp bởi Admin). */
   reportViewEnabled?: boolean;
+  /** Được xuất Excel báo cáo công (cấp bởi Admin). */
+  attendanceExcelExportEnabled?: boolean;
+  /** Được xem hồ sơ NV toàn viện, không gồm lương (cấp bởi Admin). */
+  hospitalWideEmployeeViewEnabled?: boolean;
+  /** Được xem báo cáo Trình độ chuyên môn (cấp bởi Admin). */
+  professionalQualificationReportEnabled?: boolean;
   /** Trưởng khoa chỉ quản lý bộ phận (không cả khoa). */
   workUnitScoped?: boolean;
   /** Bộ phận của hồ sơ NV liên kết (khi workUnitScoped). */

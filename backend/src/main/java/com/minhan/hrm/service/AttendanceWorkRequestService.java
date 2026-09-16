@@ -23,16 +23,20 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Service
@@ -81,6 +85,9 @@ public class AttendanceWorkRequestService {
             UserRole.ADMIN, UserRole.HR2, UserRole.HEAD_HR);
     private static final EnumSet<UserRole> HR_MANAGER_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.HR);
     private static final EnumSet<UserRole> DIRECTOR_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.DIRECTOR);
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+    /** Mốc "không giới hạn" cho cận trên lịch sử — MySQL không nhận tham số Instant null. */
+    private static final Instant HISTORY_OPEN_END = Instant.parse("2100-01-01T00:00:00Z");
     /** Hệ số công điều động ngoài ca: 1 giờ thực tế = 1.5 giờ công. */
     public static final BigDecimal DEPLOYMENT_COEFFICIENT = new BigDecimal("1.5");
     /** Điều động cả ca sáng trong ca — tối đa 1 công (tỷ lệ theo giờ nếu làm một phần ca). */
@@ -99,6 +106,7 @@ public class AttendanceWorkRequestService {
     private final AttendanceShiftScheduleService shiftScheduleService;
     private final ApprovalSignatureService approvalSignatureService;
     private final ContinuousShiftService continuousShiftService;
+    private final DutyShiftService dutyShiftService;
 
     @Transactional
     public Map<String, Object> submit(AttendanceWorkRequestSubmitDto dto) {
@@ -120,10 +128,11 @@ public class AttendanceWorkRequestService {
             scope = AttendanceShiftScope.FULL_DAY;
         }
         boolean continuousDay = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
+        boolean twoPunchDay = continuousShiftService.isTwoPunchAttendance(emp.getId());
         AttendanceUpdateKind updateKind = dto.getUpdateKind();
         if ((dto.getRequestType() == AttendanceRequestType.UPDATE
                 || dto.getRequestType() == AttendanceRequestType.EXPLANATION)
-                && continuousDay) {
+                && (continuousDay || twoPunchDay)) {
             scope = AttendanceShiftScope.FULL_DAY;
             if (dto.getRequestType() == AttendanceRequestType.UPDATE) {
                 updateKind = AttendanceUpdateKind.FULL_DAY_SUPPLEMENT;
@@ -138,7 +147,7 @@ public class AttendanceWorkRequestService {
                     .findByEmployeeAndWorkDate(emp, dto.getWorkDate())
                     .orElse(null);
             forgotFineUnits = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
-                    updateKind, existing, continuousDay);
+                    updateKind, existing, continuousDay || twoPunchDay);
         }
         AttendanceWorkRequest req = AttendanceWorkRequest.builder()
                 .employee(emp)
@@ -236,10 +245,11 @@ public class AttendanceWorkRequestService {
             scope = AttendanceShiftScope.FULL_DAY;
         }
         boolean continuousDay = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
+        boolean twoPunchDay = continuousShiftService.isTwoPunchAttendance(emp.getId());
         AttendanceUpdateKind updateKind = dto.getUpdateKind();
         if ((dto.getRequestType() == AttendanceRequestType.UPDATE
                 || dto.getRequestType() == AttendanceRequestType.EXPLANATION)
-                && continuousDay) {
+                && (continuousDay || twoPunchDay)) {
             scope = AttendanceShiftScope.FULL_DAY;
             if (dto.getRequestType() == AttendanceRequestType.UPDATE) {
                 updateKind = AttendanceUpdateKind.FULL_DAY_SUPPLEMENT;
@@ -254,7 +264,7 @@ public class AttendanceWorkRequestService {
                     .findByEmployeeAndWorkDate(emp, dto.getWorkDate())
                     .orElse(null);
             forgotFineUnits = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
-                    updateKind, existing, continuousDay);
+                    updateKind, existing, continuousDay || twoPunchDay);
         }
         req.setWorkDate(dto.getWorkDate());
         req.setEndDate(ranged
@@ -384,7 +394,7 @@ public class AttendanceWorkRequestService {
                 ? dto.getShiftScope()
                 : AttendanceShiftScope.FULL_DAY;
 
-        boolean nursingBlock = NursingBlockClassifier.matches(target);
+        boolean nursingBlock = NursingBlockClassifier.matchesNursingHeadScope(target);
         AttendanceWorkRequest req = AttendanceWorkRequest.builder()
                 .employee(target)
                 .requestType(AttendanceRequestType.DEPLOYMENT)
@@ -448,13 +458,16 @@ public class AttendanceWorkRequestService {
         }
 
         AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(dto.getEmployeeId(), dto.getWorkDate());
+        boolean continuous = continuousShiftService.isContinuousShift(dto.getEmployeeId(), dto.getWorkDate());
         boolean offDay = isOffOrEmptyWorkDay(dto.getEmployeeId(), dto.getWorkDate());
         AttendanceShiftScope scope = dto.getShiftScope() != null
                 ? dto.getShiftScope()
                 : AttendanceShiftScope.FULL_DAY;
-        boolean insideShift = isInsideShiftDeployment(dto);
+        boolean insideShift = isInsideShiftDeployment(dto, continuous, schedule);
 
-        if (insideShift) {
+        if (continuous) {
+            validateContinuousDeploymentTimes(dto, schedule, offDay, insideShift);
+        } else if (insideShift) {
             if (scope == AttendanceShiftScope.FULL_DAY
                     && (dto.getRequestedAfternoonStart() == null || dto.getRequestedAfternoonEnd() == null)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST,
@@ -495,6 +508,43 @@ public class AttendanceWorkRequestService {
         if (overlapsExistingDeployment) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "Khung giờ điều động bị trùng với đơn điều động đang chờ duyệt hoặc đã duyệt");
+        }
+    }
+
+    private void validateContinuousDeploymentTimes(
+            AttendanceWorkRequestSubmitDto dto,
+            AttendanceShiftSchedule schedule,
+            boolean offDay,
+            boolean insideShift) {
+        if (dto.getRequestedAfternoonStart() != null || dto.getRequestedAfternoonEnd() != null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Ca thông tầm: chỉ nhập một khung giờ vào–ra trong ngày (không tách sáng/chiều)");
+        }
+        LocalTime dayStart = schedule.continuousDayStart();
+        LocalTime dayEnd = schedule.continuousDayEnd();
+        if (insideShift) {
+            if (!withinShift(dto.getRequestedStart(), dto.getRequestedEnd(), dayStart, dayEnd)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        String.format("Giờ điều động trong ca thông tầm phải nằm trong %s–%s",
+                                dayStart, dayEnd));
+            }
+            return;
+        }
+        if (dto.getRequestedStart().equals(dto.getRequestedEnd())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Giờ kết thúc phải khác giờ bắt đầu (có thể qua đêm)");
+        }
+        if (!offDay && overlapsPrimarySchedule(
+                dto.getRequestedStart(),
+                dto.getRequestedEnd(),
+                dayStart,
+                dayEnd,
+                dayStart,
+                dayEnd)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    String.format(
+                            "Giờ điều động ngoài ca không được trùng ca thông tầm (%s–%s). Chọn «Trong ca» để điều chỉnh công ×1,5.",
+                            dayStart, dayEnd));
         }
     }
 
@@ -550,8 +600,22 @@ public class AttendanceWorkRequestService {
     /**
      * Trong ca: MORNING / AFTERNOON, hoặc FULL_DAY kèm giờ chiều riêng
      * (cộng giờ từng ca, không tính nghỉ trưa).
+     * Ca thông tầm: một khung vào–ra nằm trong continuousDayStart–End.
      */
-    private static boolean isInsideShiftDeployment(AttendanceWorkRequestSubmitDto dto) {
+    private static boolean isInsideShiftDeployment(
+            AttendanceWorkRequestSubmitDto dto,
+            boolean continuous,
+            AttendanceShiftSchedule schedule) {
+        if (continuous) {
+            if (dto.getRequestedAfternoonStart() != null || dto.getRequestedAfternoonEnd() != null) {
+                return false;
+            }
+            return withinShift(
+                    dto.getRequestedStart(),
+                    dto.getRequestedEnd(),
+                    schedule.continuousDayStart(),
+                    schedule.continuousDayEnd());
+        }
         if (dto.getShiftScope() == AttendanceShiftScope.MORNING
                 || dto.getShiftScope() == AttendanceShiftScope.AFTERNOON) {
             return true;
@@ -559,7 +623,21 @@ public class AttendanceWorkRequestService {
         return dto.getRequestedAfternoonStart() != null && dto.getRequestedAfternoonEnd() != null;
     }
 
-    private static boolean isInsideShiftDeploymentFromRequest(AttendanceWorkRequest req) {
+    private boolean isInsideShiftDeploymentFromRequest(AttendanceWorkRequest req) {
+        boolean continuous = continuousShiftService.isContinuousShift(
+                req.getEmployee().getId(), req.getWorkDate());
+        if (continuous) {
+            if (req.getRequestedAfternoonStart() != null || req.getRequestedAfternoonEnd() != null) {
+                return false;
+            }
+            AttendanceShiftSchedule schedule =
+                    shiftScheduleService.forEmployee(req.getEmployee().getId(), req.getWorkDate());
+            return withinShift(
+                    req.getRequestedStart(),
+                    req.getRequestedEnd(),
+                    schedule.continuousDayStart(),
+                    schedule.continuousDayEnd());
+        }
         if (req.getShiftScope() == AttendanceShiftScope.MORNING
                 || req.getShiftScope() == AttendanceShiftScope.AFTERNOON) {
             return true;
@@ -594,9 +672,31 @@ public class AttendanceWorkRequestService {
         return fullUnits.multiply(BigDecimal.valueOf(ratio)).setScale(2, RoundingMode.HALF_UP);
     }
 
-    private static InsideDeploymentUnits resolveInsideDeploymentUnits(
+    private InsideDeploymentUnits resolveInsideDeploymentUnits(
             AttendanceWorkRequest req,
             AttendanceShiftSchedule schedule) {
+        boolean continuous = continuousShiftService.isContinuousShift(
+                req.getEmployee().getId(), req.getWorkDate());
+        if (continuous) {
+            double dayHours = schedule.continuousHours() > 0 ? schedule.continuousHours() : 8.0;
+            BigDecimal fullDayBonus = DEPLOYMENT_INSIDE_MORNING_UNITS.add(DEPLOYMENT_INSIDE_AFTERNOON_UNITS);
+            BigDecimal total = prorateInsideUnits(
+                    req.getRequestedStart(),
+                    req.getRequestedEnd(),
+                    schedule.continuousDayStart(),
+                    schedule.continuousDayEnd(),
+                    dayHours,
+                    fullDayBonus);
+            // Giữ tỷ lệ 1.0 sáng / 0.5 chiều như ca thường để processor áp ×1,5
+            BigDecimal morning = total.multiply(DEPLOYMENT_INSIDE_MORNING_UNITS)
+                    .divide(fullDayBonus, 2, RoundingMode.HALF_UP);
+            BigDecimal afternoon = total.subtract(morning).max(BigDecimal.ZERO);
+            String label = String.format(
+                    "Ca thông tầm %s–%s",
+                    req.getRequestedStart(),
+                    req.getRequestedEnd());
+            return new InsideDeploymentUnits(morning, afternoon, label);
+        }
         double morningHours = schedule.morningHours() > 0 ? schedule.morningHours() : 1;
         double afternoonHours = schedule.afternoonHours() > 0 ? schedule.afternoonHours() : 1;
         if (req.getRequestedAfternoonStart() != null && req.getRequestedAfternoonEnd() != null) {
@@ -766,8 +866,17 @@ public class AttendanceWorkRequestService {
         if (emp == null) {
             return List.of();
         }
-        return requestRepository.findByEmployeeIdOrderByCreatedAtDesc(emp.getId()).stream()
-                .map(this::toMap)
+        FlowAssigneeCache cache = new FlowAssigneeCache();
+        return requestRepository.findMineWithDetails(emp.getId()).stream()
+                .map(r -> toMap(r, cache))
+                .collect(Collectors.toList());
+    }
+
+    /** Hàng đợi chờ duyệt theo trạng thái — một cache người nhận cho cả danh sách. */
+    private List<Map<String, Object>> pendingRows(Collection<AttendanceRequestStatus> statuses) {
+        FlowAssigneeCache cache = new FlowAssigneeCache();
+        return requestRepository.findPendingWithDetails(statuses).stream()
+                .map(r -> toMap(r, cache))
                 .collect(Collectors.toList());
     }
 
@@ -775,22 +884,19 @@ public class AttendanceWorkRequestService {
     public List<Map<String, Object>> pendingForReviewer() {
         UserAccount user = employeeService.currentUser();
         if (ApprovalAuthority.isDirectorApprover(user) && user.getRole() != UserRole.ADMIN) {
-            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_DIRECTOR).stream()
-                    .map(this::toMap)
-                    .collect(Collectors.toList());
+            return pendingRows(PENDING_DIRECTOR);
         }
         if (user.getRole() == UserRole.HEAD_NURSING) {
-            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_NURSING_HEAD).stream()
+            FlowAssigneeCache cache = new FlowAssigneeCache();
+            return requestRepository.findPendingWithDetails(PENDING_NURSING_HEAD).stream()
                     .filter(r -> r.getRequestType() == AttendanceRequestType.DEPLOYMENT)
-                    .filter(r -> NursingBlockClassifier.matches(r.getEmployee()))
-                    .map(this::toMap)
+                    .filter(r -> NursingBlockClassifier.matchesNursingHeadScope(r.getEmployee()))
+                    .map(r -> toMap(r, cache))
                     .collect(Collectors.toList());
         }
         if (user.getRole() == UserRole.HEAD_HR) {
             List<Map<String, Object>> headPending = filterPendingForHeadScope(
-                    requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HEAD).stream()
-                            .map(this::toMap)
-                            .collect(Collectors.toList()),
+                    pendingRows(PENDING_HEAD),
                     user);
             List<Map<String, Object>> hrPending = requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HR)
                     .stream()
@@ -800,15 +906,11 @@ public class AttendanceWorkRequestService {
         }
         if (HEAD_ROLES.contains(user.getRole()) && !HR_APPROVER_ROLES.contains(user.getRole())) {
             return filterPendingForHeadScope(
-                    requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HEAD).stream()
-                            .map(this::toMap)
-                            .collect(Collectors.toList()),
+                    pendingRows(PENDING_HEAD),
                     user);
         }
         if (EmployeeService.isHr2Role(user)) {
-            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HR).stream()
-                    .map(this::toMap)
-                    .collect(Collectors.toList());
+            return pendingRows(PENDING_HR);
         }
         // ADMIN: gộp tất cả hàng đợi đang chờ
         if (user.getRole() == UserRole.ADMIN) {
@@ -817,40 +919,45 @@ public class AttendanceWorkRequestService {
                     AttendanceRequestStatus.PENDING_NURSING_HEAD,
                     AttendanceRequestStatus.PENDING_HR,
                     AttendanceRequestStatus.PENDING_DIRECTOR);
-            return requestRepository.findByStatusInOrderByCreatedAtAsc(all).stream()
-                    .map(this::toMap)
-                    .collect(Collectors.toList());
+            return pendingRows(all);
         }
         if (HEAD_ROLES.contains(user.getRole())) {
             return filterPendingForHeadScope(
-                    requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HEAD).stream()
-                            .map(this::toMap)
-                            .collect(Collectors.toList()),
+                    pendingRows(PENDING_HEAD),
                     user);
         }
         if (HR_APPROVER_ROLES.contains(user.getRole())) {
-            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_HR).stream()
-                    .map(this::toMap)
-                    .collect(Collectors.toList());
+            return pendingRows(PENDING_HR);
         }
         if (DIRECTOR_ROLES.contains(user.getRole())) {
-            return requestRepository.findByStatusInOrderByCreatedAtAsc(PENDING_DIRECTOR).stream()
-                    .map(this::toMap)
-                    .collect(Collectors.toList());
+            return pendingRows(PENDING_DIRECTOR);
         }
         throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền duyệt đơn công");
     }
 
+    /**
+     * Lịch sử duyệt. Không truyền ngày thì mặc định tháng hiện tại — giống web;
+     * trước đây mobile không truyền ngày nên backend trả toàn bộ lịch sử từ
+     * trước đến nay, mỗi dòng lại kéo theo hàng chục truy vấn.
+     */
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> reviewHistoryForReviewer() {
+    public List<Map<String, Object>> reviewHistoryForReviewer(LocalDate fromDate, LocalDate toDate) {
         UserAccount user = employeeService.currentUser();
+        if (fromDate == null && toDate == null) {
+            fromDate = LocalDate.now(VN_ZONE).withDayOfMonth(1);
+        }
+        Instant from = fromDate != null ? fromDate.atStartOfDay(VN_ZONE).toInstant() : Instant.EPOCH;
+        Instant to = toDate != null
+                ? toDate.plusDays(1).atStartOfDay(VN_ZONE).toInstant()
+                : HISTORY_OPEN_END;
+        FlowAssigneeCache cache = new FlowAssigneeCache();
         if (user.getRole() == UserRole.HEAD_NURSING) {
-            return requestRepository.findByStatusInOrderByUpdatedAtDesc(NURSING_HEAD_HISTORY).stream()
+            return requestRepository.findHistoryWithDetails(NURSING_HEAD_HISTORY, from, to).stream()
                     .filter(r -> r.getRequestType() == AttendanceRequestType.DEPLOYMENT)
-                    .filter(r -> NursingBlockClassifier.matches(r.getEmployee()))
+                    .filter(r -> NursingBlockClassifier.matchesNursingHeadScope(r.getEmployee()))
                     .filter(r -> r.getNursingHeadReviewedAt() != null
                             || r.getStatus() == AttendanceRequestStatus.NURSING_HEAD_REJECTED)
-                    .map(this::toMap)
+                    .map(r -> toMap(r, cache))
                     .collect(Collectors.toList());
         }
         EnumSet<AttendanceRequestStatus> statuses;
@@ -871,8 +978,8 @@ public class AttendanceWorkRequestService {
         } else {
             throw new ApiException(HttpStatus.FORBIDDEN, "Không có quyền xem lịch sử duyệt");
         }
-        List<Map<String, Object>> rows = requestRepository.findByStatusInOrderByUpdatedAtDesc(statuses).stream()
-                .map(this::toMap)
+        List<Map<String, Object>> rows = requestRepository.findHistoryWithDetails(statuses, from, to).stream()
+                .map(r -> toMap(r, cache))
                 .collect(Collectors.toList());
         if (user.getRole() == UserRole.HEAD_HR) {
             List<Map<String, Object>> headRows = filterPendingForHeadScope(
@@ -896,6 +1003,26 @@ public class AttendanceWorkRequestService {
         return HEAD_ROLES.contains(user.getRole()) && user.getRole() != UserRole.ADMIN
                 ? filterPendingForHeadScope(rows, user)
                 : rows;
+    }
+
+    /**
+     * Danh sách đơn điều động theo ngày làm việc — phục vụ xuất Excel (HCNS2 / Trưởng HCNS / Admin).
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> listDeploymentsForExport(LocalDate fromDate, LocalDate toDate) {
+        UserAccount user = employeeService.currentUser();
+        if (!HR_APPROVER_ROLES.contains(user.getRole())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ HCNS được xuất danh sách điều động");
+        }
+        YearMonth ym = YearMonth.now();
+        LocalDate from = fromDate != null ? fromDate : ym.atDay(1);
+        LocalDate to = toDate != null ? toDate : ym.atEndOfMonth();
+        if (to.isBefore(from)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Ngày kết thúc phải sau hoặc bằng ngày bắt đầu");
+        }
+        return requestRepository.findDeploymentsByWorkDateBetween(from, to).stream()
+                .map(this::toMap)
+                .collect(Collectors.toList());
     }
 
     @Transactional
@@ -931,7 +1058,7 @@ public class AttendanceWorkRequestService {
         if (previousStatus == AttendanceRequestStatus.PENDING_HEAD
                 || previousStatus == AttendanceRequestStatus.HEAD_REJECTED) {
             if (req.getRequestType() == AttendanceRequestType.DEPLOYMENT
-                    && NursingBlockClassifier.matches(req.getEmployee())) {
+                    && NursingBlockClassifier.matchesNursingHeadScope(req.getEmployee())) {
                 req.setStatus(AttendanceRequestStatus.PENDING_NURSING_HEAD);
             } else {
                 req.setStatus(AttendanceRequestStatus.PENDING_HR);
@@ -966,7 +1093,7 @@ public class AttendanceWorkRequestService {
         }
         AttendanceRequestStatus previousStatus = req.getStatus();
         if (reviewer.getRole() == UserRole.HEAD_NURSING
-                && !NursingBlockClassifier.matches(req.getEmployee())) {
+                && !NursingBlockClassifier.matchesNursingHeadScope(req.getEmployee())) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "Chỉ duyệt điều động nhân sự khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa");
         }
@@ -1099,30 +1226,29 @@ public class AttendanceWorkRequestService {
             return toMap(req);
         }
         boolean waive = Boolean.TRUE.equals(dto.getWaiveForgotFine());
+        boolean keepOriginalPunchTimes = Boolean.TRUE.equals(dto.getKeepOriginalPunchTimes());
+        if (req.getRequestType() == AttendanceRequestType.EXPLANATION && keepOriginalPunchTimes) {
+            waive = true;
+            req.setExplanationKeepOriginalTimes(true);
+        } else if (req.getRequestType() == AttendanceRequestType.EXPLANATION) {
+            req.setExplanationKeepOriginalTimes(false);
+        }
         req.setHrWaiveForgotFine(waive);
-        boolean alreadyApproved = previousStatus == AttendanceRequestStatus.APPROVED
-                || previousStatus == AttendanceRequestStatus.APPROVED_NO_FINE
-                || attendanceEffectAlreadyApplied(req);
+        // UPDATE / EXPLANATION / nghỉ: ghi đè bảng công theo đơn (idempotent) — luôn áp lại khi duyệt.
+        // Tránh bỏ qua vì note còn sót sau sync/thu hồi khiến trạng thái «đã duyệt» nhưng công trống.
+        // DEPLOYMENT vẫn chỉ áp một lần (tránh cộng trùng OT).
         if (req.getRequestType() == AttendanceRequestType.UPDATE) {
             req.setStatus(waive ? AttendanceRequestStatus.APPROVED_NO_FINE : AttendanceRequestStatus.APPROVED);
-            if (!alreadyApproved) {
-                applyApprovedUpdate(req);
-            }
+            applyApprovedUpdate(req);
         } else if (req.getRequestType() == AttendanceRequestType.EXPLANATION) {
             req.setStatus(waive ? AttendanceRequestStatus.APPROVED_NO_FINE : AttendanceRequestStatus.APPROVED);
-            if (!alreadyApproved) {
-                applyApprovedExplanation(req, waive);
-            }
+            applyApprovedExplanation(req, waive);
         } else if (req.getRequestType() == AttendanceRequestType.LEAVE) {
             req.setStatus(AttendanceRequestStatus.APPROVED);
-            if (!alreadyApproved) {
-                applyApprovedLeave(req);
-            }
+            applyApprovedLeave(req);
         } else if (req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) {
             req.setStatus(AttendanceRequestStatus.APPROVED);
-            if (!alreadyApproved) {
-                applyApprovedUnpaidLeave(req);
-            }
+            applyApprovedUnpaidLeave(req);
         } else {
             req.setStatus(AttendanceRequestStatus.APPROVED);
             if (!attendanceEffectAlreadyApplied(req)) {
@@ -1305,10 +1431,18 @@ public class AttendanceWorkRequestService {
 
             List<LocalTime> punches = new java.util.ArrayList<>(dayProcessor.resolvePunches(rec));
             if (req.getRequestType() == AttendanceRequestType.UPDATE) {
-                punches.remove(req.getRequestedStart());
-                punches.remove(req.getRequestedEnd());
-                punches.remove(req.getRequestedAfternoonStart());
-                punches.remove(req.getRequestedAfternoonEnd());
+                boolean continuous = continuousShiftService.isContinuousShift(
+                        req.getEmployee().getId(), date);
+                if (continuous) {
+                    // Giữ giờ vào máy; chỉ gỡ mốc ra đã bổ sung từ đơn (tránh mất 6h07 khi thu hồi)
+                    punches.remove(req.getRequestedEnd());
+                    punches.remove(req.getRequestedAfternoonEnd());
+                } else {
+                    punches.remove(req.getRequestedStart());
+                    punches.remove(req.getRequestedEnd());
+                    punches.remove(req.getRequestedAfternoonStart());
+                    punches.remove(req.getRequestedAfternoonEnd());
+                }
             } else if (req.getRequestType() == AttendanceRequestType.EXPLANATION) {
                 punches.remove(req.getExplainedTime());
                 punches.remove(req.getExplainedDepartureTime());
@@ -1366,55 +1500,66 @@ public class AttendanceWorkRequestService {
                         .status("ABSENT")
                         .build());
 
-        boolean applied = false;
-        if (req.getExplainedMorningIn() != null) {
-            dayProcessor.applyExplainedTime(
-                    rec, AttendanceShiftScope.MORNING, ExplanationKind.LATE_ARRIVAL, req.getExplainedMorningIn());
-            applied = true;
-        }
-        if (req.getExplainedMorningOut() != null) {
-            dayProcessor.applyExplainedTime(
-                    rec, AttendanceShiftScope.MORNING, ExplanationKind.EARLY_DEPARTURE, req.getExplainedMorningOut());
-            applied = true;
-        }
-        if (req.getExplainedAfternoonIn() != null) {
-            dayProcessor.applyExplainedTime(
-                    rec, AttendanceShiftScope.AFTERNOON, ExplanationKind.LATE_ARRIVAL, req.getExplainedAfternoonIn());
-            applied = true;
-        }
-        if (req.getExplainedAfternoonOut() != null) {
-            dayProcessor.applyExplainedTime(
-                    rec, AttendanceShiftScope.AFTERNOON, ExplanationKind.EARLY_DEPARTURE, req.getExplainedAfternoonOut());
-            applied = true;
+        boolean keepOriginalTimes = req.isExplanationKeepOriginalTimes();
+        if (!keepOriginalTimes) {
+            boolean applied = false;
+            if (req.getExplainedMorningIn() != null) {
+                dayProcessor.applyExplainedTime(
+                        rec, AttendanceShiftScope.MORNING, ExplanationKind.LATE_ARRIVAL, req.getExplainedMorningIn());
+                applied = true;
+            }
+            if (req.getExplainedMorningOut() != null) {
+                dayProcessor.applyExplainedTime(
+                        rec, AttendanceShiftScope.MORNING, ExplanationKind.EARLY_DEPARTURE, req.getExplainedMorningOut());
+                applied = true;
+            }
+            if (req.getExplainedAfternoonIn() != null) {
+                dayProcessor.applyExplainedTime(
+                        rec, AttendanceShiftScope.AFTERNOON, ExplanationKind.LATE_ARRIVAL, req.getExplainedAfternoonIn());
+                applied = true;
+            }
+            if (req.getExplainedAfternoonOut() != null) {
+                dayProcessor.applyExplainedTime(
+                        rec, AttendanceShiftScope.AFTERNOON, ExplanationKind.EARLY_DEPARTURE, req.getExplainedAfternoonOut());
+                applied = true;
+            }
+
+            if (!applied) {
+                LocalTime arrival = req.getExplainedTime();
+                LocalTime departure = req.getExplainedDepartureTime();
+                if (departure == null && arrival != null && req.getExplanationKind() == ExplanationKind.EARLY_DEPARTURE) {
+                    departure = arrival;
+                    arrival = null;
+                }
+                if (arrival == null && departure == null) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "Đơn giải trình thiếu thời gian");
+                }
+                AttendanceShiftScope scope = req.getShiftScope();
+                if (arrival != null) {
+                    AttendanceShiftScope lateScope = scope == AttendanceShiftScope.FULL_DAY
+                            ? AttendanceShiftScope.MORNING : scope;
+                    dayProcessor.applyExplainedTime(rec, lateScope, ExplanationKind.LATE_ARRIVAL, arrival);
+                }
+                if (departure != null) {
+                    AttendanceShiftScope earlyScope = scope == AttendanceShiftScope.FULL_DAY
+                            ? AttendanceShiftScope.AFTERNOON : scope;
+                    dayProcessor.applyExplainedTime(rec, earlyScope, ExplanationKind.EARLY_DEPARTURE, departure);
+                }
+            }
+        } else {
+            dayProcessor.applyToRecord(rec);
+            dayProcessor.applyProportionalWorkUnitsFromPunches(rec);
         }
 
-        if (!applied) {
-            LocalTime arrival = req.getExplainedTime();
-            LocalTime departure = req.getExplainedDepartureTime();
-            if (departure == null && arrival != null && req.getExplanationKind() == ExplanationKind.EARLY_DEPARTURE) {
-                departure = arrival;
-                arrival = null;
-            }
-            if (arrival == null && departure == null) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Đơn giải trình thiếu thời gian");
-            }
-            AttendanceShiftScope scope = req.getShiftScope();
-            if (arrival != null) {
-                AttendanceShiftScope lateScope = scope == AttendanceShiftScope.FULL_DAY
-                        ? AttendanceShiftScope.MORNING : scope;
-                dayProcessor.applyExplainedTime(rec, lateScope, ExplanationKind.LATE_ARRIVAL, arrival);
-            }
-            if (departure != null) {
-                AttendanceShiftScope earlyScope = scope == AttendanceShiftScope.FULL_DAY
-                        ? AttendanceShiftScope.AFTERNOON : scope;
-                dayProcessor.applyExplainedTime(rec, earlyScope, ExplanationKind.EARLY_DEPARTURE, departure);
-            }
-        }
-
-        if (waiveLateFine) {
+        if (waiveLateFine || keepOriginalTimes) {
             rec.setLateMinutesExempt(true);
             rec.setLateMinutes(0);
-            rec.setNote(appendNote(rec.getNote(), "Giải trình đã duyệt — Giám đốc miễn phạt muộn/sớm"));
+            if (keepOriginalTimes) {
+                rec.setNote(appendNote(rec.getNote(),
+                        "Giải trình đã duyệt — giữ giờ chấm gốc, Giám đốc miễn phạt muộn/sớm"));
+            } else {
+                rec.setNote(appendNote(rec.getNote(), "Giải trình đã duyệt — Giám đốc miễn phạt muộn/sớm"));
+            }
         } else {
             rec.setNote(appendNote(rec.getNote(), "Giải trình đã duyệt — tính phạt theo giờ giải trình"));
         }
@@ -1439,12 +1584,19 @@ public class AttendanceWorkRequestService {
         }
         boolean continuous = continuousShiftService.isContinuousShift(
                 req.getEmployee().getId(), req.getWorkDate());
+        boolean twoPunch = continuousShiftService.isTwoPunchAttendance(req.getEmployee().getId());
         if (continuous) {
             LocalTime dayIn = req.getRequestedStart();
             LocalTime dayOut = req.getRequestedAfternoonEnd() != null
                     ? req.getRequestedAfternoonEnd()
                     : req.getRequestedEnd();
             dayProcessor.applyManualShift(rec, AttendanceShiftScope.FULL_DAY, dayIn, dayOut);
+        } else if (twoPunch && req.getUpdateKind() == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
+            LocalTime dayIn = req.getRequestedStart();
+            LocalTime dayOut = req.getRequestedAfternoonEnd() != null
+                    ? req.getRequestedAfternoonEnd()
+                    : req.getRequestedEnd();
+            dayProcessor.applyManualFullDay(rec, dayIn, null, null, dayOut);
         } else if (req.getUpdateKind() == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
             dayProcessor.applyManualFullDay(
                     rec,
@@ -1500,8 +1652,12 @@ public class AttendanceWorkRequestService {
                         .overtimeWorkUnits(BigDecimal.ZERO)
                         .build());
         AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(req.getEmployee().getId(), req.getWorkDate());
+        boolean continuous = continuousShiftService.isContinuousShift(
+                req.getEmployee().getId(), req.getWorkDate());
         boolean insideShift = isInsideShiftDeploymentFromRequest(req);
-        double dayHours = schedule.totalHours() > 0 ? schedule.totalHours() : 8.0;
+        double dayHours = continuous
+                ? (schedule.continuousHours() > 0 ? schedule.continuousHours() : 8.0)
+                : (schedule.totalHours() > 0 ? schedule.totalHours() : 8.0);
 
         BigDecimal morningBonus = BigDecimal.ZERO;
         BigDecimal afternoonBonus = BigDecimal.ZERO;
@@ -1532,20 +1688,29 @@ public class AttendanceWorkRequestService {
         }
 
         if (insideShift) {
-            String morningWindow = req.getShiftScope() == AttendanceShiftScope.AFTERNOON
-                    ? "-"
-                    : start + "-" + end;
+            String morningWindow;
             String afternoonWindow;
-            if (req.getRequestedAfternoonStart() != null && req.getRequestedAfternoonEnd() != null) {
-                afternoonWindow = req.getRequestedAfternoonStart() + "-" + req.getRequestedAfternoonEnd();
-            } else if (req.getShiftScope() == AttendanceShiftScope.AFTERNOON) {
-                afternoonWindow = start + "-" + end;
-            } else {
+            if (continuous) {
+                morningWindow = start + "-" + end;
                 afternoonWindow = "-";
+            } else {
+                morningWindow = req.getShiftScope() == AttendanceShiftScope.AFTERNOON
+                        ? "-"
+                        : start + "-" + end;
+                if (req.getRequestedAfternoonStart() != null && req.getRequestedAfternoonEnd() != null) {
+                    afternoonWindow = req.getRequestedAfternoonStart() + "-" + req.getRequestedAfternoonEnd();
+                } else if (req.getShiftScope() == AttendanceShiftScope.AFTERNOON) {
+                    afternoonWindow = start + "-" + end;
+                } else {
+                    afternoonWindow = "-";
+                }
             }
             String noteLine = String.format(
-                    "Điều động trong ca ×%.1f: %s — chờ đủ giờ vào/ra "
-                            + "(=%s sáng / =%s chiều / +0 ngoài giờ) [DDTC:S=%s;A=%s]",
+                    continuous
+                            ? "Điều động trong ca thông tầm ×%.1f: %s — chờ đủ giờ vào/ra "
+                                    + "(=%s sáng / =%s chiều / +0 ngoài giờ) [DDTC:S=%s;A=%s]"
+                            : "Điều động trong ca ×%.1f: %s — chờ đủ giờ vào/ra "
+                                    + "(=%s sáng / =%s chiều / +0 ngoài giờ) [DDTC:S=%s;A=%s]",
                     DEPLOYMENT_COEFFICIENT.doubleValue(),
                     timeLabel,
                     morningBonus.toPlainString(),
@@ -1834,10 +1999,16 @@ public class AttendanceWorkRequestService {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Cần nhập thời gian bắt đầu và kết thúc");
             }
             boolean continuous = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
+            boolean twoPunch = continuousShiftService.isTwoPunchAttendance(emp.getId());
             if (continuous) {
                 if (!dto.getRequestedStart().isBefore(dto.getRequestedEnd())) {
                     throw new ApiException(HttpStatus.BAD_REQUEST,
                             "Ca thông tầm: giờ vào phải trước giờ ra");
+                }
+            } else if (twoPunch) {
+                if (!dto.getRequestedStart().isBefore(dto.getRequestedEnd())) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST,
+                            "Phân quyền công: giờ vào sáng phải trước giờ ra chiều");
                 }
             } else if (dto.getUpdateKind() == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT
                     && (dto.getRequestedAfternoonStart() == null || dto.getRequestedAfternoonEnd() == null)) {
@@ -1888,6 +2059,7 @@ public class AttendanceWorkRequestService {
                                 requestDays,
                                 bal.get("entitlementDays")));
             }
+            assertMonthlyWorkAllowsPaidLeave(emp, dto.getWorkDate(), end, excludeId);
             assertNoOverlappingLeaveKinds(emp.getId(), dto.getWorkDate(), end, excludeId);
         } else if (dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) {
             LocalDate end = dto.getEndDate() != null ? dto.getEndDate() : dto.getWorkDate();
@@ -2041,15 +2213,82 @@ public class AttendanceWorkRequestService {
         return m;
     }
 
+    private void assertMonthlyWorkAllowsPaidLeave(Employee emp, LocalDate from, LocalDate to, Long excludeId) {
+        EnumSet<AttendanceRequestStatus> pendingStatuses = EnumSet.of(
+                AttendanceRequestStatus.PENDING_HEAD,
+                AttendanceRequestStatus.PENDING_NURSING_HEAD,
+                AttendanceRequestStatus.PENDING_HR,
+                AttendanceRequestStatus.PENDING_DIRECTOR);
+        YearMonth cursor = YearMonth.from(from);
+        YearMonth last = YearMonth.from(to);
+        while (!cursor.isAfter(last)) {
+            LocalDate monthStart = cursor.atDay(1);
+            LocalDate monthEnd = cursor.atEndOfMonth();
+            int newDays = LeaveEntitlement.overlapDays(from, to, monthStart, monthEnd);
+            if (newDays > 0) {
+                BigDecimal recorded = monthWorkExcludingDeployment(emp, cursor);
+                int pendingDays = sumLeaveDays(emp.getId(), monthStart, monthEnd, pendingStatuses, excludeId);
+                if (LeaveEntitlement.exceedsMonthlyWorkCap(recorded, pendingDays + newDays)) {
+                    BigDecimal used = recorded.add(BigDecimal.valueOf(pendingDays));
+                    throw new ApiException(HttpStatus.BAD_REQUEST, monthlyLeaveCapMessage(cursor, used, newDays));
+                }
+            }
+            cursor = cursor.plusMonths(1);
+        }
+    }
+
+    private BigDecimal monthWorkExcludingDeployment(Employee emp, YearMonth ym) {
+        LocalDate from = ym.atDay(1);
+        LocalDate to = ym.atEndOfMonth();
+        BigDecimal shift = BigDecimal.ZERO;
+        for (AttendanceRecord rec : attendanceRecordRepository
+                .findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(emp, from, to)) {
+            shift = shift.add(nzUnits(rec.getMorningWorkUnits())).add(nzUnits(rec.getAfternoonWorkUnits()));
+        }
+        Map<String, Object> duty = dutyShiftService.rollup(
+                emp, dutyShiftService.findEntriesForEmployee(emp.getId(), from, to));
+        return shift.add((BigDecimal) duty.get("dutyWorkUnitsTotal"));
+    }
+
+    private static String monthlyLeaveCapMessage(YearMonth ym, BigDecimal used, int requestDays) {
+        BigDecimal cap = LeaveEntitlement.MONTHLY_WORK_CAP_EXCLUDING_DEPLOYMENT;
+        BigDecimal remain = cap.subtract(used);
+        int remainDays = remain.signum() <= 0 ? 0 : remain.setScale(0, RoundingMode.FLOOR).intValue();
+        String usedLabel = used.stripTrailingZeros().toPlainString().replace('.', ',');
+        if (remainDays <= 0) {
+            return String.format(
+                    "Tháng %02d/%d đã đủ %s công (chấm + phép + trực, chưa gồm điều động). "
+                            + "Đủ %s công thì không được tạo đơn nghỉ phép.",
+                    ym.getMonthValue(), ym.getYear(), usedLabel, cap.toPlainString());
+        }
+        return String.format(
+                "Tháng %02d/%d đã có %s công (chưa gồm điều động, hạn mức %s công). "
+                        + "Đơn xin %d ngày nhưng chỉ còn xin được tối đa %d ngày phép.",
+                ym.getMonthValue(), ym.getYear(), usedLabel, cap.toPlainString(), requestDays, remainDays);
+    }
+
+    private static BigDecimal nzUnits(BigDecimal v) {
+        return v != null ? v : BigDecimal.ZERO;
+    }
+
     private int sumLeaveDays(
             Long employeeId, LocalDate yearStart, LocalDate yearEnd, EnumSet<AttendanceRequestStatus> statuses) {
+        return sumLeaveDays(employeeId, yearStart, yearEnd, statuses, null);
+    }
+
+    private int sumLeaveDays(
+            Long employeeId,
+            LocalDate yearStart,
+            LocalDate yearEnd,
+            EnumSet<AttendanceRequestStatus> statuses,
+            Long excludeId) {
         return requestRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId).stream()
+                .filter(r -> excludeId == null || !excludeId.equals(r.getId()))
                 .filter(r -> r.getRequestType() == AttendanceRequestType.LEAVE)
                 .filter(r -> statuses.contains(r.getStatus()))
                 .mapToInt(r -> {
                     LocalDate from = r.getWorkDate();
                     LocalDate to = r.getEndDate() != null ? r.getEndDate() : from;
-                    // Chỉ đếm phần giao với năm
                     LocalDate a = from.isBefore(yearStart) ? yearStart : from;
                     LocalDate b = to.isAfter(yearEnd) ? yearEnd : to;
                     if (b.isBefore(a)) {
@@ -2142,9 +2381,26 @@ public class AttendanceWorkRequestService {
     }
 
     private Map<String, Object> toMap(AttendanceWorkRequest r) {
+        return toMap(r, new FlowAssigneeCache());
+    }
+
+    /**
+     * @param cache người nhận từng bước duyệt, dùng chung cho cả danh sách để
+     *              không tải lại bảng tài khoản cho mỗi dòng.
+     */
+    private Map<String, Object> toMap(AttendanceWorkRequest r, FlowAssigneeCache cache) {
         Map<String, Object> m = new LinkedHashMap<>();
+        // Hai cờ này tốn 2-3 truy vấn; tính đúng một lần và chỉ khi loại đơn cần.
+        boolean needsShiftFlags = r.getRequestType() == AttendanceRequestType.UPDATE
+                || r.getRequestType() == AttendanceRequestType.EXPLANATION
+                || r.getRequestType() == AttendanceRequestType.DEPLOYMENT;
+        boolean continuousShift = needsShiftFlags
+                && continuousShiftService.isContinuousShift(r.getEmployee().getId(), r.getWorkDate());
+        boolean twoPunch = needsShiftFlags
+                && continuousShiftService.isTwoPunchAttendance(r.getEmployee().getId());
         m.put("id", r.getId());
         m.put("employeeId", r.getEmployee().getId());
+        m.put("employeeCode", r.getEmployee().getEmployeeCode());
         m.put("employeeName", r.getEmployee().getFullName());
         m.put("positionTitle", r.getEmployee().getPosition() != null
                 ? r.getEmployee().getPosition().getTitle() : null);
@@ -2163,17 +2419,17 @@ public class AttendanceWorkRequestService {
         m.put("tripDays", r.getRequestType() == AttendanceRequestType.BUSINESS_TRIP ? rangedDays : 0);
         m.put("shiftScope", r.getShiftScope().name());
         m.put("updateKind", r.getUpdateKind() != null ? r.getUpdateKind().name() : "");
-        if (r.getRequestType() == AttendanceRequestType.UPDATE
-                || r.getRequestType() == AttendanceRequestType.EXPLANATION) {
-            m.put("continuousShift", continuousShiftService.isContinuousShift(
-                    r.getEmployee().getId(), r.getWorkDate()));
+        if (needsShiftFlags) {
+            m.put("continuousShift", continuousShift);
+            m.put("twoPunchAttendance", twoPunch);
         }
         m.put("reason", r.getReason());
         m.put("location", r.getLocation() != null ? r.getLocation() : "");
         m.put("requestedStart", r.getRequestedStart() != null ? r.getRequestedStart().toString() : "");
         m.put("requestedEnd", r.getRequestedEnd() != null ? r.getRequestedEnd().toString() : "");
         if (r.getRequestType() == AttendanceRequestType.DEPLOYMENT
-                && r.getRequestedStart() != null && r.getRequestedEnd() != null) {
+                || r.getRequestType() == AttendanceRequestType.UPDATE
+                || r.getRequestType() == AttendanceRequestType.EXPLANATION) {
             List<String> attendancePunchTimes = attendanceRecordRepository
                     .findByEmployeeAndWorkDate(r.getEmployee(), r.getWorkDate())
                     .map(dayProcessor::resolvePunches)
@@ -2184,6 +2440,9 @@ public class AttendanceWorkRequestService {
                     .map(time -> time.toString().substring(0, 5))
                     .toList();
             m.put("attendancePunchTimes", attendancePunchTimes);
+        }
+        if (r.getRequestType() == AttendanceRequestType.DEPLOYMENT
+                && r.getRequestedStart() != null && r.getRequestedEnd() != null) {
             m.put("deploymentCoefficient", DEPLOYMENT_COEFFICIENT.doubleValue());
             if (isInsideShiftDeploymentFromRequest(r)) {
                 AttendanceShiftSchedule sch = shiftScheduleService.forEmployee(r.getEmployee().getId(), r.getWorkDate());
@@ -2298,9 +2557,25 @@ public class AttendanceWorkRequestService {
         m.put("hrReviewedAt", r.getHrReviewedAt() != null ? r.getHrReviewedAt().toString() : "");
         m.put("directorReviewedAt", r.getDirectorReviewedAt() != null ? r.getDirectorReviewedAt().toString() : "");
         m.put("hrWaiveForgotFine", r.isHrWaiveForgotFine());
-        putFlowAssigneeNames(m, r);
+        m.put("explanationKeepOriginalTimes", r.isExplanationKeepOriginalTimes());
+        putFlowAssigneeNames(m, r, cache);
         if (r.getRequestType() == AttendanceRequestType.UPDATE) {
-            m.put("forgotFineUnits", AttendancePenaltyCalculator.forgotFineUnitsForWorkRequest(r));
+            boolean continuousOrTwoPunch = continuousShift || twoPunch;
+            int units = AttendancePenaltyCalculator.forgotFineUnitsForWorkRequest(r, continuousOrTwoPunch);
+            // Đơn đang chờ: tính lại theo bảng công hiện tại (tránh hiện 2 lần khi đã có giờ vào)
+            if (continuousOrTwoPunch && !isApprovedStatus(r.getStatus())
+                    && r.getStatus() != AttendanceRequestStatus.WITHDRAWN
+                    && r.getUpdateKind() != null) {
+                AttendanceRecord existing = attendanceRecordRepository
+                        .findByEmployeeAndWorkDate(r.getEmployee(), r.getWorkDate())
+                        .orElse(null);
+                int recomputed = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
+                        r.getUpdateKind(), existing, true);
+                if (recomputed > 0) {
+                    units = recomputed;
+                }
+            }
+            m.put("forgotFineUnits", units);
         }
         m.put("createdAt", r.getCreatedAt().toString());
         m.put("requestedByUsername", resolveRequestedByUsername(r));
@@ -2319,45 +2594,90 @@ public class AttendanceWorkRequestService {
     }
 
     /** Tên người nhận / đã duyệt từng bước — ưu tiên người đã ký, không thì người đang được gửi tới. */
-    private void putFlowAssigneeNames(Map<String, Object> m, AttendanceWorkRequest r) {
+    private void putFlowAssigneeNames(Map<String, Object> m, AttendanceWorkRequest r, FlowAssigneeCache cache) {
         Employee emp = r.getEmployee();
         m.put("flowSubmitterName", emp.getFullName());
-        m.put("flowHeadName", firstNonBlank(
+        // Chỉ tra danh sách người nhận khi bước đó chưa có người ký. Bản cũ dùng
+        // firstNonBlank(a, b) nên b luôn được tính dù a đã có — mỗi dòng đơn kéo
+        // theo bốn lượt tải bảng tài khoản kèm kiểm tra phạm vi từng người.
+        m.put("flowHeadName", firstNonBlankLazy(
                 accountPersonName(r.getHeadReviewer()),
-                joinPersonNames(resolveHeadAssignees(emp))));
-        m.put("flowNursingHeadName", firstNonBlank(
+                () -> joinPersonNames(cache.headAssignees(emp))));
+        m.put("flowNursingHeadName", firstNonBlankLazy(
                 accountPersonName(r.getNursingHeadReviewer()),
-                joinPersonNames(resolveNursingHeadAssignees(emp))));
-        m.put("flowHrName", firstNonBlank(
+                () -> joinPersonNames(cache.nursingHeadAssignees(emp))));
+        m.put("flowHrName", firstNonBlankLazy(
                 accountPersonName(r.getHrReviewer()),
-                joinPersonNames(resolveHrAssignees())));
-        m.put("flowDirectorName", firstNonBlank(
+                () -> joinPersonNames(cache.hrAssignees())));
+        m.put("flowDirectorName", firstNonBlankLazy(
                 accountPersonName(r.getDirectorReviewer()),
-                joinPersonNames(resolveDirectorAssignees())));
+                () -> joinPersonNames(cache.directorAssignees())));
     }
 
-    private List<UserAccount> resolveHeadAssignees(Employee emp) {
-        return userAccountRepository.findByRoleIn(List.of(UserRole.HEAD_DEPARTMENT, UserRole.HEAD_HR)).stream()
-                .filter(UserAccount::isEnabled)
-                .filter(u -> employeeService.shouldReceiveHeadPendingNotification(u, emp))
-                .toList();
+    private static String firstNonBlankLazy(String first, Supplier<String> fallback) {
+        if (first != null && !first.isBlank()) {
+            return first.trim();
+        }
+        String value = fallback.get();
+        return value != null && !value.isBlank() ? value.trim() : null;
     }
 
-    private List<UserAccount> resolveNursingHeadAssignees(Employee emp) {
-        return userAccountRepository.findByRoleIn(List.of(UserRole.HEAD_NURSING)).stream()
-                .filter(UserAccount::isEnabled)
-                .filter(u -> employeeService.shouldReceiveNursingHeadPendingNotification(u, emp))
-                .toList();
-    }
+    /**
+     * Cache người nhận từng bước duyệt trong một lượt trả danh sách.
+     *
+     * Bảng tài khoản theo vai trò chỉ tải một lần; riêng bước Trưởng khoa và
+     * Trưởng phòng ĐD còn phụ thuộc phạm vi nhân viên nên nhớ theo phòng ban.
+     */
+    private final class FlowAssigneeCache {
+        private List<UserAccount> headAccounts;
+        private List<UserAccount> nursingHeadAccounts;
+        private List<UserAccount> hrAccounts;
+        private List<UserAccount> directorAccounts;
+        private final Map<Long, List<UserAccount>> headByDepartment = new HashMap<>();
+        private final Map<Long, List<UserAccount>> nursingHeadByDepartment = new HashMap<>();
 
-    private List<UserAccount> resolveHrAssignees() {
-        return userAccountRepository.findByRoleIn(List.of(UserRole.HR2, UserRole.HEAD_HR)).stream()
-                .filter(UserAccount::isEnabled)
-                .toList();
-    }
+        List<UserAccount> headAssignees(Employee emp) {
+            if (headAccounts == null) {
+                headAccounts = userAccountRepository
+                        .findByRoleIn(List.of(UserRole.HEAD_DEPARTMENT, UserRole.HEAD_HR)).stream()
+                        .filter(UserAccount::isEnabled)
+                        .toList();
+            }
+            Long key = emp.getDepartment() != null ? emp.getDepartment().getId() : -1L;
+            return headByDepartment.computeIfAbsent(key, k -> headAccounts.stream()
+                    .filter(u -> employeeService.shouldReceiveHeadPendingNotification(u, emp))
+                    .toList());
+        }
 
-    private List<UserAccount> resolveDirectorAssignees() {
-        return userAccountRepository.findByDirectorApprovalEnabledTrueAndEnabledTrue();
+        List<UserAccount> nursingHeadAssignees(Employee emp) {
+            if (nursingHeadAccounts == null) {
+                nursingHeadAccounts = userAccountRepository
+                        .findByRoleIn(List.of(UserRole.HEAD_NURSING)).stream()
+                        .filter(UserAccount::isEnabled)
+                        .toList();
+            }
+            Long key = emp.getDepartment() != null ? emp.getDepartment().getId() : -1L;
+            return nursingHeadByDepartment.computeIfAbsent(key, k -> nursingHeadAccounts.stream()
+                    .filter(u -> employeeService.shouldReceiveNursingHeadPendingNotification(u, emp))
+                    .toList());
+        }
+
+        List<UserAccount> hrAssignees() {
+            if (hrAccounts == null) {
+                hrAccounts = userAccountRepository
+                        .findByRoleIn(List.of(UserRole.HR2, UserRole.HEAD_HR)).stream()
+                        .filter(UserAccount::isEnabled)
+                        .toList();
+            }
+            return hrAccounts;
+        }
+
+        List<UserAccount> directorAssignees() {
+            if (directorAccounts == null) {
+                directorAccounts = userAccountRepository.findByDirectorApprovalEnabledTrueAndEnabledTrue();
+            }
+            return directorAccounts;
+        }
     }
 
     private static String joinPersonNames(List<UserAccount> users) {
@@ -2390,15 +2710,4 @@ public class AttendanceWorkRequestService {
         return u.getUsername();
     }
 
-    private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String v : values) {
-            if (v != null && !v.isBlank()) {
-                return v.trim();
-            }
-        }
-        return null;
-    }
 }

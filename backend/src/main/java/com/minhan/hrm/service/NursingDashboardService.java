@@ -8,6 +8,8 @@ import com.minhan.hrm.entity.EmployeeStatus;
 import com.minhan.hrm.entity.EmployeeWorkforceDetails;
 import com.minhan.hrm.entity.MainDutyAuthorizationStatus;
 import com.minhan.hrm.entity.ProbationConversionStatus;
+import com.minhan.hrm.entity.UserAccount;
+import com.minhan.hrm.entity.UserRole;
 import com.minhan.hrm.mapper.EmployeeMapper;
 import com.minhan.hrm.repository.AttendanceWorkRequestRepository;
 import com.minhan.hrm.repository.EmployeeRepository;
@@ -38,6 +40,7 @@ public class NursingDashboardService {
     private final AttendanceWorkRequestRepository attendanceWorkRequestRepository;
     private final ProbationConversionRequestRepository probationConversionRequestRepository;
     private final MainDutyAuthorizationRequestRepository mainDutyAuthorizationRequestRepository;
+    private final EmployeeService employeeService;
 
     @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
     @Transactional(readOnly = true)
@@ -152,9 +155,13 @@ public class NursingDashboardService {
     }
 
     private List<Employee> nursingBlockEmployees() {
+        UserAccount caller = employeeService.currentUser();
+        boolean nursingHeadScope = caller != null && caller.getRole() == UserRole.HEAD_NURSING;
         return employeeRepository.findAll(Sort.by("fullName").ascending()).stream()
-                .filter(NursingBlockClassifier::matches)
                 .filter(e -> e.getStatus() != EmployeeStatus.TERMINATED)
+                .filter(e -> nursingHeadScope
+                        ? NursingBlockClassifier.matchesNursingHeadScope(e)
+                        : NursingBlockClassifier.matches(e))
                 .toList();
     }
 

@@ -28,7 +28,6 @@ import '../../features/profile/presentation/profile_signature_screen.dart';
 import '../../features/reports/presentation/workforce_department_detail_screen.dart';
 import '../../features/reports/presentation/workforce_report_screen.dart';
 import '../../features/reports/presentation/nursing_activity_report_screen.dart';
-import '../../features/reports/presentation/professional_qualification_report_screen.dart';
 import '../../features/reports/presentation/qtkt_compliance_report_screen.dart';
 import '../../features/nursing_daily_report/presentation/nursing_daily_report_list_screen.dart';
 import '../../features/qtkt/presentation/qtkt_evaluations_screen.dart';
@@ -329,11 +328,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: RoutePaths.qtktComplianceReports,
         builder: (context, state) => const QtktComplianceReportScreen(),
       ),
-      GoRoute(
-        path: RoutePaths.professionalQualificationReports,
-        builder: (context, state) =>
-            const ProfessionalQualificationReportScreen(),
-      ),
+      // Báo cáo trình độ chuyên môn tạm ẩn trên app (chưa cần thiết) — màn
+      // hình và repository vẫn giữ, mở lại bằng cách đăng ký route ở đây và
+      // thêm mục vào Hồ sơ > Báo cáo.
       GoRoute(
         path: RoutePaths.notifications,
         builder: (context, state) => const NotificationsScreen(),

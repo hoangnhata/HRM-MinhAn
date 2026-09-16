@@ -64,6 +64,27 @@ public class UserAccount {
     private boolean reportViewEnabled = false;
 
     /**
+     * Được xuất Excel báo cáo công (tháng / khoa),
+     * độc lập với vai trò — cấp bởi Admin qua công tắc «Xuất Excel công».
+     */
+    @Column(name = "attendance_excel_export_enabled", nullable = false)
+    private boolean attendanceExcelExportEnabled = false;
+
+    /**
+     * Được xem danh sách + chi tiết nhân viên toàn viện (không gồm lương),
+     * độc lập với vai trò — cấp bởi Admin qua công tắc «Hồ sơ toàn viện».
+     */
+    @Column(name = "hospital_wide_employee_view_enabled", nullable = false)
+    private boolean hospitalWideEmployeeViewEnabled = false;
+
+    /**
+     * Được xem báo cáo Trình độ chuyên môn,
+     * độc lập với vai trò — cấp bởi Admin qua công tắc «Trình độ CM».
+     */
+    @Column(name = "professional_qualification_report_enabled", nullable = false)
+    private boolean professionalQualificationReportEnabled = false;
+
+    /**
      * Trưởng khoa/phòng được đánh dấu "Trưởng bộ phận":
      * chỉ quản lý nhân sự cùng bộ phận (workUnitDetail), không cả khoa.
      */

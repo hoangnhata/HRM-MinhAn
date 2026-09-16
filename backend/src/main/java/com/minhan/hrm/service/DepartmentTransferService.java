@@ -6,6 +6,7 @@ import com.minhan.hrm.entity.*;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.*;
+import com.minhan.hrm.service.support.CreatedAtRange;
 import com.minhan.hrm.service.support.RequestEditSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -136,9 +137,10 @@ public class DepartmentTransferService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listReviewHistory() {
+    public List<Map<String, Object>> listReviewHistory(LocalDate fromDate, LocalDate toDate) {
         ensureCanViewTransfers();
         return transferRepository.findReviewHistoryWithDetails().stream()
+                .filter(row -> CreatedAtRange.matches(row.getCreatedAt(), fromDate, toDate))
                 .map(this::toMap)
                 .toList();
     }

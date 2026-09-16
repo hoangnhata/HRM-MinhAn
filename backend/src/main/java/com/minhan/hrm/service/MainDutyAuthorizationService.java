@@ -8,7 +8,9 @@ import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.MainDutyAuthorizationRequestRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
+import com.minhan.hrm.service.support.CreatedAtRange;
 import com.minhan.hrm.service.support.RequestEditSupport;
+import com.minhan.hrm.security.ApprovalAuthority;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -67,7 +69,7 @@ public class MainDutyAuthorizationService {
         }
 
         MainDutyFormType formType = resolveMainDutyFormType(emp);
-        boolean nursingBlock = NursingBlockClassifier.matches(emp);
+        boolean nursingBlock = NursingBlockClassifier.matchesNursingHeadScope(emp);
         boolean skipHead = actor.getRole() == UserRole.ADMIN
                 || EmployeeService.isHeadRole(actor);
 
@@ -164,7 +166,7 @@ public class MainDutyAuthorizationService {
         UserAccount actor = ensureNursingHeadOrAdmin();
         return requestRepository.findPendingWithDetails(MainDutyAuthorizationStatus.PENDING_NURSING_HEAD).stream()
                 .filter(row -> actor.getRole() == UserRole.ADMIN
-                        || NursingBlockClassifier.matches(row.getEmployee()))
+                        || NursingBlockClassifier.matchesNursingHeadScope(row.getEmployee()))
                 .map(this::toMap)
                 .toList();
     }
@@ -188,21 +190,59 @@ public class MainDutyAuthorizationService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listHistory() {
+    public List<Map<String, Object>> listHistory(LocalDate fromDate, LocalDate toDate) {
         UserAccount actor = ensureCanView();
         return requestRepository.findReviewHistoryWithDetails().stream()
-                .filter(row -> {
-                    if (actor.getRole() == UserRole.HEAD_NURSING) {
-                        if (!employeeService.matchesNursingBlockScope(actor, row.getEmployee())) {
-                            return false;
-                        }
-                        return row.getNursingHeadReviewedAt() != null
-                                || row.getStatus() == MainDutyAuthorizationStatus.NURSING_HEAD_REJECTED;
-                    }
-                    return employeeService.matchesHrReviewScope(actor, row.getEmployee());
-                })
+                .filter(row -> CreatedAtRange.matches(row.getCreatedAt(), fromDate, toDate))
+                .filter(row -> touchedByActorStage(actor, row))
                 .map(this::toMap)
                 .toList();
+    }
+
+    /**
+     * Lịch sử của một người duyệt là những đơn bước của họ đã xử lý — gồm cả
+     * đơn họ đã duyệt mà đang chờ bước sau. Bản cũ loại mọi trạng thái PENDING_*
+     * nên duyệt xong chuyển bước là đơn biến mất khỏi tab lịch sử.
+     */
+    private boolean touchedByActorStage(UserAccount actor, MainDutyAuthorizationRequest row) {
+        MainDutyAuthorizationStatus status = row.getStatus();
+        if (actor.getRole() == UserRole.ADMIN) {
+            return true;
+        }
+        if (actor.getRole() == UserRole.HEAD_NURSING) {
+            return employeeService.matchesNursingBlockScope(actor, row.getEmployee())
+                    && (row.getNursingHeadReviewedAt() != null
+                            || status == MainDutyAuthorizationStatus.NURSING_HEAD_REJECTED);
+        }
+        if (!employeeService.matchesHrReviewScope(actor, row.getEmployee())) {
+            return false;
+        }
+        boolean afterHead = status != MainDutyAuthorizationStatus.PENDING_HEAD;
+        boolean afterHr = status == MainDutyAuthorizationStatus.PENDING_DIRECTOR
+                || status == MainDutyAuthorizationStatus.DIRECTOR_REJECTED
+                || status == MainDutyAuthorizationStatus.APPROVED;
+        boolean headTouched = row.getHeadReviewedAt() != null
+                || status == MainDutyAuthorizationStatus.HEAD_REJECTED
+                || afterHead;
+        boolean hrTouched = row.getHrReviewedAt() != null
+                || status == MainDutyAuthorizationStatus.HR_REJECTED
+                || afterHr;
+        boolean directorTouched = row.getDirectorReviewedAt() != null
+                || status == MainDutyAuthorizationStatus.DIRECTOR_REJECTED
+                || status == MainDutyAuthorizationStatus.APPROVED;
+        boolean isHead = actor.getRole() != null && actor.getRole().isHeadDepartment();
+        boolean isHr = actor.getRole() != null && actor.getRole().isHr2();
+        boolean isDirector = ApprovalAuthority.isDirectorApprover(actor);
+        if (isHead && headTouched) {
+            return true;
+        }
+        if (isHr && hrTouched) {
+            return true;
+        }
+        if (isDirector && directorTouched) {
+            return true;
+        }
+        return !isHead && !isHr && !isDirector;
     }
 
     @Transactional(readOnly = true)
@@ -266,7 +306,7 @@ public class MainDutyAuthorizationService {
 
         if (previousStatus == MainDutyAuthorizationStatus.PENDING_HEAD
                 || previousStatus == MainDutyAuthorizationStatus.HEAD_REJECTED) {
-            if (NursingBlockClassifier.matches(row.getEmployee())) {
+            if (NursingBlockClassifier.matchesNursingHeadScope(row.getEmployee())) {
                 row.setStatus(MainDutyAuthorizationStatus.PENDING_NURSING_HEAD);
             } else {
                 row.setStatus(MainDutyAuthorizationStatus.PENDING_DIRECTOR);
@@ -295,7 +335,7 @@ public class MainDutyAuthorizationService {
         }
         MainDutyAuthorizationStatus previousStatus = row.getStatus();
         if (nursingHead.getRole() == UserRole.HEAD_NURSING
-                && !NursingBlockClassifier.matches(row.getEmployee())) {
+                && !NursingBlockClassifier.matchesNursingHeadScope(row.getEmployee())) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "Chỉ duyệt đơn trực chính của khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa");
         }

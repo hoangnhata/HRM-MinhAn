@@ -16,7 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
 import {
@@ -27,6 +27,7 @@ import * as mda from '../services/mainDutyAuthorizationService';
 import { MainDutyAuthorizationDetailDialog } from './MainDutyAuthorizationDetailDialog';
 import {
   applyRequestListFilters,
+  currentMonthRequestFilters,
   EMPTY_REQUEST_FILTERS,
   RequestListFilters,
   type RequestListFilterState,
@@ -46,6 +47,7 @@ export function MainDutyAuthorizationPendingPanel({ onChanged }: { onChanged?: (
   const [pendingHr, setPendingHr] = useState<mda.MainDutyAuthorization[]>([]);
   const [pendingDirector, setPendingDirector] = useState<mda.MainDutyAuthorization[]>([]);
   const [history, setHistory] = useState<mda.MainDutyAuthorization[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [mine, setMine] = useState<mda.MainDutyAuthorization[]>([]);
   const [subTab, setSubTab] = useState(0);
   const [listLoading, setListLoading] = useState(true);
@@ -59,8 +61,24 @@ export function MainDutyAuthorizationPendingPanel({ onChanged }: { onChanged?: (
   } | null>(null);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const historyReq = useRef(0);
 
-  const reload = useCallback(() => {
+  const isAdmin = user?.role === 'ADMIN';
+  const isApprover = isHead || isNursingHead || isDirectorOrAdmin || isHrOrAdmin;
+  const isCreator = isHeadDepartmentRole(user?.role);
+  const canLoadHistory = isNursingHead || isHrOrAdmin || isDirectorOrAdmin || isHead;
+
+  const tabKeys = useMemo(() => {
+    const keys: string[] = [];
+    if (isApprover) keys.push('pending', 'history');
+    if (isCreator) keys.push('mine');
+    return keys;
+  }, [isApprover, isCreator]);
+
+  const activeKey = tabKeys[Math.min(subTab, Math.max(tabKeys.length - 1, 0))];
+  const historyActive = activeKey === 'history';
+
+  const reloadPending = useCallback(() => {
     setListLoading(true);
     const tasks: Promise<void>[] = [];
     if (isHead) {
@@ -95,11 +113,6 @@ export function MainDutyAuthorizationPendingPanel({ onChanged }: { onChanged?: (
           .catch(() => setPendingDirector([])),
       );
     }
-    if (isNursingHead || isHrOrAdmin || isDirectorOrAdmin || isHead) {
-      tasks.push(
-        mda.fetchMainDutyAuthorizationHistory().then(setHistory).catch(() => setHistory([])),
-      );
-    }
     if (isHeadDepartmentRole(user?.role) || user?.role === 'ADMIN') {
       tasks.push(mda.fetchMyMainDutyAuthorizations().then(setMine).catch(() => setMine([])));
     } else {
@@ -111,13 +124,66 @@ export function MainDutyAuthorizationPendingPanel({ onChanged }: { onChanged?: (
       .finally(() => setListLoading(false));
   }, [isHrOrAdmin, isDirectorOrAdmin, isHead, isNursingHead, user?.role]);
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  const reloadHistory = useCallback(
+    (nextFilters: RequestListFilterState) => {
+      if (!canLoadHistory) return;
+      const reqId = ++historyReq.current;
+      setListLoading(true);
+      mda
+        .fetchMainDutyAuthorizationHistory({
+          fromDate: nextFilters.dateFrom || undefined,
+          toDate: nextFilters.dateTo || undefined,
+        })
+        .then((rows) => {
+          if (historyReq.current !== reqId) return;
+          setHistory(rows);
+          setHistoryLoaded(true);
+        })
+        .catch(() => {
+          if (historyReq.current !== reqId) return;
+          setHistory([]);
+          setHistoryLoaded(true);
+        })
+        .finally(() => {
+          if (historyReq.current === reqId) setListLoading(false);
+        });
+    },
+    [canLoadHistory],
+  );
 
-  const isAdmin = user?.role === 'ADMIN';
-  const isApprover = isHead || isNursingHead || isDirectorOrAdmin || isHrOrAdmin;
-  const isCreator = isHeadDepartmentRole(user?.role);
+  useEffect(() => {
+    reloadPending();
+  }, [reloadPending]);
+
+  useEffect(() => {
+    if (historyActive) {
+      const month = currentMonthRequestFilters();
+      setFilters(month);
+      reloadHistory(month);
+    } else {
+      setFilters(EMPTY_REQUEST_FILTERS);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyActive, canLoadHistory]);
+
+  const onFiltersChange = useCallback(
+    (next: RequestListFilterState) => {
+      const dateChanged =
+        next.dateFrom !== filters.dateFrom || next.dateTo !== filters.dateTo;
+      setFilters(next);
+      if (historyActive && dateChanged) {
+        reloadHistory(next);
+      }
+    },
+    [filters.dateFrom, filters.dateTo, historyActive, reloadHistory],
+  );
+
+  const reload = useCallback(() => {
+    reloadPending();
+    if (historyActive) {
+      reloadHistory(filters);
+    }
+  }, [reloadPending, historyActive, reloadHistory, filters]);
 
   const pendingForMe = useMemo(() => {
     const byId = new Map<number, mda.MainDutyAuthorization>();
@@ -139,8 +205,6 @@ export function MainDutyAuthorizationPendingPanel({ onChanged }: { onChanged?: (
       String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
     );
   }, [
-    user?.role,
-    user?.directorApprovalEnabled,
     isAdmin,
     isHead,
     isNursingHead,
@@ -162,25 +226,28 @@ export function MainDutyAuthorizationPendingPanel({ onChanged }: { onChanged?: (
         count: pendingForMe.length,
         list: pendingForMe,
       });
-      tabs.push({ key: 'history', label: 'Lịch sử', count: history.length, list: history });
+      tabs.push({
+        key: 'history',
+        label: historyLoaded ? `Lịch sử (${history.length})` : 'Lịch sử',
+        count: history.length,
+        list: history,
+      });
     }
     if (isCreator) {
       tabs.push({ key: 'mine', label: 'Đơn tôi lập', count: mine.length, list: mine });
     }
     return tabs;
-  }, [isApprover, isCreator, pendingForMe, history, mine]);
+  }, [isApprover, isCreator, pendingForMe, history, historyLoaded, mine]);
 
   useEffect(() => {
     if (subTab >= tabDefs.length) setSubTab(0);
   }, [tabDefs.length, subTab]);
 
-  useEffect(() => {
-    setFilters(EMPTY_REQUEST_FILTERS);
-  }, [subTab]);
-
   const active = tabDefs[subTab];
   const list = active?.list ?? [];
   const canActOnTab = active?.key === 'pending' || active?.key === 'history';
+  const filterReset = historyActive ? currentMonthRequestFilters() : EMPTY_REQUEST_FILTERS;
+  const clearLabel = historyActive ? 'Về tháng này' : 'Xóa lọc';
 
   const filtered = useMemo(
     () =>
@@ -396,15 +463,24 @@ export function MainDutyAuthorizationPendingPanel({ onChanged }: { onChanged?: (
         rows={rows}
         loading={listLoading}
         emptyTitle="Không có đơn trong mục này"
-        emptyHint="Khi có đơn được trực chính, chúng sẽ xuất hiện tại đây."
+        emptyHint={
+          historyActive
+            ? 'Mặc định xem đơn trong tháng hiện tại. Đổi khoảng ngày để xem thêm.'
+            : 'Khi có đơn được trực chính, chúng sẽ xuất hiện tại đây.'
+        }
         actionBusyId={actionBusyId}
         bulkBusy={bulkBusy}
         toolbar={
           <RequestListFilters
             value={filters}
-            onChange={setFilters}
+            onChange={onFiltersChange}
             statusOptions={statusOptions}
             resultCount={filtered.length}
+            resetFilters={filterReset}
+            clearLabel={clearLabel}
+            title={
+              historyActive ? 'Bộ lọc lịch sử (mặc định tháng này)' : 'Bộ lọc đơn'
+            }
           />
         }
         onView={(row) => setDetailId(Number(row.id))}

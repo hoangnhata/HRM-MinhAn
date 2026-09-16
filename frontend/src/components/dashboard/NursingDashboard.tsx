@@ -55,6 +55,7 @@ const SUBGROUP_PALETTE = {
   tech: '#0369a1',
   midwife: '#7c3aed',
   secretary: '#be185d',
+  assistantPhysician: '#0d9488',
   other: '#b45309',
 } as const;
 
@@ -237,6 +238,7 @@ function colorForSubGroup(label: string, index: number): string {
   if (folded.includes('ktv') || folded.includes('ky thuat')) return SUBGROUP_PALETTE.tech;
   if (folded.includes('ho sinh')) return SUBGROUP_PALETTE.midwife;
   if (folded.includes('thu ky')) return SUBGROUP_PALETTE.secretary;
+  if (/\by s[iy]\b/.test(folded)) return SUBGROUP_PALETTE.assistantPhysician;
   const fallback = Object.values(SUBGROUP_PALETTE);
   return fallback[index % fallback.length];
 }

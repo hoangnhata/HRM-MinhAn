@@ -223,8 +223,16 @@ export async function fetchNursingPending() {
   return data;
 }
 
-export async function fetchNursingEvaluationHistory() {
-  const { data } = await api.get<NursingEvalRow[]>('/v1/nursing-evaluations/history');
+export async function fetchNursingEvaluationHistory(opts?: {
+  fromDate?: string;
+  toDate?: string;
+}) {
+  const { data } = await api.get<NursingEvalRow[]>('/v1/nursing-evaluations/history', {
+    params: {
+      fromDate: opts?.fromDate || undefined,
+      toDate: opts?.toDate || undefined,
+    },
+  });
   return data;
 }
 

@@ -12,6 +12,7 @@ import {
   requestFieldSx,
 } from './work/WorkRequestFormUi';
 import * as ycs from '../services/youngChildRequestService';
+import { endOfMonthLocalIso, formatLocalIsoDate, startOfMonthLocalIso } from '../utils/dateFormat';
 
 type Props = {
   open: boolean;
@@ -40,8 +41,8 @@ export function YoungChildProposeDialog({
 }: Props) {
   const isEditing = Boolean(editRequest);
   const fieldSx = requestFieldSx(ACCENT);
-  const defaultStart = `${year}-${String(month).padStart(2, '0')}-01`;
-  const defaultEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  const defaultStart = startOfMonthLocalIso(year, month);
+  const defaultEnd = endOfMonthLocalIso(defaultStart);
   const [startDate, setStartDate] = useState(defaultStart);
   const [endDate, setEndDate] = useState(defaultEnd);
   const [reason, setReason] = useState('');
@@ -77,9 +78,10 @@ export function YoungChildProposeDialog({
       return;
     }
     const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
-    const maxEnd = new Date(Date.UTC(startYear + 1, startMonth - 1, startDay));
-    maxEnd.setUTCDate(maxEnd.getUTCDate() - 1);
-    if (endDate > maxEnd.toISOString().slice(0, 10)) {
+    const maxEndDate = new Date(startYear + 1, startMonth - 1, startDay);
+    maxEndDate.setDate(maxEndDate.getDate() - 1);
+    const maxEnd = formatLocalIsoDate(maxEndDate);
+    if (endDate > maxEnd) {
       setErr('Khoảng thời gian áp dụng không được quá 1 năm.');
       return;
     }

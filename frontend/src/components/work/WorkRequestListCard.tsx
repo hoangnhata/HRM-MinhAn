@@ -112,7 +112,11 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
               </Box>
               <Chip
                 size="small"
-                label={att.requestStatusLabel(request.status, request.requestType)}
+                label={att.requestStatusLabel(
+                  request.status,
+                  request.requestType,
+                  request.explanationKeepOriginalTimes,
+                )}
                 color={att.requestStatusColor(request.status)}
                 variant="outlined"
                 sx={{ height: 24, flexShrink: 0, fontWeight: 600, '& .MuiChip-label': { px: 0.85, fontSize: '0.7rem' } }}
@@ -123,7 +127,7 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
               {request.requestType === 'UPDATE' && request.updateKind && (
                 <Chip
                   size="small"
-                  label={att.updateKindLabel(request.updateKind, request.continuousShift)}
+                  label={att.updateKindLabel(request.updateKind, request.continuousShift, request.twoPunchAttendance)}
                   sx={{ height: 22, bgcolor: alpha(accent, 0.08), '& .MuiChip-label': { px: 0.85, fontSize: '0.68rem' } }}
                 />
               )}

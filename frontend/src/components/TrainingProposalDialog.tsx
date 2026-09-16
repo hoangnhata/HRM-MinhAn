@@ -288,7 +288,7 @@ export function TrainingProposalDialog({ open, onClose, onSubmitted, editProposa
       onSubmitted?.();
       onClose();
     } catch (ex) {
-      setErr(extractApiErrorMessage(ex, 'Gửi phiếu thất bại.'));
+      setErr(extractApiErrorMessage(ex, 'Gửi phiếu thất bại. Kiểm tra khoảng ngày có trùng phiếu đào tạo khác không.'));
     } finally {
       setLoading(false);
     }

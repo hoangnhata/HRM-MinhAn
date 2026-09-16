@@ -16,7 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
 import {
@@ -27,6 +27,7 @@ import * as sps from '../services/seminarProposalService';
 import { SeminarProposalDetailDialog } from './SeminarProposalDetailDialog';
 import {
   applyRequestListFilters,
+  currentMonthRequestFilters,
   EMPTY_REQUEST_FILTERS,
   RequestListFilters,
   type RequestListFilterState,
@@ -43,6 +44,7 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
 
   const [pendingDirector, setPendingDirector] = useState<sps.SeminarProposal[]>([]);
   const [history, setHistory] = useState<sps.SeminarProposal[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [mine, setMine] = useState<sps.SeminarProposal[]>([]);
   const [subTab, setSubTab] = useState(0);
   const [listLoading, setListLoading] = useState(true);
@@ -56,8 +58,23 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
   } | null>(null);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const historyReq = useRef(0);
 
-  const reload = useCallback(() => {
+  const isCreatorOnly = isHeadDepartmentRole(user?.role);
+  const canLoadHistory = isHrOrAdmin || isDirectorOrAdmin;
+
+  const tabKeys = useMemo(() => {
+    const keys: string[] = [];
+    if (isDirectorOrAdmin) keys.push('pending');
+    if (canLoadHistory) keys.push('history');
+    if (isCreatorOnly) keys.push('mine');
+    return keys;
+  }, [isDirectorOrAdmin, canLoadHistory, isCreatorOnly]);
+
+  const activeKey = tabKeys[Math.min(subTab, Math.max(tabKeys.length - 1, 0))];
+  const historyActive = activeKey === 'history';
+
+  const reloadPending = useCallback(() => {
     setListLoading(true);
     const tasks: Promise<void>[] = [];
     if (canView) {
@@ -66,12 +83,6 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
           .fetchPendingDirectorSeminarProposals()
           .then(setPendingDirector)
           .catch(() => setPendingDirector([])),
-      );
-      tasks.push(
-        sps
-          .fetchSeminarProposalHistory()
-          .then(setHistory)
-          .catch(() => setHistory([])),
       );
     }
     if (isHead) {
@@ -88,11 +99,66 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
       .finally(() => setListLoading(false));
   }, [canView, isHead]);
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  const reloadHistory = useCallback(
+    (nextFilters: RequestListFilterState) => {
+      if (!canLoadHistory) return;
+      const reqId = ++historyReq.current;
+      setListLoading(true);
+      sps
+        .fetchSeminarProposalHistory({
+          fromDate: nextFilters.dateFrom || undefined,
+          toDate: nextFilters.dateTo || undefined,
+        })
+        .then((rows) => {
+          if (historyReq.current !== reqId) return;
+          setHistory(rows);
+          setHistoryLoaded(true);
+        })
+        .catch(() => {
+          if (historyReq.current !== reqId) return;
+          setHistory([]);
+          setHistoryLoaded(true);
+        })
+        .finally(() => {
+          if (historyReq.current === reqId) setListLoading(false);
+        });
+    },
+    [canLoadHistory],
+  );
 
-  const isCreatorOnly = isHeadDepartmentRole(user?.role);
+  useEffect(() => {
+    reloadPending();
+  }, [reloadPending]);
+
+  useEffect(() => {
+    if (historyActive) {
+      const month = currentMonthRequestFilters();
+      setFilters(month);
+      reloadHistory(month);
+    } else {
+      setFilters(EMPTY_REQUEST_FILTERS);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyActive, canLoadHistory]);
+
+  const onFiltersChange = useCallback(
+    (next: RequestListFilterState) => {
+      const dateChanged =
+        next.dateFrom !== filters.dateFrom || next.dateTo !== filters.dateTo;
+      setFilters(next);
+      if (historyActive && dateChanged) {
+        reloadHistory(next);
+      }
+    },
+    [filters.dateFrom, filters.dateTo, historyActive, reloadHistory],
+  );
+
+  const reload = useCallback(() => {
+    reloadPending();
+    if (historyActive) {
+      reloadHistory(filters);
+    }
+  }, [reloadPending, historyActive, reloadHistory, filters]);
 
   const tabDefs = useMemo(() => {
     const tabs: { key: string; label: string; count?: number; list: sps.SeminarProposal[] }[] = [];
@@ -104,27 +170,38 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
         list: pendingDirector,
       });
     }
-    if (isHrOrAdmin || isDirectorOrAdmin) {
-      tabs.push({ key: 'history', label: 'Lịch sử', count: history.length, list: history });
+    if (canLoadHistory) {
+      tabs.push({
+        key: 'history',
+        label: historyLoaded ? `Lịch sử (${history.length})` : 'Lịch sử',
+        count: history.length,
+        list: history,
+      });
     }
     if (isCreatorOnly) {
       tabs.push({ key: 'mine', label: 'Phiếu tôi lập', count: mine.length, list: mine });
     }
     return tabs;
-  }, [isHrOrAdmin, isDirectorOrAdmin, isCreatorOnly, pendingDirector, history, mine]);
+  }, [
+    isDirectorOrAdmin,
+    canLoadHistory,
+    isCreatorOnly,
+    pendingDirector,
+    history,
+    historyLoaded,
+    mine,
+  ]);
 
   useEffect(() => {
     if (subTab >= tabDefs.length) setSubTab(0);
   }, [tabDefs.length, subTab]);
 
-  useEffect(() => {
-    setFilters(EMPTY_REQUEST_FILTERS);
-  }, [subTab]);
-
   const active = tabDefs[subTab];
   const list = active?.list ?? [];
   const canActOnTab =
     (active?.key === 'pending' || active?.key === 'history') && isDirectorOrAdmin;
+  const filterReset = historyActive ? currentMonthRequestFilters() : EMPTY_REQUEST_FILTERS;
+  const clearLabel = historyActive ? 'Về tháng này' : 'Xóa lọc';
 
   const filtered = useMemo(
     () =>
@@ -313,15 +390,24 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
         rows={rows}
         loading={listLoading}
         emptyTitle="Không có phiếu trong mục này"
-        emptyHint="Khi có phiếu đề xuất hội thảo, chúng sẽ xuất hiện tại đây."
+        emptyHint={
+          historyActive
+            ? 'Mặc định xem phiếu trong tháng hiện tại. Đổi khoảng ngày để xem thêm.'
+            : 'Khi có phiếu đề xuất hội thảo, chúng sẽ xuất hiện tại đây.'
+        }
         actionBusyId={actionBusyId}
         bulkBusy={bulkBusy}
         toolbar={
           <RequestListFilters
             value={filters}
-            onChange={setFilters}
+            onChange={onFiltersChange}
             statusOptions={statusOptions}
             resultCount={filtered.length}
+            resetFilters={filterReset}
+            clearLabel={clearLabel}
+            title={
+              historyActive ? 'Bộ lọc lịch sử (mặc định tháng này)' : 'Bộ lọc đơn'
+            }
           />
         }
         onView={(row) => setDetailId(Number(row.id))}

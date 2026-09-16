@@ -33,6 +33,36 @@ export const EMPTY_REQUEST_FILTERS: RequestListFilterState = {
   department: '',
 };
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** Bộ lọc mặc định tab Lịch sử: từ ngày 1 → cuối tháng hiện tại. */
+export function currentMonthRequestFilters(): RequestListFilterState {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  return {
+    ...EMPTY_REQUEST_FILTERS,
+    dateFrom: `${y}-${pad2(m + 1)}-01`,
+    dateTo: `${y}-${pad2(m + 1)}-${pad2(lastDay)}`,
+  };
+}
+
+export function sameRequestFilters(
+  a: RequestListFilterState,
+  b: RequestListFilterState,
+): boolean {
+  return (
+    a.q === b.q &&
+    a.dateFrom === b.dateFrom &&
+    a.dateTo === b.dateTo &&
+    a.status === b.status &&
+    a.department === b.department
+  );
+}
+
 type StatusOption = { value: string; label: string };
 
 type Props = {
@@ -49,6 +79,9 @@ type Props = {
   hideDateFilters?: boolean;
   /** Nhãn chip số kết quả, mặc định "đơn". */
   resultCountLabel?: string;
+  /** Giá trị khi bấm Xóa lọc (mặc định: trống). Tab lịch sử nên truyền tháng hiện tại. */
+  resetFilters?: RequestListFilterState;
+  clearLabel?: string;
 };
 
 const fieldSx = {
@@ -66,6 +99,8 @@ export function RequestListFilters({
   title = 'Bộ lọc đơn',
   hideDateFilters = false,
   resultCountLabel = 'đơn',
+  resetFilters = EMPTY_REQUEST_FILTERS,
+  clearLabel = 'Xóa lọc',
 }: Props) {
   const theme = useTheme();
   const [departments, setDepartments] = useState<employeeService.DepartmentOption[]>([]);
@@ -81,9 +116,7 @@ export function RequestListFilters({
     onChange({ ...value, ...partial });
   }
 
-  const hasFilter = Boolean(
-    value.q || value.dateFrom || value.dateTo || value.status || value.department,
-  );
+  const hasFilter = !sameRequestFilters(value, resetFilters);
 
   const deptNames = (() => {
     if (departmentOptions && departmentOptions.length > 0) {
@@ -130,10 +163,10 @@ export function RequestListFilters({
               <Button
                 size="small"
                 startIcon={<FilterAltOffOutlinedIcon fontSize="small" />}
-                onClick={() => onChange({ ...EMPTY_REQUEST_FILTERS })}
+                onClick={() => onChange({ ...resetFilters })}
                 sx={{ textTransform: 'none', fontWeight: 600 }}
               >
-                Xóa lọc
+                {clearLabel}
               </Button>
             )}
           </Stack>

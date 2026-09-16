@@ -14,6 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
+import type { SxProps, Theme } from '@mui/material/styles';
 import { createContext, useContext } from 'react';
 
 const RequestAccentContext = createContext<string | null>(null);
@@ -44,7 +45,8 @@ type DialogShellProps = {
   children: React.ReactNode;
   error?: string | null;
   onSubmit?: (e: React.FormEvent) => void;
-  maxWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  maxWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | false;
+  paperSx?: SxProps<Theme>;
 };
 
 export function WorkRequestDialogShell({
@@ -62,6 +64,7 @@ export function WorkRequestDialogShell({
   error,
   onSubmit,
   maxWidth = 'md',
+  paperSx,
 }: DialogShellProps) {
   const theme = useTheme();
 
@@ -73,14 +76,17 @@ export function WorkRequestDialogShell({
       maxWidth={maxWidth}
       fullWidth
       PaperProps={{
-        sx: {
-          borderRadius: { xs: 0, sm: 3.5 },
-          overflow: 'hidden',
-          maxHeight: { xs: '100dvh', sm: '92dvh' },
-          bgcolor: '#f4f7fb',
-          border: { sm: `1px solid ${alpha(theme.palette.divider, 0.7)}` },
-          boxShadow: `0 28px 80px ${alpha('#0f172a', 0.16)}`,
-        },
+        sx: [
+          {
+            borderRadius: { xs: 0, sm: 3.5 },
+            overflow: 'hidden',
+            maxHeight: { xs: '100dvh', sm: '94dvh' },
+            bgcolor: '#f4f7fb',
+            border: { sm: `1px solid ${alpha(theme.palette.divider, 0.7)}` },
+            boxShadow: `0 28px 80px ${alpha('#0f172a', 0.16)}`,
+          },
+          ...(paperSx ? (Array.isArray(paperSx) ? paperSx : [paperSx]) : []),
+        ],
       }}
     >
       <Box
@@ -141,7 +147,7 @@ export function WorkRequestDialogShell({
         </Stack>
       </Box>
 
-      <DialogContent sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 2.75 }, bgcolor: '#f4f7fb' }}>
+      <DialogContent sx={{ px: { xs: 2, sm: 3, md: 3.5 }, py: { xs: 2, sm: 2.75 }, bgcolor: '#f4f7fb' }}>
         <Stack spacing={2.25} component="form" id={formId} onSubmit={onSubmit}>
           {children}
           {error && (
@@ -199,7 +205,8 @@ type ViewShellProps = {
   headerExtra?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  maxWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  maxWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | false;
+  paperSx?: SxProps<Theme>;
 };
 
 /** Shell xem chi tiết / duyệt đơn — cùng phong cách với form gửi đơn. */
@@ -216,6 +223,7 @@ export function WorkRequestViewShell({
   children,
   footer,
   maxWidth = 'md',
+  paperSx,
 }: ViewShellProps) {
   const theme = useTheme();
 
@@ -227,14 +235,17 @@ export function WorkRequestViewShell({
       maxWidth={maxWidth}
       fullWidth
       PaperProps={{
-        sx: {
-          borderRadius: { xs: 0, sm: 3.5 },
-          overflow: 'hidden',
-          maxHeight: { xs: '100dvh', sm: '92dvh' },
-          bgcolor: '#f4f7fb',
-          border: { sm: `1px solid ${alpha(theme.palette.divider, 0.7)}` },
-          boxShadow: `0 28px 80px ${alpha('#0f172a', 0.16)}`,
-        },
+        sx: [
+          {
+            borderRadius: { xs: 0, sm: 3.5 },
+            overflow: 'hidden',
+            maxHeight: { xs: '100dvh', sm: '94dvh' },
+            bgcolor: '#f4f7fb',
+            border: { sm: `1px solid ${alpha(theme.palette.divider, 0.7)}` },
+            boxShadow: `0 28px 80px ${alpha('#0f172a', 0.16)}`,
+          },
+          ...(paperSx ? (Array.isArray(paperSx) ? paperSx : [paperSx]) : []),
+        ],
       }}
     >
       <Box

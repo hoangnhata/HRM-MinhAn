@@ -1,10 +1,12 @@
 import HistoryIcon from '@mui/icons-material/History';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import {
   Alert,
   Badge,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -20,7 +22,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
 import * as att from '../services/attendanceService';
@@ -30,10 +32,10 @@ import {
 } from '../services/approvalSignatureService';
 import {
   applyRequestListFilters,
-  EMPTY_REQUEST_FILTERS,
+  currentMonthRequestFilters,
   RequestListFilters,
-  type RequestListFilterState,
 } from './requests/RequestListFilters';
+import { useLazyHistoryList } from './requests/useLazyHistoryList';
 import { RequestListTable, formatRequestSubject, type RequestListRow } from './requests/RequestListTable';
 import { WorkRequestDetailDialog } from './work/WorkRequestDetailDialog';
 
@@ -108,8 +110,6 @@ function needsDirectorFineDecision(
 export function AttendancePendingPanel({ onChanged, types, description }: Props) {
   const theme = useTheme();
   const { user } = useAuth();
-  const [pendingAll, setPendingAll] = useState<att.WorkRequest[]>([]);
-  const [historyAll, setHistoryAll] = useState<att.WorkRequest[]>([]);
   const [subTab, setSubTab] = useState(0);
   const [selected, setSelected] = useState<att.WorkRequest | null>(null);
   const [comment, setComment] = useState('');
@@ -118,17 +118,16 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
   const [hrComment, setHrComment] = useState('');
   const [directorComment, setDirectorComment] = useState('');
   const [loading, setLoading] = useState(false);
-  const [listLoading, setListLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [filters, setFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
   const [confirm, setConfirm] = useState<{
     requests: att.WorkRequest[];
     approved: boolean;
   } | null>(null);
   /** null = chưa chọn; chỉ dùng khi Giám đốc duyệt UPDATE/EXPLANATION */
-  const [bulkWaiveFine, setBulkWaiveFine] = useState<boolean | null>(null);
+  const [bulkFineDecision, setBulkFineDecision] = useState<'fine' | 'waive' | 'keepOriginal' | null>(null);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const isHead = user?.role === 'ADMIN' || isHeadDepartmentRole(user?.role);
   const isNursingHead = user?.role === 'ADMIN' || user?.role === 'HEAD_NURSING';
@@ -143,7 +142,36 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
     [isHead, isNursingHead, isHr, isDirector],
   );
 
+  const canLoad = isHead || isNursingHead || isHr || isDirector;
+  const loadPending = useCallback(
+    () => att.fetchPendingWorkRequests().catch(() => [] as att.WorkRequest[]),
+    [],
+  );
+  const loadHistory = useCallback(
+    (range: { fromDate?: string; toDate?: string }) =>
+      att.fetchReviewHistoryWorkRequests(range).catch(() => [] as att.WorkRequest[]),
+    [],
+  );
+  const {
+    pending: pendingAll,
+    history: historyAll,
+    listLoading,
+    historyLoaded,
+    filters,
+    setFilters,
+    filterReset,
+    clearLabel,
+    reload,
+  } = useLazyHistoryList({
+    historyActive: subTab === 1,
+    canLoad,
+    loadPending,
+    loadHistory,
+  });
+
   const typeSet = useMemo(() => (types && types.length > 0 ? new Set(types) : null), [types]);
+  const isDeploymentOnly = Boolean(typeSet?.has('DEPLOYMENT') && typeSet.size === 1);
+  const canExportDeployments = isDeploymentOnly && isHr;
 
   const pending = useMemo(
     () => (typeSet ? pendingAll.filter((r) => typeSet.has(r.requestType)) : pendingAll),
@@ -154,29 +182,29 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
     [historyAll, typeSet],
   );
 
-  const reload = useCallback(() => {
-    if (!isHead && !isNursingHead && !isHr && !isDirector) return;
-    setListLoading(true);
-    Promise.all([
-      att.fetchPendingWorkRequests().catch(() => [] as att.WorkRequest[]),
-      att.fetchReviewHistoryWorkRequests().catch(() => [] as att.WorkRequest[]),
-    ])
-      .then(([p, h]) => {
-        setPendingAll(p);
-        setHistoryAll(h);
-      })
-      .finally(() => setListLoading(false));
-  }, [isHead, isNursingHead, isHr, isDirector]);
+  if (!canLoad) return null;
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  useEffect(() => {
-    setFilters(EMPTY_REQUEST_FILTERS);
-  }, [subTab]);
-
-  if (!isHead && !isNursingHead && !isHr && !isDirector) return null;
+  async function exportDeploymentsExcel() {
+    const range =
+      filters.dateFrom || filters.dateTo
+        ? filters
+        : currentMonthRequestFilters();
+    setExporting(true);
+    setMsg(null);
+    try {
+      await att.downloadDeploymentRequestsExcel(
+        range.dateFrom || undefined,
+        range.dateTo || undefined,
+      );
+      setMsg(
+        `Đã xuất Excel điều động (${range.dateFrom || 'đầu tháng'} → ${range.dateTo || 'cuối tháng'}).`,
+      );
+    } catch (e) {
+      setMsg(extractApiErrorMessage(e, 'Không xuất được Excel điều động.'));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   function openDetail(r: att.WorkRequest) {
     setSelected(r);
@@ -216,6 +244,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
     approved: boolean,
     note = '',
     waiveFine?: boolean,
+    keepOriginalPunchTimes?: boolean,
   ) {
     const stage = reviewStageForWorkRequest(request, roleOpts);
     if (stage === 'head') {
@@ -228,6 +257,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
       await att.directorReviewRequest(request.id, approved, {
         comment: note,
         waiveForgotFine: waiveFine,
+        keepOriginalPunchTimes,
       });
     } else {
       throw new Error('Đơn không còn ở bước chờ duyệt của bạn.');
@@ -319,7 +349,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
     }
   }
 
-  async function directorAct(approved: boolean, waiveFine?: boolean) {
+  async function directorAct(approved: boolean, waiveFine?: boolean, keepOriginalPunchTimes?: boolean) {
     if (!selected) return;
     setLoading(true);
     setMsg(null);
@@ -328,6 +358,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
       await att.directorReviewRequest(selected.id, approved, {
         comment: directorComment || comment,
         waiveForgotFine: waiveFine,
+        keepOriginalPunchTimes,
       });
       reload();
       onChanged?.();
@@ -364,8 +395,8 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
     const fineTargets = approved
       ? requests.filter((r) => needsDirectorFineDecision(r, roleOpts))
       : [];
-    if (fineTargets.length > 0 && bulkWaiveFine == null) {
-      setMsg('Vui lòng chọn trừ tiền hay không trừ tiền trước khi duyệt.');
+    if (fineTargets.length > 0 && bulkFineDecision == null) {
+      setMsg('Vui lòng chọn quyết định trừ tiền trước khi duyệt.');
       return;
     }
     const multi = requests.length > 1;
@@ -380,9 +411,16 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
         try {
           const waive =
             approved && needsDirectorFineDecision(request, roleOpts)
-              ? Boolean(bulkWaiveFine)
+              ? bulkFineDecision !== 'fine'
               : undefined;
-          await reviewRequest(request, approved, '', waive);
+          const keepOriginal =
+            approved &&
+            needsDirectorFineDecision(request, roleOpts) &&
+            request.requestType === 'EXPLANATION' &&
+            bulkFineDecision === 'keepOriginal'
+              ? true
+              : undefined;
+          await reviewRequest(request, approved, '', waive, keepOriginal);
           ok += 1;
         } catch {
           fail += 1;
@@ -393,9 +431,11 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
       if (fail === 0) {
         const fineNote =
           approved && fineTargets.length > 0
-            ? bulkWaiveFine
-              ? ' (không trừ tiền)'
-              : ' (có trừ tiền)'
+            ? bulkFineDecision === 'keepOriginal'
+              ? ' (giữ giờ gốc, không trừ tiền — giải trình)'
+              : bulkFineDecision === 'waive'
+                ? ' (không trừ tiền)'
+                : ' (có trừ tiền)'
             : '';
         setMsg(
           approved
@@ -408,7 +448,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
         );
       }
       setConfirm(null);
-      setBulkWaiveFine(null);
+      setBulkFineDecision(null);
     } catch (e) {
       setMsg(extractApiErrorMessage(e, 'Thao tác thất bại.'));
     } finally {
@@ -418,14 +458,14 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
   }
 
   function openConfirm(requests: att.WorkRequest[], approved: boolean) {
-    setBulkWaiveFine(null);
+    setBulkFineDecision(null);
     setConfirm({ requests, approved });
   }
 
   function closeConfirm() {
     if (actionBusyId != null || bulkBusy) return;
     setConfirm(null);
-    setBulkWaiveFine(null);
+    setBulkFineDecision(null);
   }
 
   const list = subTab === 0 ? pending : history;
@@ -447,7 +487,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
     const map = new Map<string, string>();
     for (const r of list) {
       if (!map.has(r.status)) {
-        map.set(r.status, att.requestStatusLabel(r.status, r.requestType));
+        map.set(r.status, att.requestStatusLabel(r.status, r.requestType, r.explanationKeepOriginalTimes));
       }
     }
     return [...map.entries()].map(([value, label]) => ({ value, label }));
@@ -462,7 +502,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
       department: r.department,
       summary: workRequestSummary(r),
       meta: r.reason?.trim() || undefined,
-      statusLabel: att.requestStatusLabel(r.status, r.requestType),
+      statusLabel: att.requestStatusLabel(r.status, r.requestType, r.explanationKeepOriginalTimes),
       statusColor: att.requestStatusColor(r.status),
       dateLabel: att.formatWorkDate(r.workDate),
       submittedAtLabel: r.createdAt ? att.formatWorkDate(String(r.createdAt).slice(0, 10)) : undefined,
@@ -536,10 +576,28 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
             <Tab
               icon={<HistoryIcon fontSize="small" />}
               iconPosition="start"
-              label={`Lịch sử (${history.length})`}
+              label={historyLoaded ? `Lịch sử (${history.length})` : 'Lịch sử'}
             />
           </Tabs>
         </Box>
+        {canExportDeployments && (
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={
+              exporting ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : (
+                <FileDownloadOutlinedIcon />
+              )
+            }
+            disabled={exporting}
+            onClick={() => void exportDeploymentsExcel()}
+            sx={{ textTransform: 'none', fontWeight: 600, alignSelf: { xs: 'stretch', sm: 'center' } }}
+          >
+            {exporting ? 'Đang xuất…' : 'Xuất Excel'}
+          </Button>
+        )}
       </Stack>
 
       <RequestListTable
@@ -549,7 +607,9 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
         emptyHint={
           subTab === 0
             ? 'Các đơn mới sẽ xuất hiện tại đây. Dùng bộ lọc để tìm nhanh.'
-            : 'Các đơn đã duyệt hoặc từ chối sẽ được lưu tại đây.'
+            : canExportDeployments
+              ? 'Mặc định xem đơn gửi trong tháng hiện tại. Xuất Excel theo ngày điều động (khoảng ngày trên bộ lọc).'
+              : 'Mặc định xem đơn gửi trong tháng hiện tại. Đổi khoảng ngày để xem thêm.'
         }
         actionBusyId={actionBusyId}
         bulkBusy={bulkBusy}
@@ -559,6 +619,9 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
             onChange={setFilters}
             statusOptions={statusOptions}
             resultCount={filtered.length}
+            resetFilters={filterReset}
+            clearLabel={clearLabel}
+            title={subTab === 1 ? 'Bộ lọc lịch sử (mặc định tháng này)' : 'Bộ lọc đơn'}
           />
         }
         onView={(row) => {
@@ -663,11 +726,13 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
                   </FormLabel>
                   <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
                     Áp dụng cho đơn cập nhật công / giải trình trong danh sách đã chọn. Nghỉ phép,
-                    điều động không bị ảnh hưởng.
+                    điều động không bị ảnh hưởng. Tuỳ chọn «giữ giờ gốc» chỉ áp dụng cho đơn giải trình.
                   </Typography>
                   <RadioGroup
-                    value={bulkWaiveFine == null ? '' : bulkWaiveFine ? 'waive' : 'fine'}
-                    onChange={(_, v) => setBulkWaiveFine(v === 'waive')}
+                    value={bulkFineDecision ?? ''}
+                    onChange={(_, v) =>
+                      setBulkFineDecision(v as 'fine' | 'waive' | 'keepOriginal')
+                    }
                   >
                     <FormControlLabel
                       value="fine"
@@ -677,7 +742,12 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
                     <FormControlLabel
                       value="waive"
                       control={<Radio size="small" color="secondary" />}
-                      label="Không trừ tiền (miễn phạt)"
+                      label="Không trừ tiền — áp giờ giải trình (giải trình) / miễn phạt (cập nhật công)"
+                    />
+                    <FormControlLabel
+                      value="keepOriginal"
+                      control={<Radio size="small" color="info" />}
+                      label="Giữ giờ chấm gốc, không trừ tiền (chỉ giải trình)"
                     />
                   </RadioGroup>
                 </FormControl>
@@ -709,7 +779,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
               bulkBusy ||
               (Boolean(confirm?.approved) &&
                 Boolean(confirm?.requests.some((r) => needsDirectorFineDecision(r, roleOpts))) &&
-                bulkWaiveFine == null)
+                bulkFineDecision == null)
             }
           >
             {confirm?.approved

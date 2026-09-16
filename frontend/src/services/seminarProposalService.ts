@@ -120,8 +120,13 @@ export async function fetchPendingDirectorSeminarProposals() {
   return data;
 }
 
-export async function fetchSeminarProposalHistory() {
-  const { data } = await api.get<SeminarProposal[]>('/v1/seminar-proposals/history');
+export async function fetchSeminarProposalHistory(opts?: { fromDate?: string; toDate?: string }) {
+  const { data } = await api.get<SeminarProposal[]>('/v1/seminar-proposals/history', {
+    params: {
+      fromDate: opts?.fromDate || undefined,
+      toDate: opts?.toDate || undefined,
+    },
+  });
   return data;
 }
 

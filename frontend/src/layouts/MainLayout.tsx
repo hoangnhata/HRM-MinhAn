@@ -1,9 +1,12 @@
+import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import DescriptionIcon from '@mui/icons-material/Description';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import GroupsIcon from '@mui/icons-material/Groups';
+import LocalHospitalOutlinedIcon from '@mui/icons-material/LocalHospitalOutlined';
+import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -55,13 +58,21 @@ const drawerWidth = 256;
 const toolbarOffset = { xs: '56px', sm: '64px' };
 
 const ALL_STAFF = ['ADMIN', 'EMPLOYEE', 'HR', 'HR2', 'HEAD_DEPARTMENT', 'HEAD_HR', 'HEAD_NURSING', 'DIRECTOR'] as const;
-const ADMIN_HR_HEADS = ['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
+const ADMIN_HR_HEADS = ['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING', 'HOSPITAL_EMPLOYEE_VIEWER'] as const;
 /** Quản lý bảng công nhiều NV — menu «Công» */
 const WORK_MANAGERS = ['ADMIN', 'HR', 'HR2', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
 /** Xem công cá nhân — menu «Công của tôi» */
 const WORK_SELF_ROLES = ['EMPLOYEE', 'DIRECTOR', 'ADMIN', 'HR', 'HR2', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
 const SALARY_MANAGERS = ['ADMIN', 'HR'] as const;
 const REPORT_VIEWERS = ['ADMIN', 'HR', 'HR2', 'DIRECTOR', 'REPORT_VIEWER'] as const;
+// Khớp RoleRoute của trang /reports/professional-qualification.
+const PROFESSIONAL_QUALIFICATION_VIEWERS = [
+  'ADMIN',
+  'HR',
+  'HR2',
+  'DIRECTOR',
+  'PROFESSIONAL_QUALIFICATION_VIEWER',
+] as const;
 
 const EMPLOYEE_CATEGORY_PATHS = ['/employees/official', '/employees/trial', '/employees/terminated'] as const;
 
@@ -147,6 +158,27 @@ const NAV_ENTRIES: NavEntry[] = [
           label: 'Nhân lực đi làm hằng ngày',
           icon: <EventNoteIcon fontSize="small" />,
           roles: REPORT_VIEWERS,
+        },
+        {
+          kind: 'link',
+          to: '/reports/professional-qualification',
+          label: 'Trình độ chuyên môn',
+          icon: <SchoolOutlinedIcon fontSize="small" />,
+          roles: PROFESSIONAL_QUALIFICATION_VIEWERS,
+        },
+        {
+          kind: 'link',
+          to: '/reports/nursing-daily',
+          label: 'Báo cáo ĐD hằng ngày',
+          icon: <LocalHospitalOutlinedIcon fontSize="small" />,
+          roles: ['ADMIN', 'HEAD_NURSING', 'HEAD_DEPARTMENT'] as const,
+        },
+        {
+          kind: 'link',
+          to: '/reports/qtkt',
+          label: 'Đánh giá quy trình kỹ thuật',
+          icon: <ScienceOutlinedIcon fontSize="small" />,
+          roles: ['ADMIN', 'HEAD_NURSING', 'HEAD_DEPARTMENT'] as const,
         },
       ],
     },
@@ -302,9 +334,15 @@ export function MainLayout() {
     }
   }, []);
 
+  // Đếm chưa đọc khi vào app rồi mỗi 60 giây, thay vì gọi lại ở mỗi lần đổi
+  // trang — với tài khoản nhiều thông báo, mỗi lần gọi là một lượt quét bảng.
   useEffect(() => {
     refreshUnread();
-  }, [loc.pathname, refreshUnread]);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshUnread();
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [refreshUnread]);
 
   useEffect(() => {
     setOpen(!mobile);
@@ -319,6 +357,10 @@ export function MainLayout() {
       effectiveRoles.add('HR2');
     }
     if (user.reportViewEnabled) effectiveRoles.add('REPORT_VIEWER');
+    if (user.professionalQualificationReportEnabled) {
+      effectiveRoles.add('PROFESSIONAL_QUALIFICATION_VIEWER');
+    }
+    if (user.hospitalWideEmployeeViewEnabled) effectiveRoles.add('HOSPITAL_EMPLOYEE_VIEWER');
     const roleMatch = (roles: readonly string[]) => roles.some((r) => effectiveRoles.has(r));
     const canViewSalaryMenu = user.canViewSalary !== false;
     return NAV_ENTRIES.map((entry) => {
@@ -404,6 +446,7 @@ export function MainLayout() {
     px: 1.25,
     py: 0.9,
     minHeight: 40,
+    alignItems: 'flex-start',
     color: navColor(active),
     bgcolor: active ? alpha(theme.palette.primary.main, 0.1) : 'transparent',
     boxShadow: active ? `inset 3px 0 0 ${theme.palette.primary.main}` : 'none',
@@ -427,6 +470,7 @@ export function MainLayout() {
     px: 1.25,
     py: 0.75,
     minHeight: 40,
+    alignItems: 'flex-start',
     color: theme.palette.text.primary,
     bgcolor: 'transparent',
     '&:hover': {
@@ -443,6 +487,7 @@ export function MainLayout() {
     pr: 1.1,
     py: 0.65,
     minHeight: 40,
+    alignItems: 'flex-start',
     color: navColor(active),
     bgcolor: active ? alpha(theme.palette.primary.main, 0.1) : 'transparent',
     boxShadow: active ? `inset 3px 0 0 ${theme.palette.primary.main}` : 'none',
@@ -468,6 +513,7 @@ export function MainLayout() {
     pr: 1.1,
     py: 0.55,
     minHeight: 36,
+    alignItems: 'flex-start',
     color: navColor(active),
     bgcolor: active ? alpha(theme.palette.primary.main, 0.1) : 'transparent',
     boxShadow: active ? `inset 3px 0 0 ${theme.palette.primary.main}` : 'none',
@@ -589,6 +635,7 @@ export function MainLayout() {
                 <ListItemIcon
                   sx={{
                     minWidth: 34,
+                    mt: 0.2,
                     color: navIconColor(active),
                     '& .MuiSvgIcon-root': { fontSize: 20 },
                   }}
@@ -601,7 +648,8 @@ export function MainLayout() {
                     fontWeight: active ? navLabel.fontWeightActive : navLabel.fontWeight,
                     fontSize: navLabel.fontSize,
                     letterSpacing: navLabel.letterSpacing,
-                    noWrap: true,
+                    lineHeight: 1.35,
+                    whiteSpace: 'normal',
                   }}
                 />
               </ListItemButton>
@@ -623,6 +671,7 @@ export function MainLayout() {
                 <ListItemIcon
                   sx={{
                     minWidth: 34,
+                    mt: 0.2,
                     color: navIconColor(hasActive),
                     '& .MuiSvgIcon-root': { fontSize: 20 },
                   }}
@@ -636,12 +685,15 @@ export function MainLayout() {
                     fontSize: navLabel.fontSize,
                     letterSpacing: navLabel.letterSpacing,
                     color: 'inherit',
+                    lineHeight: 1.35,
+                    whiteSpace: 'normal',
                   }}
                 />
                 <Box
                   sx={{
                     width: 22,
                     height: 22,
+                    mt: 0.2,
                     borderRadius: 1.25,
                     display: 'grid',
                     placeItems: 'center',
@@ -649,6 +701,7 @@ export function MainLayout() {
                     bgcolor: alpha(theme.palette.primary.main, isOpen || hasActive ? 0.08 : 0.04),
                     transition: 'transform 0.2s ease',
                     transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    flexShrink: 0,
                   }}
                 >
                   <KeyboardArrowDownRoundedIcon sx={{ fontSize: 18 }} />
@@ -737,7 +790,8 @@ export function MainLayout() {
                                           fontWeight: active ? navLabel.fontWeightActive : 500,
                                           fontSize: '0.8rem',
                                           letterSpacing: navLabel.letterSpacing,
-                                          noWrap: true,
+                                          lineHeight: 1.35,
+                                          whiteSpace: 'normal',
                                         }}
                                       />
                                     </ListItemButton>
@@ -762,6 +816,7 @@ export function MainLayout() {
                           <ListItemIcon
                             sx={{
                               minWidth: 34,
+                              mt: 0.2,
                               color: navIconColor(active),
                               '& .MuiSvgIcon-root': { fontSize: 20 },
                             }}
@@ -774,8 +829,8 @@ export function MainLayout() {
                               fontWeight: active ? navLabel.fontWeightActive : navLabel.fontWeight,
                               fontSize: navLabel.fontSize,
                               letterSpacing: navLabel.letterSpacing,
-                              noWrap: child.to !== '/salary-scales/me',
-                              lineHeight: child.to === '/salary-scales/me' ? 1.35 : undefined,
+                              lineHeight: 1.35,
+                              whiteSpace: 'normal',
                             }}
                           />
                         </ListItemButton>

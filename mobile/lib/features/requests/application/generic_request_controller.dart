@@ -19,13 +19,21 @@ class GenericRequestState {
     this.history = const [],
     this.loading = false,
     this.error,
+    this.historyMonth,
+    this.historyLoading = false,
+    this.historyLoaded = false,
   });
 
   final List<Map<String, dynamic>> related;
   final List<PendingItem> pending;
+
+  /// Lịch sử đã xử lý của [historyMonth] — tải lười khi mở tab "Đã xử lý".
   final List<Map<String, dynamic>> history;
   final bool loading;
   final String? error;
+  final DateTime? historyMonth;
+  final bool historyLoading;
+  final bool historyLoaded;
 
   GenericRequestState copyWith({
     List<Map<String, dynamic>>? related,
@@ -33,6 +41,9 @@ class GenericRequestState {
     List<Map<String, dynamic>>? history,
     bool? loading,
     String? error,
+    DateTime? historyMonth,
+    bool? historyLoading,
+    bool? historyLoaded,
   }) {
     return GenericRequestState(
       related: related ?? this.related,
@@ -40,12 +51,16 @@ class GenericRequestState {
       history: history ?? this.history,
       loading: loading ?? this.loading,
       error: error,
+      historyMonth: historyMonth ?? this.historyMonth,
+      historyLoading: historyLoading ?? this.historyLoading,
+      historyLoaded: historyLoaded ?? this.historyLoaded,
     );
   }
 }
 
 class GenericRequestController extends StateNotifier<GenericRequestState> {
-  GenericRequestController(this._ref, this._repository, this.config) : super(const GenericRequestState()) {
+  GenericRequestController(this._ref, this._repository, this.config)
+    : super(const GenericRequestState()) {
     refreshAll();
   }
 
@@ -71,22 +86,19 @@ class GenericRequestController extends StateNotifier<GenericRequestState> {
         role,
         directorApprovalEnabled: directorApproval,
       );
-      final isListViewer = config.canListView(role);
-
       // Nuốt 403/lỗi từng endpoint — giống đơn công: một API lỗi không sập cả màn.
-      final related = await _safeList(() => _repository.related(config));
-      final history = (reviewStages.isNotEmpty || isListViewer)
-          ? await _safeList(() => _repository.history(config))
-          : const <Map<String, dynamic>>[];
-
-      final pendingLists = await Future.wait([
+      // Gọi song song: trước đây "liên quan" xong mới đến từng hàng đợi, và
+      // lịch sử được kéo toàn bộ ngay khi mở màn. Giờ lịch sử tải lười theo tháng.
+      final results = await Future.wait([
+        _safeList(() => _repository.related(config)),
         for (final stage in reviewStages)
           _safeList(() => _repository.pendingForStage(config, stage)),
       ]);
+      final related = results.first;
 
       final pending = <PendingItem>[];
       for (var i = 0; i < reviewStages.length; i++) {
-        for (final raw in pendingLists[i]) {
+        for (final raw in results[i + 1]) {
           pending.add(PendingItem(raw: raw, stage: reviewStages[i]));
         }
       }
@@ -94,10 +106,12 @@ class GenericRequestController extends StateNotifier<GenericRequestState> {
       state = state.copyWith(
         related: related,
         pending: pending,
-        history: history,
         loading: false,
         error: null,
       );
+      if (state.historyLoaded && state.historyMonth != null) {
+        await loadHistory(month: state.historyMonth);
+      }
     } on ApiException catch (e) {
       state = state.copyWith(
         loading: false,
@@ -109,6 +123,39 @@ class GenericRequestController extends StateNotifier<GenericRequestState> {
         error: showError ? 'Không tải được dữ liệu' : state.error,
       );
     }
+  }
+
+  /// Lịch sử đã xử lý của một tháng (mặc định tháng hiện tại), chỉ cho người
+  /// có quyền duyệt hoặc xem danh sách.
+  Future<void> loadHistory({DateTime? month}) async {
+    final auth = _ref.read(authControllerProvider);
+    final canSee =
+        config
+            .stagesFor(
+              auth.role,
+              directorApprovalEnabled:
+                  auth.currentUser?.directorApprovalEnabled ?? false,
+            )
+            .isNotEmpty ||
+        config.canListView(auth.role);
+    if (!canSee) return;
+    final now = DateTime.now();
+    final base = month ?? state.historyMonth ?? now;
+    final target = DateTime(base.year, base.month);
+    state = state.copyWith(historyMonth: target, historyLoading: true);
+    final rows = await _safeList(
+      () => _repository.history(
+        config,
+        from: target,
+        to: DateTime(target.year, target.month + 1, 0),
+      ),
+    );
+    if (state.historyMonth != target) return;
+    state = state.copyWith(
+      history: rows,
+      historyLoading: false,
+      historyLoaded: true,
+    );
   }
 
   Future<List<Map<String, dynamic>>> _safeList(
@@ -188,8 +235,16 @@ class GenericRequestController extends StateNotifier<GenericRequestState> {
 }
 
 final genericRequestControllerProvider =
-    StateNotifierProvider.family<GenericRequestController, GenericRequestState, String>((ref, typeKey) {
-  ref.watch(sessionEpochProvider);
-  final config = RequestTypeConfig.byKey(typeKey);
-  return GenericRequestController(ref, ref.watch(genericRequestRepositoryProvider), config);
-});
+    StateNotifierProvider.family<
+      GenericRequestController,
+      GenericRequestState,
+      String
+    >((ref, typeKey) {
+      ref.watch(sessionEpochProvider);
+      final config = RequestTypeConfig.byKey(typeKey);
+      return GenericRequestController(
+        ref,
+        ref.watch(genericRequestRepositoryProvider),
+        config,
+      );
+    });

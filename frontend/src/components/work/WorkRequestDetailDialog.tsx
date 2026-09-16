@@ -32,6 +32,7 @@ import {
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useState } from 'react';
+import { Alert } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
 import * as att from '../../services/attendanceService';
 import { ApprovalReviewNoteCard } from '../ApprovalReviewNoteCard';
@@ -53,6 +54,7 @@ import {
   detailHeaderChipSx,
 } from './WorkRequestFormUi';
 import { workRequestDetailFlow } from '../../utils/nursingBlock';
+import { LeaveBalanceAlert } from './LeaveBalanceAlert';
 
 type ReviewActions = {
   isHead: boolean;
@@ -91,7 +93,7 @@ type ReviewActions = {
       requestedAfternoonEnd?: string;
     },
   ) => void;
-  onDirectorReview?: (approved: boolean, waiveFine?: boolean) => void;
+  onDirectorReview?: (approved: boolean, waiveFine?: boolean, keepOriginalPunchTimes?: boolean) => void;
 };
 
 type Props = {
@@ -160,6 +162,85 @@ function ShiftTimeReadonly({
   );
 }
 
+function AttendancePunchLogBox({
+  accent,
+  workDate,
+  employeeName,
+  punchTimes,
+  selectedTimes,
+  footerHint,
+  sx,
+}: {
+  accent: string;
+  workDate: string;
+  employeeName: string;
+  punchTimes: string[];
+  selectedTimes: Set<string>;
+  footerHint: string;
+  sx?: object;
+}) {
+  return (
+    <Box
+      sx={{
+        mb: 2,
+        p: 1.5,
+        borderRadius: 2,
+        bgcolor: '#fff',
+        border: `1px solid ${alpha(accent, 0.16)}`,
+        ...sx,
+      }}
+    >
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'flex-start', sm: 'center' }}
+        spacing={0.75}
+        sx={{ mb: punchTimes.length > 0 ? 1.25 : 0.5 }}
+      >
+        <Box>
+          <Typography variant="subtitle2" fontWeight={800}>
+            Log máy chấm ngày {att.formatWorkDate(workDate)}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Toàn bộ lần quẹt của {employeeName}, sắp xếp theo thời gian.
+          </Typography>
+        </Box>
+        <Chip
+          size="small"
+          label={`${punchTimes.length} lần chấm`}
+          color={punchTimes.length > 0 ? 'primary' : 'default'}
+          variant="outlined"
+          sx={{ fontWeight: 750 }}
+        />
+      </Stack>
+      {punchTimes.length > 0 ? (
+        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+          {punchTimes.map((time, index) => {
+            const selected = selectedTimes.has(time);
+            return (
+              <Chip
+                key={`${time}-${index}`}
+                icon={<AccessTimeIcon />}
+                label={`${index + 1}. ${time}`}
+                color={selected ? 'primary' : 'default'}
+                variant={selected ? 'filled' : 'outlined'}
+                sx={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}
+              />
+            );
+          })}
+        </Stack>
+      ) : (
+        <Typography variant="body2" color="warning.dark" fontWeight={650}>
+          Chưa ghi nhận log máy chấm nào của nhân viên trong ngày này.
+        </Typography>
+      )}
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+        {footerHint}
+      </Typography>
+    </Box>
+  );
+}
+
 export function WorkRequestDetailDialog({
   open,
   onClose,
@@ -180,6 +261,54 @@ export function WorkRequestDetailDialog({
   const [deploymentAfternoonStart, setDeploymentAfternoonStart] = useState('');
   const [deploymentAfternoonEnd, setDeploymentAfternoonEnd] = useState('');
   const [deploymentTimeError, setDeploymentTimeError] = useState<string | null>(null);
+  const [leaveBalance, setLeaveBalance] = useState<att.LeaveBalance | null>(null);
+  const [leaveBalanceLoading, setLeaveBalanceLoading] = useState(false);
+  const [leaveMonthWork, setLeaveMonthWork] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!open || !request || request.requestType !== 'LEAVE' || !request.employeeId) {
+      setLeaveBalance(null);
+      setLeaveMonthWork(null);
+      return;
+    }
+    const year = Number(String(request.workDate).slice(0, 4));
+    const month = Number(String(request.workDate).slice(5, 7));
+    if (!Number.isFinite(year)) {
+      setLeaveBalance(null);
+      return;
+    }
+    let cancelled = false;
+    setLeaveBalanceLoading(true);
+    att
+      .fetchEmployeeLeaveBalance(request.employeeId, year)
+      .then((b) => {
+        if (!cancelled) setLeaveBalance(b);
+      })
+      .catch(() => {
+        if (!cancelled) setLeaveBalance(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLeaveBalanceLoading(false);
+      });
+    if (Number.isFinite(month)) {
+      att
+        .fetchMonthSummary(request.employeeId, year, month)
+        .then((s) => {
+          if (cancelled) return;
+          const work =
+            Number(s.clockedWorkUnits ?? 0) +
+            Number(s.leaveWorkUnits ?? 0) +
+            Number(s.dutyWorkUnitsTotal ?? 0);
+          setLeaveMonthWork(work);
+        })
+        .catch(() => {
+          if (!cancelled) setLeaveMonthWork(null);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [open, request?.id, request?.requestType, request?.employeeId, request?.workDate]);
 
   useEffect(() => {
     setDeploymentStart(request?.requestedStart?.slice(0, 5) ?? '');
@@ -233,6 +362,9 @@ export function WorkRequestDetailDialog({
   const canAct = canHeadAct || canNursingHeadAct || canHrAct || canDirectorAct;
   const canEditDeploymentTimes =
     request.requestType === 'DEPLOYMENT' && (canHrAct || canNursingHeadAct);
+  /** Log máy chấm cho đơn cập nhật công / giải trình — mọi người xem/duyệt đều thấy để đối chiếu. */
+  const showWorkPunchLog =
+    request.requestType === 'UPDATE' || request.requestType === 'EXPLANATION';
   const headCorrecting = canHeadAct && canHeadCorrect;
   const nursingHeadCorrecting = canNursingHeadAct && canNursingHeadCorrect;
   const hrCorrecting = canHrAct && canHrCorrect;
@@ -259,7 +391,11 @@ export function WorkRequestDetailDialog({
   const withdrawingFinalized = !att.isRequestPending(request.status);
   const shifts = att.resolveRequestShiftTimes(request);
   const explanationTimes = att.formatExplanationTimes(request);
-  const forgotUnits = request.forgotFineUnits ?? att.forgotFineUnitsForUpdateKind(request.updateKind);
+  const forgotUnits =
+    request.forgotFineUnits
+    ?? (request.continuousShift || request.twoPunchAttendance
+      ? 2
+      : att.forgotFineUnitsForUpdateKind(request.updateKind));
   const isRanged =
     request.requestType === 'LEAVE' ||
     request.requestType === 'UNPAID_LEAVE' ||
@@ -286,6 +422,24 @@ export function WorkRequestDetailDialog({
     deploymentAfternoonStart,
     deploymentAfternoonEnd,
   ].filter(Boolean));
+  const selectedWorkTimes = new Set(
+    [
+      shifts.single?.start,
+      shifts.single?.end,
+      shifts.morning?.start,
+      shifts.morning?.end,
+      shifts.afternoon?.start,
+      shifts.afternoon?.end,
+      request.explainedMorningIn,
+      request.explainedMorningOut,
+      request.explainedAfternoonIn,
+      request.explainedAfternoonOut,
+      request.explainedTime,
+      request.explainedDepartureTime,
+    ]
+      .map((time) => (time ? String(time).slice(0, 5) : ''))
+      .filter(Boolean),
+  );
 
   function approveDeploymentAsHr() {
     approveDeploymentTimes((times) => review?.onHrReview?.(true, undefined, times));
@@ -489,6 +643,7 @@ export function WorkRequestDetailDialog({
                   review.onDirectorReview?.(
                     true,
                     request.status === 'APPROVED_NO_FINE' ? true : false,
+                    request.explanationKeepOriginalTimes,
                   )
                 }
                 sx={{ borderRadius: 2, px: 2.5, bgcolor: accent, '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' } }}
@@ -508,20 +663,33 @@ export function WorkRequestDetailDialog({
                 </Button>
                 {(request.requestType === 'UPDATE' || request.requestType === 'EXPLANATION') && (
                   <>
+                    {request.requestType === 'EXPLANATION' && (
+                      <Button
+                        variant="contained"
+                        color="info"
+                        disabled={review.loading}
+                        onClick={() => review.onDirectorReview?.(true, true, true)}
+                        sx={{ borderRadius: 2 }}
+                      >
+                        Duyệt (giữ giờ gốc, không trừ tiền)
+                      </Button>
+                    )}
                     <Button
                       variant="contained"
                       color="secondary"
                       disabled={review.loading}
-                      onClick={() => review.onDirectorReview?.(true, true)}
+                      onClick={() => review.onDirectorReview?.(true, true, false)}
                       sx={{ borderRadius: 2 }}
                     >
-                      Duyệt (không trừ tiền)
+                      {request.requestType === 'EXPLANATION'
+                        ? 'Duyệt (áp giờ giải trình, không trừ tiền)'
+                        : 'Duyệt (không trừ tiền)'}
                     </Button>
                     <Button
                       variant="contained"
                       disabled={review.loading}
                       startIcon={review.loading ? <CircularProgress size={16} color="inherit" /> : undefined}
-                      onClick={() => review.onDirectorReview?.(true, false)}
+                      onClick={() => review.onDirectorReview?.(true, false, false)}
                       sx={{ borderRadius: 2, px: 2.5, bgcolor: accent, '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' } }}
                     >
                       {request.requestType === 'UPDATE'
@@ -612,7 +780,11 @@ export function WorkRequestDetailDialog({
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Chip
             size="small"
-            label={att.requestStatusLabel(request.status, request.requestType)}
+            label={att.requestStatusLabel(
+              request.status,
+              request.requestType,
+              request.explanationKeepOriginalTimes,
+            )}
             color={att.requestStatusColor(request.status)}
             sx={detailHeaderChipSx.filled}
           />
@@ -620,7 +792,7 @@ export function WorkRequestDetailDialog({
             <Chip
               size="small"
               variant="outlined"
-              label={att.updateKindLabel(request.updateKind, request.continuousShift)}
+              label={att.updateKindLabel(request.updateKind, request.continuousShift, request.twoPunchAttendance)}
               sx={detailHeaderChipSx.outlined}
             />
           )}
@@ -699,16 +871,46 @@ export function WorkRequestDetailDialog({
 
       {canDirectorAct && request.requestType === 'EXPLANATION' && (
         <InfoBanner>
-          Giờ giải trình sẽ được áp vào bảng công. Chọn <strong>Duyệt (không trừ tiền)</strong> để miễn phạt
-          muộn/sớm, hoặc <strong>Duyệt (có phạt)</strong> để tính phạt theo giờ sau giải trình.
+          Chọn <strong>Duyệt (có phạt muộn/sớm)</strong> để áp giờ giải trình và tính phạt;{' '}
+          <strong>Duyệt (áp giờ giải trình, không trừ tiền)</strong> để thay giờ chấm theo đơn và miễn phạt; hoặc{' '}
+          <strong>Duyệt (giữ giờ gốc, không trừ tiền)</strong> khi lý do đặc biệt — giữ nguyên giờ máy chấm, miễn
+          phạt muộn/sớm, <strong>công và giờ làm tính theo thời gian thực tế</strong> (vào→ra), không full ca.
         </InfoBanner>
       )}
 
       {request.requestType === 'LEAVE' && (
-        <InfoBanner>
-          Sau khi HCNS duyệt, các ngày trong khoảng sẽ chuyển trạng thái bảng công thành <strong>Phép</strong> (có
-          tính công).
-        </InfoBanner>
+        <>
+          {leaveBalanceLoading ? (
+            <Alert severity="info" variant="outlined" sx={{ borderRadius: 2.5 }}>
+              Đang tải hạn mức phép…
+            </Alert>
+          ) : (
+            <LeaveBalanceAlert
+              balance={leaveBalance}
+              requestDays={request.leaveDays ?? 1}
+              requestPending={att.isRequestPending(request.status)}
+              forReviewer={mode === 'review'}
+            />
+          )}
+          {leaveMonthWork != null && (
+            <Alert
+              severity={leaveMonthWork >= 27 ? 'warning' : 'info'}
+              variant="outlined"
+              sx={{ borderRadius: 2.5 }}
+            >
+              Công tháng {String(request.workDate).slice(5, 7)}/{String(request.workDate).slice(0, 4)} (chấm + phép +
+              trực, chưa gồm điều động):{' '}
+              <strong>
+                {leaveMonthWork.toLocaleString('vi-VN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}/27
+              </strong>
+              {leaveMonthWork >= 27 ? ' — đã đủ 27 công, quy định không xin phép thêm.' : '.'}
+            </Alert>
+          )}
+          <InfoBanner>
+            Sau khi HCNS duyệt, các ngày trong khoảng sẽ chuyển trạng thái bảng công thành <strong>Phép</strong>{' '}
+            (có tính công).
+          </InfoBanner>
+        </>
       )}
 
       {request.requestType === 'UNPAID_LEAVE' && (
@@ -759,63 +961,14 @@ export function WorkRequestDetailDialog({
               border: `1px solid ${alpha(accent, 0.2)}`,
             }}
           >
-            <Box
-              sx={{
-                mb: 2,
-                p: 1.5,
-                borderRadius: 2,
-                bgcolor: '#fff',
-                border: `1px solid ${alpha(accent, 0.16)}`,
-              }}
-            >
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                justifyContent="space-between"
-                alignItems={{ xs: 'flex-start', sm: 'center' }}
-                spacing={0.75}
-                sx={{ mb: attendancePunchTimes.length > 0 ? 1.25 : 0.5 }}
-              >
-                <Box>
-                  <Typography variant="subtitle2" fontWeight={800}>
-                    Log máy chấm ngày {att.formatWorkDate(request.workDate)}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Toàn bộ lần quẹt của {request.employeeName}, sắp xếp theo thời gian.
-                  </Typography>
-                </Box>
-                <Chip
-                  size="small"
-                  label={`${attendancePunchTimes.length} lần chấm`}
-                  color={attendancePunchTimes.length > 0 ? 'primary' : 'default'}
-                  variant="outlined"
-                  sx={{ fontWeight: 750 }}
-                />
-              </Stack>
-              {attendancePunchTimes.length > 0 ? (
-                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                  {attendancePunchTimes.map((time, index) => {
-                    const selected = selectedDeploymentTimes.has(time);
-                    return (
-                      <Chip
-                        key={`${time}-${index}`}
-                        icon={<AccessTimeIcon />}
-                        label={`${index + 1}. ${time}`}
-                        color={selected ? 'primary' : 'default'}
-                        variant={selected ? 'filled' : 'outlined'}
-                        sx={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}
-                      />
-                    );
-                  })}
-                </Stack>
-              ) : (
-                <Typography variant="body2" color="warning.dark" fontWeight={650}>
-                  Chưa ghi nhận log máy chấm nào của nhân viên trong ngày này.
-                </Typography>
-              )}
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                Mốc trùng với giờ đang hiệu chỉnh được tô màu. Đối chiếu các log này trước khi sửa khung giờ bên dưới.
-              </Typography>
-            </Box>
+            <AttendancePunchLogBox
+              accent={accent}
+              workDate={request.workDate}
+              employeeName={request.employeeName}
+              punchTimes={attendancePunchTimes}
+              selectedTimes={selectedDeploymentTimes}
+              footerHint="Mốc trùng với giờ đang hiệu chỉnh được tô màu. Đối chiếu các log này trước khi sửa khung giờ bên dưới."
+            />
             <Grid container spacing={1.5}>
               <Grid item xs={12} sm={6}>
                 <TimePickerField
@@ -890,12 +1043,38 @@ export function WorkRequestDetailDialog({
           {request.requestType === 'UPDATE' && request.updateKind && (
             <DetailField
               label="Loại cập nhật"
-              value={att.updateKindLabel(request.updateKind, request.continuousShift)}
+              value={att.updateKindLabel(request.updateKind, request.continuousShift, request.twoPunchAttendance)}
               icon={<EditCalendarOutlinedIcon sx={{ fontSize: 16 }} />}
             />
           )}
         </DetailFields>
       </FormSection>
+
+      {showWorkPunchLog && (
+        <FormSection
+          title="Log máy chấm — đối chiếu trước khi duyệt"
+          subtitle="Toàn bộ lần quẹt thực tế trong ngày công của đơn. Đối chiếu trước khi duyệt hoặc chuyển cấp."
+        >
+          <Box
+            sx={{
+              p: 2,
+              borderRadius: 2.5,
+              bgcolor: alpha(accent, 0.045),
+              border: `1px solid ${alpha(accent, 0.2)}`,
+            }}
+          >
+            <AttendancePunchLogBox
+              accent={accent}
+              workDate={request.workDate}
+              employeeName={request.employeeName}
+              punchTimes={attendancePunchTimes}
+              selectedTimes={selectedWorkTimes}
+              footerHint="Mốc trùng với giờ trên đơn được tô màu. Đối chiếu các log này trước khi duyệt."
+              sx={{ mb: 0 }}
+            />
+          </Box>
+        </FormSection>
+      )}
 
       <FormSection title="Nội dung đơn">
         <DetailFields>
@@ -1234,6 +1413,7 @@ export function WorkRequestDetailDialog({
         editRequest={request}
         employeeId={request.employeeId}
         continuousShift={request.continuousShift}
+        twoPunchAttendance={request.twoPunchAttendance}
       />
     )}
     {request.requestType === 'EXPLANATION' && (
@@ -1244,6 +1424,7 @@ export function WorkRequestDetailDialog({
         editRequest={request}
         employeeId={request.employeeId}
         continuousShift={request.continuousShift}
+        twoPunchAttendance={request.twoPunchAttendance}
       />
     )}
     {request.requestType === 'DEPLOYMENT' && (
@@ -1256,6 +1437,7 @@ export function WorkRequestDetailDialog({
         employeeName={request.employeeName}
         positionTitle={request.positionTitle}
         workDate={request.workDate}
+        continuousShift={request.continuousShift}
       />
     )}
     </>

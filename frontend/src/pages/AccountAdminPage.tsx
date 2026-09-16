@@ -9,6 +9,7 @@ import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import {
@@ -27,6 +28,7 @@ import {
   InputAdornment,
   MenuItem,
   Paper,
+  Popover,
   Snackbar,
   Stack,
   Switch,
@@ -44,7 +46,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { PageHeader } from '../components/layout/PageHeader';
 import * as departmentService from '../services/departmentService';
 import * as employeeService from '../services/employeeService';
@@ -99,6 +101,261 @@ function StatusPill({
             }),
       }}
     />
+  );
+}
+
+function PermissionToggle({
+  label,
+  hint,
+  checked,
+  disabled,
+  onChange,
+  color = 'primary',
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+  color?: 'primary' | 'secondary' | 'success' | 'warning' | 'info' | 'error';
+}) {
+  return (
+    <Tooltip title={hint} enterDelay={450} placement="left">
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 1.25,
+          px: 1.25,
+          py: 0.7,
+          borderRadius: 2,
+          border: (t) =>
+            `1px solid ${alpha(checked ? t.palette[color].main : t.palette.divider, checked ? 0.32 : 1)}`,
+          bgcolor: (t) =>
+            checked ? alpha(t.palette[color].main, 0.08) : '#fff',
+          opacity: disabled ? 0.55 : 1,
+        }}
+      >
+        <Typography
+          variant="body2"
+          fontWeight={700}
+          sx={{ color: checked ? `${color}.dark` : 'text.primary', lineHeight: 1.3 }}
+        >
+          {label}
+        </Typography>
+        <Switch
+          size="small"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          color={color}
+        />
+      </Box>
+    </Tooltip>
+  );
+}
+
+type PermissionHandlers = {
+  busyKey: string | null;
+  onToggleReportView: (userId: number, enabled: boolean) => void;
+  onToggleProfessionalQualificationReport: (userId: number, enabled: boolean) => void;
+  onToggleAttendanceExcelExport: (userId: number, enabled: boolean) => void;
+  onToggleHospitalWideEmployeeView: (userId: number, enabled: boolean) => void;
+  onToggleTwoPunchAttendance: (userId: number, enabled: boolean) => void;
+  onToggleDirectorApproval: (userId: number, enabled: boolean) => void;
+  onToggleWorkUnitScoped: (userId: number, enabled: boolean) => void;
+};
+
+function AccountPermissionsCell({
+  row,
+  handlers,
+}: {
+  row: userAccountAdminService.UserAccountAdminRow;
+  handlers: PermissionHandlers;
+}) {
+  const theme = useTheme();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const open = Boolean(anchor);
+
+  const activeLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (row.reportViewEnabled) labels.push('Báo cáo NL');
+    if (row.professionalQualificationReportEnabled) labels.push('Trình độ CM');
+    if (row.attendanceExcelExportEnabled) labels.push('Excel công');
+    if (row.hospitalWideEmployeeViewEnabled) labels.push('Hồ sơ TV');
+    if (row.twoPunchAttendance) labels.push('PQ công');
+    if (row.role === 'DIRECTOR' && row.directorApprovalEnabled) labels.push('Duyệt đơn');
+    if ((row.role === 'HEAD_DEPARTMENT' || row.role === 'HEAD_HR') && row.workUnitScoped) {
+      labels.push('Trưởng BP');
+    }
+    return labels;
+  }, [row]);
+
+  function openMenu(e: MouseEvent<HTMLElement>) {
+    setAnchor(e.currentTarget);
+  }
+
+  function closeMenu() {
+    setAnchor(null);
+  }
+
+  return (
+    <>
+      <Stack spacing={0.75} alignItems="flex-start" sx={{ minWidth: 132, maxWidth: 168 }}>
+        {activeLabels.length > 0 ? (
+          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+            {activeLabels.slice(0, 2).map((label) => (
+              <Chip
+                key={label}
+                size="small"
+                label={label}
+                color="primary"
+                variant="outlined"
+                sx={{ height: 22, fontWeight: 700, fontSize: '0.68rem' }}
+              />
+            ))}
+            {activeLabels.length > 2 ? (
+              <Chip
+                size="small"
+                label={`+${activeLabels.length - 2}`}
+                sx={{ height: 22, fontWeight: 750, fontSize: '0.68rem' }}
+              />
+            ) : null}
+          </Stack>
+        ) : (
+          <Typography variant="caption" color="text.secondary" fontWeight={650}>
+            Chưa cấp quyền
+          </Typography>
+        )}
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<TuneOutlinedIcon sx={{ fontSize: 16 }} />}
+          onClick={openMenu}
+          disabled={!row.enabled}
+          sx={{
+            borderRadius: 2,
+            textTransform: 'none',
+            fontWeight: 750,
+            px: 1.1,
+            py: 0.25,
+            fontSize: '0.75rem',
+            borderColor: alpha(theme.palette.primary.main, 0.35),
+          }}
+        >
+          Phân quyền
+        </Button>
+      </Stack>
+
+      <Popover
+        open={open}
+        anchorEl={anchor}
+        onClose={closeMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        slotProps={{
+          paper: {
+            sx: {
+              width: 300,
+              maxWidth: 'calc(100vw - 24px)',
+              borderRadius: 2.5,
+              border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+              boxShadow: `0 16px 40px ${alpha('#0f172a', 0.14)}`,
+              overflow: 'hidden',
+            },
+          },
+        }}
+      >
+        <Box
+          sx={{
+            px: 1.75,
+            py: 1.35,
+            background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)} 0%, #fff 70%)`,
+            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.85)}`,
+          }}
+        >
+          <Typography variant="subtitle2" fontWeight={850}>
+            Phân quyền bổ sung
+          </Typography>
+          <Typography variant="caption" color="text.secondary" fontWeight={600}>
+            {row.fullName || row.displayName || row.username}
+          </Typography>
+        </Box>
+        <Stack spacing={0.85} sx={{ p: 1.5 }}>
+          <PermissionToggle
+            label="Báo cáo nhân lực"
+            hint="Menu Báo cáo: nhân lực toàn viện / đi làm hằng ngày"
+            checked={row.reportViewEnabled}
+            disabled={handlers.busyKey === `report-${row.userId}` || !row.enabled}
+            color="secondary"
+            onChange={(next) => handlers.onToggleReportView(row.userId, next)}
+          />
+          <PermissionToggle
+            label="Trình độ chuyên môn"
+            hint="Báo cáo Trình độ chuyên môn (ma trận, chi tiết, xuất Excel)"
+            checked={Boolean(row.professionalQualificationReportEnabled)}
+            disabled={handlers.busyKey === `pq-${row.userId}` || !row.enabled}
+            color="primary"
+            onChange={(next) => handlers.onToggleProfessionalQualificationReport(row.userId, next)}
+          />
+          <PermissionToggle
+            label="Xuất Excel công"
+            hint="Xuất Excel báo cáo công toàn viện / theo khoa trên trang Công"
+            checked={Boolean(row.attendanceExcelExportEnabled)}
+            disabled={handlers.busyKey === `excel-${row.userId}` || !row.enabled}
+            color="info"
+            onChange={(next) => handlers.onToggleAttendanceExcelExport(row.userId, next)}
+          />
+          <PermissionToggle
+            label="Hồ sơ toàn viện"
+            hint="Xem danh sách và chi tiết mọi nhân viên toàn viện (không gồm lương)"
+            checked={Boolean(row.hospitalWideEmployeeViewEnabled)}
+            disabled={handlers.busyKey === `hosp-${row.userId}` || !row.enabled}
+            color="warning"
+            onChange={(next) => handlers.onToggleHospitalWideEmployeeView(row.userId, next)}
+          />
+          <PermissionToggle
+            label="Phân quyền công"
+            hint="Chỉ cần chấm vào sáng và ra chiều để đủ công (ca sáng/chiều)"
+            checked={Boolean(row.twoPunchAttendance)}
+            disabled={
+              handlers.busyKey === `cong-${row.userId}` || !row.enabled || !row.employeeId
+            }
+            color="success"
+            onChange={(next) => handlers.onToggleTwoPunchAttendance(row.userId, next)}
+          />
+          {row.role === 'DIRECTOR' ? (
+            <PermissionToggle
+              label="Duyệt đơn (Giám đốc)"
+              hint="Nhận hàng đợi và thông báo duyệt cấp Giám đốc"
+              checked={row.directorApprovalEnabled}
+              disabled={handlers.busyKey === `approve-${row.userId}` || !row.enabled}
+              color="secondary"
+              onChange={(next) => handlers.onToggleDirectorApproval(row.userId, next)}
+            />
+          ) : null}
+          {row.role === 'HEAD_DEPARTMENT' || row.role === 'HEAD_HR' ? (
+            <PermissionToggle
+              label="Trưởng bộ phận"
+              hint={
+                row.workUnitDetail
+                  ? `Chỉ quản lý bộ phận: ${row.workUnitDetail}`
+                  : 'Cần có bộ phận trên hồ sơ trước khi bật'
+              }
+              checked={row.workUnitScoped}
+              disabled={
+                handlers.busyKey === `unit-${row.userId}` ||
+                !row.enabled ||
+                (!row.workUnitDetail && !row.workUnitScoped)
+              }
+              color="secondary"
+              onChange={(next) => handlers.onToggleWorkUnitScoped(row.userId, next)}
+            />
+          ) : null}
+        </Stack>
+      </Popover>
+    </>
   );
 }
 
@@ -280,6 +537,93 @@ export default function AccountAdminPage() {
       await load();
     } catch {
       setSnack({ open: true, message: 'Không cập nhật được quyền xem báo cáo.', severity: 'error' });
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function onToggleAttendanceExcelExport(userId: number, enabled: boolean) {
+    setBusyKey(`excel-${userId}`);
+    try {
+      await userAccountAdminService.setAttendanceExcelExportEnabled(userId, enabled);
+      setSnack({
+        open: true,
+        message: enabled
+          ? 'Đã bật quyền xuất Excel báo cáo công.'
+          : 'Đã tắt quyền xuất Excel báo cáo công.',
+        severity: 'success',
+      });
+      await load();
+    } catch {
+      setSnack({ open: true, message: 'Không cập nhật được quyền xuất Excel công.', severity: 'error' });
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function onToggleHospitalWideEmployeeView(userId: number, enabled: boolean) {
+    setBusyKey(`hosp-${userId}`);
+    try {
+      await userAccountAdminService.setHospitalWideEmployeeViewEnabled(userId, enabled);
+      setSnack({
+        open: true,
+        message: enabled
+          ? 'Đã bật quyền xem hồ sơ nhân viên toàn viện (không gồm lương).'
+          : 'Đã tắt quyền xem hồ sơ nhân viên toàn viện.',
+        severity: 'success',
+      });
+      await load();
+    } catch {
+      setSnack({
+        open: true,
+        message: 'Không cập nhật được quyền xem hồ sơ toàn viện.',
+        severity: 'error',
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function onToggleProfessionalQualificationReport(userId: number, enabled: boolean) {
+    setBusyKey(`pq-${userId}`);
+    try {
+      await userAccountAdminService.setProfessionalQualificationReportEnabled(userId, enabled);
+      setSnack({
+        open: true,
+        message: enabled
+          ? 'Đã bật quyền xem báo cáo Trình độ chuyên môn.'
+          : 'Đã tắt quyền xem báo cáo Trình độ chuyên môn.',
+        severity: 'success',
+      });
+      await load();
+    } catch {
+      setSnack({
+        open: true,
+        message: 'Không cập nhật được quyền báo cáo Trình độ chuyên môn.',
+        severity: 'error',
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function onToggleTwoPunchAttendance(userId: number, enabled: boolean) {
+    setBusyKey(`cong-${userId}`);
+    try {
+      await userAccountAdminService.setTwoPunchAttendance(userId, enabled);
+      setSnack({
+        open: true,
+        message: enabled
+          ? 'Đã bật phân quyền công — ca sáng/chiều bình thường, chỉ cần vào sáng + ra chiều. Nên tính lại bảng công tháng hiện tại.'
+          : 'Đã tắt phân quyền công — trở lại chấm đủ 4 mốc sáng/chiều.',
+        severity: 'success',
+      });
+      await load();
+    } catch (e: unknown) {
+      const message =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Không cập nhật được phân quyền công.';
+      setSnack({ open: true, message, severity: 'error' });
     } finally {
       setBusyKey(null);
     }
@@ -701,22 +1045,22 @@ export default function AccountAdminPage() {
             <CircularProgress size={36} />
           </Box>
         ) : tab === 0 || tab === 1 ? (
-          <TableContainer>
-            <Table size="small" sx={{ tableLayout: 'auto' }}>
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table size="small" sx={{ tableLayout: 'auto', minWidth: 980 }}>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ ...headCellSx, minWidth: 210 }}>Nhân viên / tài khoản</TableCell>
-                  <TableCell sx={{ ...headCellSx, minWidth: 190 }}>Đơn vị công tác</TableCell>
-                  <TableCell sx={headCellSx}>Chức vụ</TableCell>
-                  <TableCell sx={{ ...headCellSx, minWidth: 145 }}>Liên hệ / chấm công</TableCell>
-                  <TableCell sx={{ ...headCellSx, minWidth: 150 }}>Vai trò</TableCell>
+                  <TableCell sx={{ ...headCellSx, minWidth: 190 }}>Nhân viên / tài khoản</TableCell>
+                  <TableCell sx={{ ...headCellSx, minWidth: 160 }}>Đơn vị công tác</TableCell>
+                  <TableCell sx={{ ...headCellSx, minWidth: 100 }}>Chức vụ</TableCell>
+                  <TableCell sx={{ ...headCellSx, minWidth: 130 }}>Liên hệ / chấm công</TableCell>
+                  <TableCell sx={{ ...headCellSx, minWidth: 140 }}>Vai trò</TableCell>
                   <TableCell align="center" sx={headCellSx}>
                     Trạng thái
                   </TableCell>
                   <TableCell align="center" sx={headCellSx}>
                     Hiệu lực
                   </TableCell>
-                  <TableCell align="center" sx={{ ...headCellSx, minWidth: 120 }}>
+                  <TableCell align="left" sx={{ ...headCellSx, minWidth: 148, width: 160 }}>
                     Phân quyền
                   </TableCell>
                   <TableCell align="right" sx={headCellSx}>
@@ -862,77 +1206,26 @@ export default function AccountAdminPage() {
                           color="primary"
                         />
                       </TableCell>
-                      <TableCell align="center">
-                        <Stack
-                          direction="row"
-                          spacing={1.5}
-                          justifyContent="center"
-                          alignItems="center"
-                          flexWrap="wrap"
-                          useFlexGap
-                        >
-                          <Tooltip title="Xem menu Báo cáo (nhân lực toàn viện / đi làm hằng ngày)">
-                            <Stack alignItems="center" spacing={0.25}>
-                              <Typography variant="caption" color="text.secondary" fontWeight={600}>
-                                Báo cáo
-                              </Typography>
-                              <Switch
-                                checked={r.reportViewEnabled}
-                                disabled={busyKey === `report-${r.userId}` || !r.enabled}
-                                onChange={(e) =>
-                                  void onToggleReportView(r.userId, e.target.checked)
-                                }
-                                color="secondary"
-                              />
-                            </Stack>
-                          </Tooltip>
-                          {r.role === 'DIRECTOR' ? (
-                            <Tooltip title="Nhận hàng đợi và thông báo duyệt cấp Giám đốc">
-                              <Stack alignItems="center" spacing={0.25}>
-                                <Typography variant="caption" color="text.secondary" fontWeight={600}>
-                                  Duyệt đơn
-                                </Typography>
-                                <Switch
-                                  checked={r.directorApprovalEnabled}
-                                  disabled={busyKey === `approve-${r.userId}` || !r.enabled}
-                                  onChange={(e) =>
-                                    void onToggleDirectorApproval(r.userId, e.target.checked)
-                                  }
-                                  color="secondary"
-                                />
-                              </Stack>
-                            </Tooltip>
-                          ) : null}
-                          {r.role === 'HEAD_DEPARTMENT' || r.role === 'HEAD_HR' ? (
-                            <Tooltip
-                              title={
-                                r.workUnitDetail
-                                  ? `Chỉ quản lý bộ phận: ${r.workUnitDetail}`
-                                  : 'Cần có bộ phận trên hồ sơ trước khi bật'
-                              }
-                            >
-                              <span>
-                                <Stack alignItems="center" spacing={0.25}>
-                                  <Typography variant="caption" color="text.secondary" fontWeight={600}>
-                                    Trưởng BP
-                                  </Typography>
-                                  <Switch
-                                    checked={r.workUnitScoped}
-                                    disabled={
-                                      busyKey === `unit-${r.userId}` ||
-                                      !r.enabled ||
-                                      (!r.workUnitDetail && !r.workUnitScoped)
-                                    }
-                                    onChange={(e) =>
-                                      void onToggleWorkUnitScoped(r.userId, e.target.checked)
-                                    }
-                                    color="secondary"
-                                  />
-                                </Stack>
-                              </span>
-                            </Tooltip>
-                          ) : null}
-                        </Stack>
+                      <TableCell sx={{ verticalAlign: 'middle', py: 1.1 }}>
+                        <AccountPermissionsCell
+                          row={r}
+                          handlers={{
+                            busyKey,
+                            onToggleReportView: (id, en) => void onToggleReportView(id, en),
+                            onToggleProfessionalQualificationReport: (id, en) =>
+                              void onToggleProfessionalQualificationReport(id, en),
+                            onToggleAttendanceExcelExport: (id, en) =>
+                              void onToggleAttendanceExcelExport(id, en),
+                            onToggleHospitalWideEmployeeView: (id, en) =>
+                              void onToggleHospitalWideEmployeeView(id, en),
+                            onToggleTwoPunchAttendance: (id, en) =>
+                              void onToggleTwoPunchAttendance(id, en),
+                            onToggleDirectorApproval: (id, en) =>
+                              void onToggleDirectorApproval(id, en),
+                            onToggleWorkUnitScoped: (id, en) =>
+                              void onToggleWorkUnitScoped(id, en),
+                          }}
+                        />
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={0.5} justifyContent="flex-end">

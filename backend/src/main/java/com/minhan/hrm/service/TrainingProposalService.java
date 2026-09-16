@@ -9,7 +9,9 @@ import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.TrainingProposalRequestRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
 import com.minhan.hrm.util.PlannedPeriodParser;
+import com.minhan.hrm.service.support.CreatedAtRange;
 import com.minhan.hrm.service.support.RequestEditSupport;
+import com.minhan.hrm.security.ApprovalAuthority;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -29,9 +31,10 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class TrainingProposalService {
 
-    private static final Set<TrainingProposalStatus> OPEN = Set.of(
+    private static final Set<TrainingProposalStatus> BLOCKING_OVERLAP = Set.of(
             TrainingProposalStatus.PENDING_HR,
-            TrainingProposalStatus.PENDING_DIRECTOR);
+            TrainingProposalStatus.PENDING_DIRECTOR,
+            TrainingProposalStatus.APPROVED);
     private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final TrainingProposalRequestRepository proposalRepository;
@@ -50,10 +53,16 @@ public class TrainingProposalService {
         if (emp.getStatus() == EmployeeStatus.TERMINATED) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Không đề xuất đào tạo cho nhân viên đã nghỉ việc");
         }
-        if (proposalRepository.existsByEmployeeAndStatusIn(emp, OPEN)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "Nhân viên đang có phiếu đề xuất đào tạo chờ duyệt");
+        String plannedPeriod = req.getPlannedPeriod().trim();
+        var period = PlannedPeriodParser.parse(plannedPeriod);
+        if (period.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Thời gian dự kiến không hợp lệ");
         }
+        var range = period.get();
+        if (range.end().isBefore(range.start())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Ngày kết thúc phải sau hoặc bằng ngày bắt đầu");
+        }
+        assertNoOverlappingTrainingProposal(emp.getId(), range.start(), range.end(), null);
         if (!Boolean.TRUE.equals(req.getEmployeeCommitmentAck())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cần xác nhận cam kết của nhân viên được cử đi đào tạo");
         }
@@ -61,17 +70,14 @@ public class TrainingProposalService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cần xác nhận cam kết của Khoa/Phòng đề xuất");
         }
 
-        String plannedPeriod = req.getPlannedPeriod().trim();
-        var period = PlannedPeriodParser.parse(plannedPeriod);
-
         TrainingProposalRequest row = TrainingProposalRequest.builder()
                 .employee(emp)
                 .proposingDepartment(req.getProposingDepartment().trim())
                 .courseName(req.getCourseName().trim())
                 .location(req.getLocation().trim())
                 .plannedPeriod(plannedPeriod)
-                .startDate(period.map(PlannedPeriodParser.Period::start).orElse(null))
-                .endDate(period.map(PlannedPeriodParser.Period::end).orElse(null))
+                .startDate(range.start())
+                .endDate(range.end())
                 .tuitionFee(blankToNull(req.getTuitionFee()))
                 .trainingGoal(req.getTrainingGoal().trim())
                 .reason(req.getReason().trim())
@@ -100,11 +106,6 @@ public class TrainingProposalService {
         if (!emp.getId().equals(req.getEmployeeId())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Không đổi nhân viên khi chỉnh sửa phiếu");
         }
-        if (proposalRepository.findByEmployeeIdOrderByCreatedAtDesc(emp.getId()).stream()
-                .anyMatch(p -> !p.getId().equals(id) && OPEN.contains(p.getStatus()))) {
-            throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "Nhân viên đang có phiếu đề xuất đào tạo chờ duyệt khác");
-        }
         if (!Boolean.TRUE.equals(req.getEmployeeCommitmentAck())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cần xác nhận cam kết của nhân viên được cử đi đào tạo");
         }
@@ -114,13 +115,21 @@ public class TrainingProposalService {
 
         String plannedPeriod = req.getPlannedPeriod().trim();
         var period = PlannedPeriodParser.parse(plannedPeriod);
+        if (period.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Thời gian dự kiến không hợp lệ");
+        }
+        var range = period.get();
+        if (range.end().isBefore(range.start())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Ngày kết thúc phải sau hoặc bằng ngày bắt đầu");
+        }
+        assertNoOverlappingTrainingProposal(emp.getId(), range.start(), range.end(), id);
 
         row.setProposingDepartment(req.getProposingDepartment().trim());
         row.setCourseName(req.getCourseName().trim());
         row.setLocation(req.getLocation().trim());
         row.setPlannedPeriod(plannedPeriod);
-        row.setStartDate(period.map(PlannedPeriodParser.Period::start).orElse(null));
-        row.setEndDate(period.map(PlannedPeriodParser.Period::end).orElse(null));
+        row.setStartDate(range.start());
+        row.setEndDate(range.end());
         row.setTuitionFee(blankToNull(req.getTuitionFee()));
         row.setTrainingGoal(req.getTrainingGoal().trim());
         row.setReason(req.getReason().trim());
@@ -149,12 +158,43 @@ public class TrainingProposalService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listReviewHistory() {
+    public List<Map<String, Object>> listReviewHistory(LocalDate fromDate, LocalDate toDate) {
         UserAccount actor = ensureCanView();
         return proposalRepository.findReviewHistoryWithDetails().stream()
-                .filter(row -> employeeService.matchesHrReviewScope(actor, row.getEmployee()))
+                .filter(row -> CreatedAtRange.matches(row.getCreatedAt(), fromDate, toDate))
+                .filter(row -> touchedByActorStage(actor, row))
                 .map(this::toMap)
                 .toList();
+    }
+
+    /**
+     * Lịch sử của một người duyệt là những phiếu bước của họ đã xử lý — gồm cả
+     * phiếu HCNS đã duyệt mà đang chờ Giám đốc. Bản cũ loại mọi trạng thái
+     * PENDING_* nên duyệt xong chuyển bước là phiếu biến mất khỏi tab lịch sử.
+     */
+    private boolean touchedByActorStage(UserAccount actor, TrainingProposalRequest row) {
+        TrainingProposalStatus status = row.getStatus();
+        if (actor.getRole() == UserRole.ADMIN) {
+            return true;
+        }
+        if (!employeeService.matchesHrReviewScope(actor, row.getEmployee())) {
+            return false;
+        }
+        boolean hrTouched = row.getHrReviewedAt() != null || status != TrainingProposalStatus.PENDING_HR;
+        boolean directorTouched = row.getDirectorReviewedAt() != null
+                || status == TrainingProposalStatus.DIRECTOR_REJECTED
+                || status == TrainingProposalStatus.APPROVED
+                || status == TrainingProposalStatus.COMPLETED;
+        boolean isHr = actor.getRole() != null && actor.getRole().isHr2();
+        boolean isDirector = ApprovalAuthority.isDirectorApprover(actor);
+        if (isHr && hrTouched) {
+            return true;
+        }
+        if (isDirector && directorTouched) {
+            return true;
+        }
+        // Trưởng khoa/phòng, Trưởng phòng ĐD chỉ xem: thấy mọi phiếu đã qua xử lý trong phạm vi.
+        return !isHr && !isDirector;
     }
 
     @Transactional(readOnly = true)
@@ -278,6 +318,21 @@ public class TrainingProposalService {
 
         notificationService.notifyTrainingProposalResult(row, true, "Giám đốc");
         return toMap(row);
+    }
+
+    private void assertNoOverlappingTrainingProposal(
+            Long employeeId, LocalDate from, LocalDate to, Long excludeId) {
+        var overlapping = proposalRepository.findOverlappingForEmployee(
+                employeeId, from, to, BLOCKING_OVERLAP);
+        if (excludeId != null) {
+            overlapping = overlapping.stream()
+                    .filter(r -> !excludeId.equals(r.getId()))
+                    .toList();
+        }
+        if (!overlapping.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Khoảng ngày trùng với phiếu đào tạo khác (đang chờ hoặc đã duyệt)");
+        }
     }
 
     private void refreshEmployeeTrainingFlag(Employee employee) {

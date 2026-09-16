@@ -39,10 +39,9 @@ import {
 import { ApprovalReviewNoteCard } from './ApprovalReviewNoteCard';
 import {
   applyRequestListFilters,
-  EMPTY_REQUEST_FILTERS,
   RequestListFilters,
-  type RequestListFilterState,
 } from './requests/RequestListFilters';
+import { useLazyHistoryList } from './requests/useLazyHistoryList';
 import { RequestListTable, formatRequestSubject, type RequestListRow } from './requests/RequestListTable';
 import {
   DetailField,
@@ -71,17 +70,14 @@ export function YoungChildRequestPendingPanel({ onChanged }: { onChanged?: () =>
   const canRevoke = user?.role === 'ADMIN';
   const isHead = isHeadDepartmentRole(user?.role) || user?.role === 'ADMIN';
 
-  const [pending, setPending] = useState<ycs.YoungChildRequest[]>([]);
-  const [history, setHistory] = useState<ycs.YoungChildRequest[]>([]);
   const [mine, setMine] = useState<ycs.YoungChildRequest[]>([]);
+  const [mineLoading, setMineLoading] = useState(false);
   const [subTab, setSubTab] = useState(0);
-  const [listLoading, setListLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [detail, setDetail] = useState<ycs.YoungChildRequest | null>(null);
   const [comment, setComment] = useState('');
   const [acting, setActing] = useState(false);
-  const [filters, setFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
   const [confirm, setConfirm] = useState<{
     requests: ycs.YoungChildRequest[];
     approved: boolean;
@@ -89,29 +85,55 @@ export function YoungChildRequestPendingPanel({ onChanged }: { onChanged?: () =>
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  const historyActive = canReview && subTab === 1;
+
+  const loadPending = useCallback(
+    () => ycs.fetchPendingYoungChildRequests().catch(() => [] as ycs.YoungChildRequest[]),
+    [],
+  );
+  const loadHistory = useCallback(
+    (range: { fromDate?: string; toDate?: string }) =>
+      ycs.fetchYoungChildRequestHistory(range).catch(() => [] as ycs.YoungChildRequest[]),
+    [],
+  );
+  const {
+    pending,
+    history,
+    listLoading,
+    historyLoaded,
+    filters,
+    setFilters,
+    filterReset,
+    clearLabel,
+    reload: reloadLists,
+  } = useLazyHistoryList({
+    historyActive,
+    canLoad: canReview,
+    loadPending,
+    loadHistory,
+  });
+
+  const reloadMine = useCallback(() => {
+    if (!isHead) {
+      setMine([]);
+      return;
+    }
+    setMineLoading(true);
+    ycs
+      .fetchMyYoungChildRequests()
+      .then(setMine)
+      .catch(() => setMine([]))
+      .finally(() => setMineLoading(false));
+  }, [isHead]);
+
+  useEffect(() => {
+    reloadMine();
+  }, [reloadMine]);
+
   const reload = useCallback(() => {
-    setListLoading(true);
-    const tasks: Promise<unknown>[] = [];
-    if (canReview) {
-      tasks.push(ycs.fetchPendingYoungChildRequests().then(setPending).catch(() => setPending([])));
-      tasks.push(ycs.fetchYoungChildRequestHistory().then(setHistory).catch(() => setHistory([])));
-    }
-    if (isHead) {
-      tasks.push(ycs.fetchMyYoungChildRequests().then(setMine).catch(() => setMine([])));
-    }
-    Promise.all(tasks)
-      .then(() => setErr(null))
-      .catch(() => setErr('Không tải được đề xuất nuôi con nhỏ.'))
-      .finally(() => setListLoading(false));
-  }, [canReview, isHead]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  useEffect(() => {
-    setFilters(EMPTY_REQUEST_FILTERS);
-  }, [subTab]);
+    reloadLists();
+    reloadMine();
+  }, [reloadLists, reloadMine]);
 
   const tabs: { key: string; label: string; list: ycs.YoungChildRequest[] }[] = [];
   if (canReview) {
@@ -124,6 +146,7 @@ export function YoungChildRequestPendingPanel({ onChanged }: { onChanged?: () =>
   const active = tabs[Math.min(subTab, Math.max(tabs.length - 1, 0))];
   const list = active?.list ?? [];
   const isReviewTab = active?.key === 'pending' || active?.key === 'history';
+  const isHistoryTab = active?.key === 'history';
 
   const filtered = useMemo(
     () =>
@@ -319,7 +342,13 @@ export function YoungChildRequestPendingPanel({ onChanged }: { onChanged?: () =>
                 )
               }
               iconPosition="start"
-              label={t.key === 'history' ? `Lịch sử (${t.list.length})` : t.label}
+              label={
+                t.key === 'history'
+                  ? historyLoaded
+                    ? `Lịch sử (${t.list.length})`
+                    : 'Lịch sử'
+                  : t.label
+              }
             />
           ))}
         </Tabs>
@@ -327,9 +356,13 @@ export function YoungChildRequestPendingPanel({ onChanged }: { onChanged?: () =>
 
       <RequestListTable
         rows={rows}
-        loading={listLoading}
+        loading={listLoading || (active?.key === 'mine' && mineLoading)}
         emptyTitle="Không có đề xuất"
-        emptyHint="Khi có đề xuất nuôi con nhỏ, đơn sẽ xuất hiện tại đây."
+        emptyHint={
+          isHistoryTab
+            ? 'Mặc định xem đề xuất trong tháng hiện tại. Đổi khoảng ngày để xem thêm.'
+            : 'Khi có đề xuất nuôi con nhỏ, đơn sẽ xuất hiện tại đây.'
+        }
         actionBusyId={actionBusyId}
         bulkBusy={bulkBusy}
         toolbar={
@@ -338,6 +371,11 @@ export function YoungChildRequestPendingPanel({ onChanged }: { onChanged?: () =>
             onChange={setFilters}
             statusOptions={statusOptions}
             resultCount={filtered.length}
+            resetFilters={filterReset}
+            clearLabel={clearLabel}
+            title={
+              isHistoryTab ? 'Bộ lọc lịch sử (mặc định tháng này)' : 'Bộ lọc đơn'
+            }
           />
         }
         onView={(row) => {

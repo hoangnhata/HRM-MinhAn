@@ -4,6 +4,7 @@ import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import { Box, Stack, TextField, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
+import { todayLocalIso } from '../utils/dateFormat';
 import * as att from '../services/attendanceService';
 import { DatePickerField, TimePickerField, dateTimeFieldSx } from '../components/ui/DateTimeFields';
 import {
@@ -22,6 +23,8 @@ type Props = {
   defaultDate?: string;
   attendanceRow?: Record<string, unknown> | null;
   continuousShift?: boolean;
+  /** Phân quyền công: ca sáng/chiều, chỉ vào sáng + ra chiều. */
+  twoPunchAttendance?: boolean;
   /** Lịch ca NV (ưu tiên); nếu thiếu sẽ tải theo employeeId + ngày */
   schedule?: ShiftScheduleInfo | null;
   employeeId?: number | null;
@@ -42,6 +45,7 @@ export function AttendanceExplanationDialog({
   defaultDate,
   attendanceRow,
   continuousShift,
+  twoPunchAttendance = false,
   schedule: scheduleProp,
   employeeId,
   initialSelectedKeys,
@@ -51,7 +55,7 @@ export function AttendanceExplanationDialog({
   const accent = theme.palette.warning.main;
   const isEditing = Boolean(editRequest);
 
-  const [workDate, setWorkDate] = useState(defaultDate ?? new Date().toISOString().slice(0, 10));
+  const [workDate, setWorkDate] = useState(defaultDate ?? todayLocalIso());
   const [daySchedule, setDaySchedule] = useState<ShiftScheduleInfo | null>(scheduleProp ?? null);
   const [selected, setSelected] = useState<SlotSelected>({});
   const [edits, setEdits] = useState<SlotEdits>({});
@@ -61,7 +65,7 @@ export function AttendanceExplanationDialog({
 
   useEffect(() => {
     if (!open) return;
-    const wd = editRequest?.workDate ?? defaultDate ?? new Date().toISOString().slice(0, 10);
+    const wd = editRequest?.workDate ?? defaultDate ?? todayLocalIso();
     setWorkDate(wd);
     setErr(null);
 
@@ -114,6 +118,7 @@ export function AttendanceExplanationDialog({
         wd,
         continuousShift,
         sch,
+        twoPunchAttendance,
       );
       const prefer = initialSelectedKeys?.length
         ? new Set(initialSelectedKeys)
@@ -145,7 +150,7 @@ export function AttendanceExplanationDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, defaultDate, attendanceRow, continuousShift, scheduleProp, employeeId, initialSelectedKeys, editRequest]);
+  }, [open, defaultDate, attendanceRow, continuousShift, twoPunchAttendance, scheduleProp, employeeId, initialSelectedKeys, editRequest]);
 
   const slots = useMemo(() => {
     const detected = att.detectExplanationPenaltySlots(
@@ -153,6 +158,7 @@ export function AttendanceExplanationDialog({
       workDate,
       continuousShift,
       daySchedule,
+      twoPunchAttendance,
     );
     if (!isEditing || !editRequest || detected.length > 0) return detected;
 
@@ -272,7 +278,9 @@ export function AttendanceExplanationDialog({
   const scheduleHint =
     (continuousShift || sch.continuousShift) && cont
       ? `Ca thông tầm: ${cont.start.slice(0, 5)} – ${cont.end.slice(0, 5)}`
-      : `Lịch: sáng ${sch.morningStart.slice(0, 5)}–${sch.morningEnd.slice(0, 5)}, chiều ${sch.afternoonStart.slice(0, 5)}–${sch.afternoonEnd.slice(0, 5)}`;
+      : twoPunchAttendance || sch.twoPunchAttendance
+        ? `Phân quyền công · vào sáng ${sch.morningStart.slice(0, 5)} · ra chiều ${sch.afternoonEnd.slice(0, 5)}`
+        : `Lịch: sáng ${sch.morningStart.slice(0, 5)}–${sch.morningEnd.slice(0, 5)}, chiều ${sch.afternoonStart.slice(0, 5)}–${sch.afternoonEnd.slice(0, 5)}`;
 
   return (
     <WorkRequestDialogShell
@@ -306,6 +314,12 @@ export function AttendanceExplanationDialog({
             Ngày này là <strong>ca thông tầm</strong> — chỉ xét giờ vào đầu ngày và giờ ra cuối ngày. Tích khung
             đang bị trừ tiền cần sửa, rồi nhập <strong>giờ thay thế</strong>. Đơn qua lãnh đạo → HCNS → Giám đốc
             quyết định trừ tiền muộn/sớm.
+          </>
+        ) : twoPunchAttendance || sch.twoPunchAttendance ? (
+          <>
+            Nhân viên <strong>phân quyền công</strong> — chỉ xét <strong>vào sáng</strong> và{' '}
+            <strong>ra chiều</strong> (vẫn ca sáng/chiều bình thường). Tích khung đang bị trừ tiền cần sửa, rồi
+            nhập <strong>giờ thay thế</strong>.
           </>
         ) : (
           <>

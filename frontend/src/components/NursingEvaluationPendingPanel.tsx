@@ -5,7 +5,12 @@ import {
   Alert,
   Badge,
   Box,
+  Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Stack,
   Tab,
   Tabs,
@@ -15,15 +20,18 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isHr2Role } from '../utils/roleAccess';
+import {
+  ensureHasSignature,
+  extractApiErrorMessage,
+} from '../services/approvalSignatureService';
 import * as ne from '../services/nursingEvaluationService';
 import { formatDateTimeVi } from '../utils/dateFormat';
 import { NursingEvaluationDetailDialog } from './NursingEvaluationDetailDialog';
 import {
   applyRequestListFilters,
-  EMPTY_REQUEST_FILTERS,
   RequestListFilters,
-  type RequestListFilterState,
 } from './requests/RequestListFilters';
+import { useLazyHistoryList } from './requests/useLazyHistoryList';
 import {
   formatRequestSubject,
   RequestListTable,
@@ -35,16 +43,29 @@ type Props = {
   onChanged?: () => void;
 };
 
+function canReviewRow(
+  status: string,
+  opts: { canNursingHead: boolean; canHr: boolean; canDirector: boolean },
+): boolean {
+  if (status === 'PENDING_NURSING_HEAD') return opts.canNursingHead;
+  if (status === 'PENDING_HR') return opts.canHr;
+  if (status === 'PENDING_DIRECTOR') return opts.canDirector;
+  return false;
+}
+
 export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Props) {
   const theme = useTheme();
   const { user } = useAuth();
-  const [pending, setPending] = useState<ne.NursingEvalRow[]>([]);
-  const [history, setHistory] = useState<ne.NursingEvalRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
-  const [filters, setFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
   const [subTab, setSubTab] = useState(0);
+  const [actionBusyId, setActionBusyId] = useState<number | string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirm, setConfirm] = useState<{
+    rows: ne.NursingEvalRow[];
+    approved: boolean;
+  } | null>(null);
 
   const canNursingHead = user?.role === 'ADMIN' || user?.role === 'HEAD_NURSING';
   const canHr = user?.role === 'ADMIN' || isHr2Role(user?.role);
@@ -52,44 +73,59 @@ export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Pro
     user?.role === 'ADMIN'
     || user?.role === 'DIRECTOR'
     || user?.directorApprovalEnabled === true;
+  const canLoad = canNursingHead || canHr || canDirector;
+  const reviewOpts = useMemo(
+    () => ({ canNursingHead, canHr, canDirector }),
+    [canNursingHead, canHr, canDirector],
+  );
 
-  const reload = useCallback(() => {
-    setLoading(true);
-    Promise.all([
-      ne.fetchNursingPending().catch(() => [] as ne.NursingEvalRow[]),
-      ne.fetchNursingEvaluationHistory().catch(() => [] as ne.NursingEvalRow[]),
-    ])
-      .then(([p, h]) => {
-        setPending(p);
-        setHistory(h);
-        setErr(null);
-      })
-      .catch(() => {
-        setErr('Không tải được danh sách phiếu đánh giá.');
-        setPending([]);
-        setHistory([]);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+  const loadPending = useCallback(
+    () => ne.fetchNursingPending().catch(() => [] as ne.NursingEvalRow[]),
+    [],
+  );
+  const loadHistory = useCallback(
+    (range: { fromDate?: string; toDate?: string }) =>
+      ne.fetchNursingEvaluationHistory(range).catch(() => [] as ne.NursingEvalRow[]),
+    [],
+  );
+  const {
+    pending,
+    history,
+    listLoading,
+    historyLoaded,
+    filters,
+    setFilters,
+    filterReset,
+    clearLabel,
+    reload,
+  } = useLazyHistoryList({
+    historyActive: subTab === 1,
+    canLoad,
+    loadPending,
+    loadHistory,
+  });
 
   useEffect(() => {
-    reload();
-  }, [reload, refreshKey]);
-
-  useEffect(() => {
-    setFilters(EMPTY_REQUEST_FILTERS);
-  }, [subTab]);
+    if (refreshKey > 0) reload();
+  }, [refreshKey, reload]);
 
   const tabDefs = useMemo(
     () => [
       { key: 'pending', label: 'Chờ duyệt', count: pending.length, list: pending },
-      { key: 'history', label: 'Lịch sử duyệt', count: history.length, list: history },
+      {
+        key: 'history',
+        label: historyLoaded ? `Lịch sử duyệt (${history.length})` : 'Lịch sử duyệt',
+        count: history.length,
+        list: history,
+      },
     ],
-    [pending, history],
+    [pending, history, historyLoaded],
   );
 
   const active = tabDefs[subTab] ?? tabDefs[0];
   const sourceRows = active?.list ?? [];
+  const isHistory = active?.key === 'history';
+  const canActOnTab = active?.key === 'pending';
 
   const statusOptions = useMemo(() => {
     return ne.nursingEvalFilterOptionsPresent(sourceRows.map((r) => String(r.status || '')));
@@ -126,13 +162,19 @@ export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Pro
     [sourceRows, filters],
   );
 
+  const byId = useMemo(() => {
+    const map = new Map<number, ne.NursingEvalRow>();
+    filtered.forEach((r) => map.set(Number(r.id), r));
+    return map;
+  }, [filtered]);
+
   const tableRows: RequestListRow[] = useMemo(
     () =>
       filtered.map((r) => {
         const status = String(r.status || '');
-        const isPendingTab = active?.key === 'pending';
         const pendingNow =
           status === 'PENDING_NURSING_HEAD' || status === 'PENDING_HR' || status === 'PENDING_DIRECTOR';
+        const reviewable = canActOnTab && canReviewRow(status, reviewOpts);
         return {
           id: Number(r.id),
           typeLabel: 'Đánh giá ĐD',
@@ -157,13 +199,75 @@ export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Pro
                 || '',
             ),
           ),
-          pending: isPendingTab && pendingNow,
+          pending: canActOnTab && pendingNow,
+          canApprove: reviewable,
+          canReject: reviewable,
         };
       }),
-    [filtered, active?.key],
+    [filtered, canActOnTab, reviewOpts],
   );
 
-  if (!canNursingHead && !canHr && !canDirector) return null;
+  async function reviewOne(row: ne.NursingEvalRow, approved: boolean) {
+    const id = Number(row.id);
+    const status = String(row.status || '');
+    if (status === 'PENDING_DIRECTOR' && canDirector) {
+      await ne.directorReviewNursingEvaluation(id, approved);
+      return;
+    }
+    if (status === 'PENDING_HR' && canHr) {
+      await ne.hrReviewNursingEvaluation(id, approved);
+      return;
+    }
+    if (status === 'PENDING_NURSING_HEAD' && canNursingHead) {
+      await ne.nursingHeadReviewNursingEvaluation(id, approved);
+      return;
+    }
+    throw new Error('Không xác định được bước duyệt.');
+  }
+
+  async function confirmQuickReview() {
+    if (!confirm || confirm.rows.length === 0) return;
+    const { rows, approved } = confirm;
+    if (rows.length > 1) setBulkBusy(true);
+    else setActionBusyId(Number(rows[0].id));
+    setMsg(null);
+    setErr(null);
+    try {
+      await ensureHasSignature();
+      let ok = 0;
+      let fail = 0;
+      for (const row of rows) {
+        try {
+          await reviewOne(row, approved);
+          ok += 1;
+        } catch {
+          fail += 1;
+        }
+      }
+      reload();
+      onChanged?.();
+      setMsg(
+        fail === 0
+          ? approved
+            ? `Đã duyệt ${ok} phiếu đánh giá.`
+            : `Đã từ chối ${ok} phiếu đánh giá.`
+          : `Hoàn tất ${ok} phiếu, ${fail} phiếu lỗi.`,
+      );
+      setConfirm(null);
+    } catch (e) {
+      setErr(extractApiErrorMessage(e, 'Thao tác thất bại.'));
+    } finally {
+      setActionBusyId(null);
+      setBulkBusy(false);
+    }
+  }
+
+  function openConfirm(rows: ne.NursingEvalRow[], approved: boolean) {
+    if (rows.length === 0) return;
+    setConfirm({ rows, approved });
+  }
+
+  if (!canLoad) return null;
 
   return (
     <Box
@@ -202,7 +306,7 @@ export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Pro
               Duyệt phiếu đánh giá
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Chờ duyệt và lịch sử ký duyệt · Trưởng phòng ĐD → HCNS → Giám đốc
+              Chờ duyệt và lịch sử ký duyệt · Trưởng phòng ĐD → HCNS → Giám đốc · Có thể chọn nhiều phiếu để duyệt
             </Typography>
           </Box>
         </Stack>
@@ -239,9 +343,7 @@ export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Pro
                   <PendingActionsIcon fontSize="small" />
                 </Badge>
               ) : (
-                <Badge badgeContent={t.count} color="default" max={99}>
-                  <HistoryIcon fontSize="small" />
-                </Badge>
+                <HistoryIcon fontSize="small" />
               )
             }
             iconPosition="start"
@@ -255,34 +357,146 @@ export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Pro
           {err}
         </Alert>
       )}
+      {msg && (
+        <Alert severity="success" sx={{ mb: 1.5, borderRadius: 2 }} onClose={() => setMsg(null)}>
+          {msg}
+        </Alert>
+      )}
 
       <Box sx={{ mb: 1.5 }}>
         <RequestListFilters
           value={filters}
           onChange={setFilters}
-          title={active?.key === 'history' ? 'Bộ lọc lịch sử' : 'Bộ lọc phiếu chờ'}
-          hideDateFilters
+          title={isHistory ? 'Bộ lọc lịch sử (mặc định tháng này)' : 'Bộ lọc phiếu chờ'}
+          hideDateFilters={!isHistory}
           resultCount={filtered.length}
           resultCountLabel="phiếu"
           searchPlaceholder="Tìm tên NV, mã, chức danh…"
           statusOptions={statusOptions}
           departmentOptions={departmentOptions}
+          resetFilters={filterReset}
+          clearLabel={clearLabel}
         />
       </Box>
 
       <RequestListTable
         rows={tableRows}
-        loading={loading}
-        emptyTitle={
-          active?.key === 'history' ? 'Chưa có lịch sử duyệt' : 'Không có phiếu chờ duyệt'
-        }
+        loading={listLoading}
+        emptyTitle={isHistory ? 'Chưa có lịch sử duyệt' : 'Không có phiếu chờ duyệt'}
         emptyHint={
-          active?.key === 'history'
-            ? 'Các phiếu bạn đã duyệt hoặc từ chối sẽ hiện tại đây.'
-            : 'Khi có phiếu gửi đến bước của bạn, danh sách sẽ hiện tại đây.'
+          isHistory
+            ? 'Mặc định xem phiếu trong tháng hiện tại. Đổi khoảng ngày để xem thêm.'
+            : 'Khi có phiếu gửi đến bước của bạn, danh sách sẽ hiện tại đây. Bấm «Chọn đơn» để duyệt hàng loạt.'
         }
+        actionBusyId={actionBusyId}
+        bulkBusy={bulkBusy}
         onView={(row) => setDetailId(Number(row.id))}
+        onApprove={
+          canActOnTab
+            ? (row) => {
+                const r = byId.get(Number(row.id));
+                if (r) openConfirm([r], true);
+              }
+            : undefined
+        }
+        onReject={
+          canActOnTab
+            ? (row) => {
+                const r = byId.get(Number(row.id));
+                if (r) openConfirm([r], false);
+              }
+            : undefined
+        }
+        onBulkApprove={
+          canActOnTab
+            ? (selectedRows) => {
+                const selected = selectedRows
+                  .map((row) => byId.get(Number(row.id)))
+                  .filter((r): r is ne.NursingEvalRow => Boolean(r));
+                if (selected.length) openConfirm(selected, true);
+              }
+            : undefined
+        }
+        onBulkReject={
+          canActOnTab
+            ? (selectedRows) => {
+                const selected = selectedRows
+                  .map((row) => byId.get(Number(row.id)))
+                  .filter((r): r is ne.NursingEvalRow => Boolean(r));
+                if (selected.length) openConfirm(selected, false);
+              }
+            : undefined
+        }
       />
+
+      <Dialog
+        open={confirm != null}
+        onClose={() => !bulkBusy && actionBusyId == null && setConfirm(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          {confirm?.approved
+            ? confirm.rows.length > 1
+              ? 'Xác nhận duyệt hàng loạt'
+              : 'Xác nhận duyệt'
+            : confirm && confirm.rows.length > 1
+              ? 'Xác nhận từ chối hàng loạt'
+              : 'Xác nhận không duyệt'}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            {confirm && confirm.rows.length > 1 ? (
+              <>
+                {confirm.approved ? 'Duyệt' : 'Từ chối'} <strong>{confirm.rows.length}</strong> phiếu
+                đánh giá đã chọn?
+              </>
+            ) : (
+              <>
+                {confirm?.approved ? 'Duyệt' : 'Từ chối'} phiếu của{' '}
+                <strong>
+                  {String(confirm?.rows[0]?.employeeName || confirm?.rows[0]?.fullName || '—')}
+                </strong>
+                ?
+              </>
+            )}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            onClick={() => setConfirm(null)}
+            disabled={actionBusyId != null || bulkBusy}
+          >
+            Hủy
+          </Button>
+          {confirm && confirm.rows.length === 1 && (
+            <Button
+              variant="outlined"
+              onClick={() => {
+                if (confirm) setDetailId(Number(confirm.rows[0].id));
+                setConfirm(null);
+              }}
+              disabled={actionBusyId != null || bulkBusy}
+            >
+              Xem chi tiết
+            </Button>
+          )}
+          <Button
+            color={confirm?.approved ? 'success' : 'error'}
+            variant="contained"
+            onClick={() => void confirmQuickReview()}
+            disabled={actionBusyId != null || bulkBusy}
+          >
+            {confirm?.approved
+              ? confirm.rows.length > 1
+                ? `Duyệt ${confirm.rows.length} phiếu`
+                : 'Duyệt'
+              : confirm && confirm.rows.length > 1
+                ? `Từ chối ${confirm.rows.length} phiếu`
+                : 'Không duyệt'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <NursingEvaluationDetailDialog
         open={detailId != null}

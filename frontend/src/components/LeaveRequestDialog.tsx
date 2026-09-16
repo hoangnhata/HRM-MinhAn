@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import * as att from '../services/attendanceService';
 import * as employeeService from '../services/employeeService';
+import { extractApiErrorMessage } from '../services/approvalSignatureService';
 import { DatePickerField } from './ui/DateTimeFields';
 import {
   FormSection,
@@ -16,6 +17,9 @@ import {
   WorkRequestDialogShell,
   requestFieldSx,
 } from './work/WorkRequestFormUi';
+import { LeaveBalanceAlert } from './work/LeaveBalanceAlert';
+
+const MONTHLY_WORK_CAP = 27;
 
 type Props = {
   open: boolean;
@@ -32,6 +36,15 @@ function daysInclusive(from: string, to: string): number {
   return Math.round((b.getTime() - a.getTime()) / 86400000) + 1;
 }
 
+function monthWorkExcludingDeployment(summary: att.MonthSummary | null | undefined): number {
+  if (!summary) return 0;
+  return (
+    Number(summary.clockedWorkUnits ?? 0) +
+    Number(summary.leaveWorkUnits ?? 0) +
+    Number(summary.dutyWorkUnitsTotal ?? 0)
+  );
+}
+
 export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, editRequest }: Props) {
   const theme = useTheme();
   const { user } = useAuth();
@@ -45,10 +58,14 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
   const [reason, setReason] = useState('');
   const [departmentName, setDepartmentName] = useState('');
   const [balance, setBalance] = useState<att.LeaveBalance | null>(null);
+  const [monthSummary, setMonthSummary] = useState<att.MonthSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const leaveDays = useMemo(() => daysInclusive(fromDate, toDate), [fromDate, toDate]);
+  const recordedWork = monthWorkExcludingDeployment(monthSummary);
+  const remainWorkDays = Math.max(0, Math.floor(MONTHLY_WORK_CAP - recordedWork + 1e-9));
+  const monthCapBlocked = recordedWork >= MONTHLY_WORK_CAP || leaveDays > remainWorkDays;
 
   useEffect(() => {
     if (!open) return;
@@ -79,6 +96,28 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
     att.fetchMyLeaveBalance(y).then(setBalance).catch(() => setBalance(null));
   }, [open, fromDate]);
 
+  useEffect(() => {
+    if (!open || !fromDate || !user?.employeeId) {
+      setMonthSummary(null);
+      return;
+    }
+    const y = Number(fromDate.slice(0, 4));
+    const m = Number(fromDate.slice(5, 7));
+    if (!Number.isFinite(y) || !Number.isFinite(m)) return;
+    let cancelled = false;
+    att
+      .fetchMonthSummary(user.employeeId, y, m)
+      .then((s) => {
+        if (!cancelled) setMonthSummary(s);
+      })
+      .catch(() => {
+        if (!cancelled) setMonthSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, fromDate, user?.employeeId]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -93,6 +132,14 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
     if (balance && leaveDays > balance.remainingDays) {
       setErr(
         `Vượt hạn mức phép: còn ${balance.remainingDays}/${balance.entitlementDays} ngày, đơn xin ${leaveDays} ngày.`,
+      );
+      return;
+    }
+    if (monthCapBlocked) {
+      setErr(
+        remainWorkDays <= 0
+          ? `Tháng này đã đủ ${recordedWork.toLocaleString('vi-VN')} công (chưa gồm điều động). Đủ ${MONTHLY_WORK_CAP} công thì không được tạo đơn nghỉ phép.`
+          : `Tháng này đã có ${recordedWork.toLocaleString('vi-VN')} công (chưa gồm điều động). Chỉ còn xin được tối đa ${remainWorkDays} ngày.`,
       );
       return;
     }
@@ -112,8 +159,8 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
       }
       onSubmitted?.();
       onClose();
-    } catch {
-      setErr('Gửi đơn thất bại. Kiểm tra hạn mức phép hoặc khoảng ngày trùng đơn khác.');
+    } catch (ex) {
+      setErr(extractApiErrorMessage(ex, 'Gửi đơn thất bại. Kiểm tra hạn mức phép, 27 công/tháng hoặc khoảng ngày trùng đơn khác.'));
     } finally {
       setLoading(false);
     }
@@ -147,29 +194,32 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
 
       <InfoBanner>
         Hạn mức năm: <strong>12 ngày</strong> cơ bản; cứ đủ <strong>5 năm</strong> thâm niên thêm{' '}
-        <strong>1 ngày</strong>. Không được vượt số ngày còn lại trong năm.
+        <strong>1 ngày</strong>. Trong tháng, đủ <strong>27 công</strong> (chấm + phép + trực,{' '}
+        <strong>chưa gồm điều động</strong>) thì không được tạo đơn nghỉ phép.
       </InfoBanner>
 
-      {balance && (
+      {monthSummary && (
         <Alert
-          severity={balance.overLimit || balance.remainingDays <= 2 ? 'warning' : 'info'}
+          severity={monthCapBlocked ? 'error' : remainWorkDays <= 2 ? 'warning' : 'info'}
           variant="outlined"
           sx={{ borderRadius: 2.5 }}
         >
-          Năm {balance.year}: đã dùng <strong>{balance.usedDays}</strong>
-          {balance.pendingDays > 0 ? (
-            <>
-              {' '}
-              · chờ duyệt <strong>{balance.pendingDays}</strong>
-            </>
-          ) : null}{' '}
-          · còn <strong>
-            {balance.remainingDays}/{balance.entitlementDays}
-          </strong>{' '}
-          ngày
-          {balance.yearsOfService > 0 ? ` · thâm niên ${balance.yearsOfService} năm` : ''}.
-          {balance.warning ? ` ${balance.warning}` : ''}
+          Công tháng {fromDate.slice(5, 7)}/{fromDate.slice(0, 4)} (chưa gồm điều động):{' '}
+          <strong>
+            {recordedWork.toLocaleString('vi-VN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}/{MONTHLY_WORK_CAP}
+          </strong>
+          {remainWorkDays <= 0
+            ? ' — đã đủ hạn mức, không được xin phép thêm.'
+            : ` — còn xin tối đa ${remainWorkDays} ngày.`}
         </Alert>
+      )}
+
+      {balance && (
+        <LeaveBalanceAlert
+          balance={balance}
+          requestDays={leaveDays > 0 ? leaveDays : undefined}
+          requestPending={false}
+        />
       )}
 
       <FormSection title="Người nộp đơn">
@@ -212,6 +262,11 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
         {leaveDays > 0 && balance && leaveDays > balance.remainingDays && (
           <Typography variant="body2" color="error" sx={{ mt: 0.5 }}>
             Đơn xin {leaveDays} ngày nhưng chỉ còn {balance.remainingDays} ngày phép.
+          </Typography>
+        )}
+        {leaveDays > 0 && remainWorkDays > 0 && leaveDays > remainWorkDays && (
+          <Typography variant="body2" color="error" sx={{ mt: 0.5 }}>
+            Đơn xin {leaveDays} ngày nhưng tháng này chỉ còn tối đa {remainWorkDays} ngày (hạn mức {MONTHLY_WORK_CAP} công).
           </Typography>
         )}
       </FormSection>

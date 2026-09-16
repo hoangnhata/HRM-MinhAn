@@ -22,6 +22,8 @@ export type WorkforceDetailRow = {
   employmentType?: string | null;
   hireDate?: string | null;
   attendanceStatus?: string | null;
+  shiftKind?: 'CONTINUOUS' | 'SPLIT' | string | null;
+  shiftKindLabel?: string | null;
   checkIn?: string | null;
   checkOut?: string | null;
   morningCheckIn?: string | null;
@@ -31,6 +33,25 @@ export type WorkforceDetailRow = {
   workUnits?: number | null;
   lateMinutes?: number | null;
 };
+
+export type WorkforceAbsentEmployee = {
+  employeeId: number;
+  employeeCode?: string | null;
+  fullName: string;
+  departmentId: number;
+  departmentName: string;
+  positionTitle?: string | null;
+  employeeStatus: string;
+  employmentType?: string | null;
+};
+
+export type WorkforceAbsentDepartment = {
+  departmentId: number;
+  departmentName: string;
+  total: number;
+  employees: WorkforceAbsentEmployee[];
+};
+
 export type WorkforceReport = {
   type: WorkforceReportType;
   reportDate: string;
@@ -41,33 +62,46 @@ export type WorkforceReport = {
   grandTotal: number;
   departmentCount: number;
   details: WorkforceDetailRow[];
+  absentTotal?: number;
+  absentDepartmentCount?: number;
+  absentDetails?: WorkforceAbsentEmployee[];
+  absentByDepartment?: WorkforceAbsentDepartment[];
 };
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 const COLORS = {
-  primary: 'FF006865',
-  primaryDark: 'FF004B49',
-  header: 'FF087F8C',
-  subtitleBg: 'FFDDEDEB',
-  subtitleFg: 'FF244846',
-  kpiBg: 'FFEFF7F6',
-  kpiLabel: 'FF52706E',
-  text: 'FF243B3A',
-  textMuted: 'FF365B5A',
+  primary: 'FF0D4F4A',
+  primaryDark: 'FF083B37',
+  header: 'FF1A6B63',
+  subtitleBg: 'FFE7EFEE',
+  subtitleFg: 'FF1F3F3C',
+  kpiBg: 'FFF4F8F7',
+  kpiLabel: 'FF4A6562',
+  text: 'FF1C2B2A',
+  textMuted: 'FF334847',
   white: 'FFFFFFFF',
-  alt: 'FFF4F8F8',
-  positiveOdd: 'FFE6F3F1',
-  positiveEven: 'FFDCEFED',
-  totalRow: 'FF006865',
-  nameFg: 'FF123B3A',
+  alt: 'FFF3F7F6',
+  positiveOdd: 'FFE4F0EE',
+  positiveEven: 'FFD7E9E6',
+  totalRow: 'FF0D4F4A',
+  nameFg: 'FF0D4F4A',
+  border: 'FFB7C9C6',
+  borderStrong: 'FF7FA09B',
   statusGreenBg: 'FFDCFCE7',
   statusGreenFg: 'FF166534',
   statusAmberBg: 'FFFEF3C7',
   statusAmberFg: 'FF92400E',
   statusBlueBg: 'FFE0F2FE',
   statusBlueFg: 'FF075985',
-  tabDetail: 'FFD99B2B',
+  tabDetail: 'FF8A6A2F',
+  absentPrimary: 'FF9B1C1C',
+  absentHeader: 'FFB91C1C',
+  absentSubtitleBg: 'FFF8E8E8',
+  absentAlt: 'FFFCEBEB',
+  absentBody: 'FFFFF8F8',
+  absentBorder: 'FFE2B4B4',
+  absentText: 'FF7F1D1D',
 };
 
 export async function fetchHospitalWorkforceReport() {
@@ -155,15 +189,15 @@ function fill(argb: string): ExcelJS.Fill {
 function font(opts: Partial<ExcelJS.Font> & { color?: string }): Partial<ExcelJS.Font> {
   const { color, ...rest } = opts;
   return {
-    name: 'Arial',
-    size: 10,
+    name: 'Times New Roman',
+    size: 11,
     ...rest,
     ...(color ? { color: { argb: color } } : {}),
   };
 }
 
-function thinBorder(): Partial<ExcelJS.Borders> {
-  const edge: Partial<ExcelJS.Border> = { style: 'thin', color: { argb: 'FFD0D7D6' } };
+function thinBorder(color = COLORS.border): Partial<ExcelJS.Borders> {
+  const edge: Partial<ExcelJS.Border> = { style: 'thin', color: { argb: color } };
   return { top: edge, left: edge, bottom: edge, right: edge };
 }
 
@@ -192,6 +226,12 @@ function applyRange(
   }
 }
 
+function applyFooter(sheet: ExcelJS.Worksheet, center: string) {
+  sheet.headerFooter = {
+    oddFooter: `&L&"Times New Roman"&9Bệnh viện Đa khoa Minh An&C&"Times New Roman"&9${center}&R&"Times New Roman"&9Trang &P / &N`,
+  };
+}
+
 /** Dự phòng / xuất local — giao diện đồng bộ báo cáo toàn viện (POI). */
 export async function downloadWorkforceReportFallback(report: WorkforceReport) {
   const daily = report.type === 'DAILY';
@@ -213,19 +253,19 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
   wb.created = new Date();
 
   const matrix = wb.addWorksheet(daily ? 'Nhân lực đi làm' : 'Nhân lực toàn viện', {
-    views: [{ state: 'frozen', xSplit: 1, ySplit: 6, showGridLines: false, zoomScale: 85 }],
-    properties: { tabColor: { argb: COLORS.header } },
+    views: [{ state: 'frozen', xSplit: 1, ySplit: 6, showGridLines: false, zoomScale: 90 }],
+    properties: { tabColor: { argb: COLORS.primary } },
   });
 
   const titleStyle: Partial<ExcelJS.Style> = {
-    font: font({ bold: true, size: 16, color: COLORS.white }),
+    font: font({ bold: true, size: 18, color: COLORS.white }),
     fill: fill(COLORS.primary),
     alignment: { horizontal: 'center', vertical: 'middle' },
   };
   const subtitleStyle: Partial<ExcelJS.Style> = {
-    font: font({ size: 10, color: COLORS.subtitleFg }),
+    font: font({ size: 11, color: COLORS.subtitleFg }),
     fill: fill(COLORS.subtitleBg),
-    alignment: { horizontal: 'left', vertical: 'middle' },
+    alignment: { horizontal: 'center', vertical: 'middle' },
   };
   const kpiLabelStyle: Partial<ExcelJS.Style> = {
     font: font({ bold: true, size: 9, color: COLORS.kpiLabel }),
@@ -241,7 +281,7 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
     font: font({ bold: true, color: COLORS.white }),
     fill: fill(COLORS.header),
     alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
-    border: thinBorder(),
+    border: thinBorder(COLORS.borderStrong),
   };
   const headerLeftStyle: Partial<ExcelJS.Style> = {
     ...headerStyle,
@@ -249,7 +289,7 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
   };
 
   applyRange(matrix, 1, 1, lastCol, title, titleStyle);
-  matrix.getRow(1).height = 32;
+  matrix.getRow(1).height = 36;
   applyRange(
     matrix,
     2,
@@ -258,7 +298,7 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
     `BỆNH VIỆN ĐA KHOA MINH AN  •  Ngày báo cáo: ${dateVi}  •  Ngày xuất: ${todayVi}`,
     subtitleStyle,
   );
-  matrix.getRow(2).height = 24;
+  matrix.getRow(2).height = 22;
 
   const kpiLabels = [
     daily ? 'THỰC TẾ CÓ MẶT' : 'TỔNG NHÂN LỰC',
@@ -278,11 +318,11 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
     applyRange(matrix, 3, from, to, kpiLabels[i], kpiLabelStyle);
     applyRange(matrix, 4, from, to, kpiValues[i], kpiValueStyle);
   }
-  matrix.getRow(3).height = 20;
-  matrix.getRow(4).height = 28;
+  matrix.getRow(3).height = 18;
+  matrix.getRow(4).height = 26;
 
   const headerRow = matrix.getRow(6);
-  headerRow.height = 44;
+  headerRow.height = 40;
   headerRow.getCell(1).value = 'KHOA / PHÒNG';
   styleCell(headerRow.getCell(1), headerLeftStyle);
   report.categories.forEach((c, i) => {
@@ -295,13 +335,13 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
 
   report.rows.forEach((row, idx) => {
     const r = matrix.getRow(7 + idx);
-    r.height = 23;
+    r.height = 21;
     const even = (7 + idx) % 2 === 0;
     const bg = even ? COLORS.alt : COLORS.white;
     const deptStyle: Partial<ExcelJS.Style> = {
       font: font({ bold: true, color: COLORS.nameFg }),
       fill: fill(bg),
-      alignment: { horizontal: 'left', vertical: 'middle' },
+      alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
       border: thinBorder(),
     };
     r.getCell(1).value = row.departmentName;
@@ -323,7 +363,7 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
     totalCell.value = row.total;
     styleCell(totalCell, {
       font: font({ bold: true, color: COLORS.primary }),
-      fill: fill(even ? 'FFE3F1EF' : 'FFEDF7F5'),
+      fill: fill(even ? 'FFE0EEEC' : 'FFECF4F3'),
       alignment: { horizontal: 'center', vertical: 'middle' },
       border: thinBorder(),
     });
@@ -331,12 +371,12 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
 
   const totalRowIdx = 7 + report.rows.length;
   const totalRow = matrix.getRow(totalRowIdx);
-  totalRow.height = 26;
+  totalRow.height = 24;
   const totalStyle: Partial<ExcelJS.Style> = {
     font: font({ bold: true, color: COLORS.white }),
     fill: fill(COLORS.totalRow),
     alignment: { horizontal: 'center', vertical: 'middle' },
-    border: thinBorder(),
+    border: thinBorder(COLORS.borderStrong),
   };
   totalRow.getCell(1).value = 'TỔNG CỘNG';
   styleCell(totalRow.getCell(1), totalStyle);
@@ -348,7 +388,7 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
   totalRow.getCell(lastCol).value = report.grandTotal;
   styleCell(totalRow.getCell(lastCol), {
     ...totalStyle,
-    font: font({ bold: true, size: 11, color: COLORS.white }),
+    font: font({ bold: true, size: 12, color: COLORS.white }),
     fill: fill(COLORS.primaryDark),
   });
 
@@ -356,23 +396,25 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
     from: { row: 6, column: 1 },
     to: { row: Math.max(6, totalRowIdx - 1), column: lastCol },
   };
-  matrix.getColumn(1).width = 36;
-  for (let i = 2; i < lastCol; i++) matrix.getColumn(i).width = 16;
-  matrix.getColumn(lastCol).width = 11;
+  matrix.getColumn(1).width = 38;
+  for (let i = 2; i < lastCol; i++) matrix.getColumn(i).width = 15;
+  matrix.getColumn(lastCol).width = 12;
   matrix.pageSetup = {
     orientation: 'landscape',
     fitToPage: true,
     fitToWidth: 1,
     fitToHeight: 0,
+    margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
   };
+  applyFooter(matrix, daily ? 'Nhân lực đi làm hằng ngày' : 'Nhân lực toàn viện');
 
   // Sheet chi tiết
   const detailHeaders = ['STT', 'Mã NV', 'Họ và tên', 'Khoa/Phòng', 'Chức vụ', 'Trạng thái NV'];
-  if (daily) detailHeaders.push('Giờ vào', 'Giờ ra', 'Công', 'Phút muộn/sớm', 'Trạng thái công');
+  if (daily) detailHeaders.push('Ca', 'Giờ vào', 'Giờ ra', 'Công', 'Phút muộn/sớm', 'Trạng thái công');
   const detailLast = detailHeaders.length;
 
   const detail = wb.addWorksheet('Chi tiết nhân viên', {
-    views: [{ state: 'frozen', ySplit: 4, showGridLines: false, zoomScale: 90 }],
+    views: [{ state: 'frozen', ySplit: 4, showGridLines: false, zoomScale: 95 }],
     properties: { tabColor: { argb: COLORS.tabDetail } },
   });
 
@@ -384,7 +426,7 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
     daily ? `CHI TIẾT NHÂN LỰC ĐI LÀM NGÀY ${dateVi}` : 'CHI TIẾT NHÂN LỰC TOÀN VIỆN',
     titleStyle,
   );
-  detail.getRow(1).height = 30;
+  detail.getRow(1).height = 34;
   applyRange(
     detail,
     2,
@@ -393,19 +435,19 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
     `BỆNH VIỆN ĐA KHOA MINH AN  •  Tổng số: ${report.details.length} nhân viên`,
     subtitleStyle,
   );
-  detail.getRow(2).height = 23;
+  detail.getRow(2).height = 20;
 
   const dHeader = detail.getRow(4);
-  dHeader.height = 32;
+  dHeader.height = 28;
   detailHeaders.forEach((h, i) => {
     const cell = dHeader.getCell(i + 1);
     cell.value = h;
-    styleCell(cell, i === 0 || i >= 5 ? headerStyle : headerLeftStyle);
+    styleCell(cell, i <= 4 ? headerLeftStyle : headerStyle);
   });
 
   report.details.forEach((row, idx) => {
     const r = detail.getRow(5 + idx);
-    r.height = 22;
+    r.height = 20;
     const even = (5 + idx) % 2 === 0;
     const bg = even ? COLORS.alt : COLORS.white;
     const left: Partial<ExcelJS.Style> = {
@@ -435,26 +477,22 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
       row.positionTitle,
       employeeStatusLabel(row.employeeStatus),
     ];
-      if (daily) {
-        const inn = row.morningCheckIn || row.checkIn || '';
-        const rawOut = row.afternoonCheckOut || row.checkOut || '';
-        let out = '';
-        if (rawOut && inn) {
-          const [ih, im] = inn.split(':').map(Number);
-          const [oh, om] = rawOut.split(':').map(Number);
-          const minutes = oh * 60 + om - (ih * 60 + im);
-          if (rawOut > inn && minutes >= 120) out = rawOut;
-        } else if (rawOut && !inn) {
-          out = rawOut;
-        }
-        values.push(inn, out, Number(row.workUnits) || 0, Number(row.lateMinutes) || 0, attendanceStatusLabel(row.attendanceStatus));
-      }
+    if (daily) {
+      values.push(
+          row.shiftKindLabel || (row.shiftKind === 'CONTINUOUS' ? 'Ca thông tầm' : 'Ca sáng–chiều'),
+          row.checkIn || '',
+          row.checkOut && row.checkOut !== row.checkIn ? row.checkOut : '',
+          Number(row.workUnits) || 0,
+        Number(row.lateMinutes) || 0,
+        attendanceStatusLabel(row.attendanceStatus),
+      );
+    }
 
     values.forEach((v, i) => {
       const cell = r.getCell(i + 1);
       cell.value = v;
       if (i === 2) styleCell(cell, name);
-      else if (i === 0 || i === 1 || i === 6 || (daily && i >= 7)) styleCell(cell, center);
+      else if (i === 0 || i === 1 || i === 5 || (daily && i >= 6)) styleCell(cell, center);
       else styleCell(cell, left);
 
       if (daily && i === 9) {
@@ -464,21 +502,21 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
         const st = row.attendanceStatus;
         if (st === 'PRESENT') {
           styleCell(cell, {
-            font: font({ bold: true, color: COLORS.statusGreenFg }),
+            font: font({ bold: true, size: 10, color: COLORS.statusGreenFg }),
             fill: fill(COLORS.statusGreenBg),
             alignment: { horizontal: 'center', vertical: 'middle' },
             border: thinBorder(),
           });
         } else if (st === 'PARTIAL' || st === 'ABSENT') {
           styleCell(cell, {
-            font: font({ bold: true, color: COLORS.statusAmberFg }),
+            font: font({ bold: true, size: 10, color: COLORS.statusAmberFg }),
             fill: fill(COLORS.statusAmberBg),
             alignment: { horizontal: 'center', vertical: 'middle' },
             border: thinBorder(),
           });
         } else if (st === 'SEMINAR') {
           styleCell(cell, {
-            font: font({ bold: true, color: COLORS.statusBlueFg }),
+            font: font({ bold: true, size: 10, color: COLORS.statusBlueFg }),
             fill: fill(COLORS.statusBlueBg),
             alignment: { horizontal: 'center', vertical: 'middle' },
             border: thinBorder(),
@@ -496,8 +534,8 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
   }
 
   const detailWidths = daily
-    ? [7, 16, 28, 34, 23, 21, 17, 12, 12, 10, 16, 20]
-    : [7, 16, 28, 34, 23, 21, 17];
+    ? [7, 14, 28, 32, 22, 16, 16, 11, 11, 10, 14, 18]
+    : [7, 14, 28, 32, 22, 16];
   detailWidths.forEach((w, i) => {
     detail.getColumn(i + 1).width = w;
   });
@@ -506,7 +544,95 @@ export async function downloadWorkforceReportFallback(report: WorkforceReport) {
     fitToPage: true,
     fitToWidth: 1,
     fitToHeight: 0,
+    margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
   };
+  applyFooter(detail, 'Chi tiết nhân lực');
+
+  if (daily && (report.absentByDepartment?.length || 0) > 0) {
+    const absent = wb.addWorksheet('Không đi làm', {
+      views: [{ state: 'frozen', ySplit: 4, showGridLines: false, zoomScale: 95 }],
+      properties: { tabColor: { argb: COLORS.absentPrimary } },
+    });
+    const absentTitleStyle: Partial<ExcelJS.Style> = {
+      font: font({ bold: true, size: 18, color: COLORS.white }),
+      fill: fill(COLORS.absentPrimary),
+      alignment: { horizontal: 'center', vertical: 'middle' },
+    };
+    const absentSubtitleStyle: Partial<ExcelJS.Style> = {
+      font: font({ size: 11, color: COLORS.absentText }),
+      fill: fill(COLORS.absentSubtitleBg),
+      alignment: { horizontal: 'center', vertical: 'middle' },
+    };
+    const absentHeaderStyle: Partial<ExcelJS.Style> = {
+      font: font({ bold: true, color: COLORS.white }),
+      fill: fill(COLORS.absentHeader),
+      alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+      border: thinBorder(COLORS.absentPrimary),
+    };
+    const absentHeaderLeftStyle: Partial<ExcelJS.Style> = {
+      ...absentHeaderStyle,
+      alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
+    };
+    const absentHeaders = ['STT', 'Khoa/Phòng', 'Mã NV', 'Họ và tên', 'Chức vụ', 'Trạng thái NV'];
+    const absentLast = absentHeaders.length;
+    applyRange(absent, 1, 1, absentLast, `DANH SÁCH KHÔNG ĐI LÀM NGÀY ${dateVi}`, absentTitleStyle);
+    absent.getRow(1).height = 34;
+    applyRange(
+      absent,
+      2,
+      1,
+      absentLast,
+      `BỆNH VIỆN ĐA KHOA MINH AN  •  Tổng: ${report.absentTotal || 0} nhân viên · ${(report.absentByDepartment || []).length} khoa/phòng`,
+      absentSubtitleStyle,
+    );
+    absent.getRow(2).height = 20;
+    const aHeader = absent.getRow(4);
+    aHeader.height = 28;
+    absentHeaders.forEach((h, i) => {
+      const cell = aHeader.getCell(i + 1);
+      cell.value = h;
+      styleCell(cell, i <= 1 ? absentHeaderLeftStyle : absentHeaderStyle);
+    });
+    let seq = 1;
+    let rowIdx = 5;
+    for (const dept of report.absentByDepartment || []) {
+      for (const row of dept.employees) {
+        const r = absent.getRow(rowIdx++);
+        r.height = 20;
+        const even = rowIdx % 2 === 0;
+        const bg = even ? COLORS.absentAlt : COLORS.absentBody;
+        const values: (string | number)[] = [
+          seq++,
+          row.departmentName,
+          row.employeeCode || '',
+          row.fullName,
+          row.positionTitle || '',
+          employeeStatusLabel(row.employeeStatus),
+        ];
+        values.forEach((v, i) => {
+          const cell = r.getCell(i + 1);
+          cell.value = v;
+          styleCell(cell, {
+            font: font({ bold: i === 3, color: i === 3 ? COLORS.absentPrimary : COLORS.absentText }),
+            fill: fill(bg),
+            alignment: { horizontal: i === 0 || i === 2 || i === 5 ? 'center' : 'left', vertical: 'middle' },
+            border: thinBorder(COLORS.absentBorder),
+          });
+        });
+      }
+    }
+    [7, 34, 14, 28, 22, 16].forEach((w, i) => {
+      absent.getColumn(i + 1).width = w;
+    });
+    absent.pageSetup = {
+      orientation: 'landscape',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+    };
+    applyFooter(absent, 'Danh sách không đi làm');
+  }
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: XLSX_MIME });

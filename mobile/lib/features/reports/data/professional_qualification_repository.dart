@@ -53,6 +53,81 @@ class ProfessionalQualificationReport {
         if (item is Map) ProfessionBlock(raw: Map<String, dynamic>.from(item)),
     ];
   }
+
+  /// Khối chứng chỉ hành nghề; `null` khi backend cũ chưa trả.
+  PracticeCertificateReport? get practiceCertificate {
+    final m = raw['practiceCertificate'];
+    if (m is! Map) return null;
+    return PracticeCertificateReport(raw: Map<String, dynamic>.from(m));
+  }
+}
+
+/// Chứng chỉ / giấy phép hành nghề của 6 đối tượng nghề nghiệp.
+///
+/// Giấy phép cấp từ 01/01/2024 có hạn 5 năm; chứng chỉ cấp trước đó backend
+/// ghi nhận là không thời hạn nên không sinh cảnh báo hết hạn.
+class PracticeCertificateReport {
+  PracticeCertificateReport({required this.raw});
+  final Map<String, dynamic> raw;
+
+  Map<String, dynamic> get _kpi {
+    final m = raw['kpi'];
+    return m is Map ? Map<String, dynamic>.from(m) : const {};
+  }
+
+  int _k(String key) => (_kpi[key] as num?)?.toInt() ?? 0;
+
+  int get total => _k('total');
+  int get withCert => _k('withCert');
+  int get missing => _k('missing');
+  double get coveragePercent =>
+      (_kpi['coveragePercent'] as num?)?.toDouble() ?? 0;
+  int get noDate => _k('noDate');
+  int get unlimited => _k('unlimited');
+  int get valid => _k('valid');
+  int get expiringSoon => _k('expiringSoon');
+  int get expired => _k('expired');
+  int get needsAttention => _k('needsAttention');
+
+  List<Map<String, dynamic>> _list(String key) {
+    final list = raw[key];
+    if (list is! List) return const [];
+    return list
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  List<Map<String, dynamic>> get byStatus => _list('byStatus');
+  List<Map<String, dynamic>> get byProfession => _list('byProfession');
+  List<Map<String, dynamic>> get byDepartment => _list('byDepartment');
+  List<Map<String, dynamic>> get byScope => _list('byScope');
+
+  List<PracticeCertificateDetail> get details =>
+      _list('details').map(PracticeCertificateDetail.new).toList();
+}
+
+class PracticeCertificateDetail {
+  PracticeCertificateDetail(this.raw);
+  final Map<String, dynamic> raw;
+
+  String _s(String key) => raw[key]?.toString().trim() ?? '';
+
+  int get employeeId => (raw['employeeId'] as num?)?.toInt() ?? 0;
+  String get fullName => _s('fullName');
+  String get employeeCode => _s('employeeCode');
+  String get departmentName => _s('departmentName');
+  String get professionLabel => _s('professionLabel');
+  String get professionCode => _s('professionCode');
+  String get certNumber => _s('certNumber');
+  String get certDateRaw => _s('certDateRaw');
+  String get issueDateLabel => _s('issueDateLabel');
+  String get expiryDateLabel => _s('expiryDateLabel');
+  int? get daysToExpiry => (raw['daysToExpiry'] as num?)?.toInt();
+  String get scope => _s('scope');
+  String get statusCode => _s('certStatusCode');
+  String get statusLabel => _s('certStatusLabel');
+  bool get needsAttention => raw['needsAttention'] == true;
 }
 
 class ProfessionalQualificationRepository {

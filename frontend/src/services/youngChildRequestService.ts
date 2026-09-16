@@ -48,8 +48,13 @@ export async function fetchPendingYoungChildRequests() {
   return data;
 }
 
-export async function fetchYoungChildRequestHistory() {
-  const { data } = await api.get<YoungChildRequest[]>('/v1/young-child-requests/history');
+export async function fetchYoungChildRequestHistory(opts?: { fromDate?: string; toDate?: string }) {
+  const { data } = await api.get<YoungChildRequest[]>('/v1/young-child-requests/history', {
+    params: {
+      fromDate: opts?.fromDate || undefined,
+      toDate: opts?.toDate || undefined,
+    },
+  });
   return data;
 }
 

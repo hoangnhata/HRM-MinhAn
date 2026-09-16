@@ -7,6 +7,47 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+/** yyyy-MM-dd theo giờ máy địa phương — không dùng toISOString (lệch ngày ở UTC+7). */
+export function formatLocalIsoDate(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** Hôm nay dạng yyyy-MM-dd (giờ máy). */
+export function todayLocalIso(): string {
+  return formatLocalIsoDate(new Date());
+}
+
+/** Parse yyyy-MM-dd thành Date local (trưa) — tránh lệch timezone. */
+export function parseIsoDateLocal(iso: string): Date {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return new Date(NaN);
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+}
+
+/** Ngày cuối tháng của iso (hoặc tháng hiện tại) — yyyy-MM-dd local. */
+export function endOfMonthLocalIso(fromIso?: string): string {
+  const base = fromIso ? parseIsoDateLocal(fromIso) : new Date();
+  if (Number.isNaN(base.getTime())) return todayLocalIso();
+  const last = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+  return formatLocalIsoDate(last);
+}
+
+/** Ngày đầu tháng yyyy-MM-dd. */
+export function startOfMonthLocalIso(year: number, month: number): string {
+  return `${year}-${pad2(month)}-01`;
+}
+
+/** Số ngày trong tháng (month: 1–12). */
+export function daysInMonthCount(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+/** Khoảng ngày cả tháng yyyy-MM-dd. */
+export function monthRangeLocalIso(year: number, month: number): { from: string; to: string } {
+  const from = startOfMonthLocalIso(year, month);
+  return { from, to: endOfMonthLocalIso(from) };
+}
+
 function fromParts(year: number, month: number, day: number, empty: string): string {
   if (!year || month < 1 || month > 12 || day < 1 || day > 31) return empty;
   const d = new Date(year, month - 1, day);

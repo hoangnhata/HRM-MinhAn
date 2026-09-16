@@ -12,6 +12,17 @@ set "SQLSERVER_PASS=345321@Vn"
 set "SERVER_PORT=8086"
 set "PUBLIC_ORIGIN=https://erp.benhvienminhan.com"
 
+rem === Du lieu ao Module A / QTKT ===
+rem DEMO_SEED=false + DEMO_SEED_CLEANUP=true → restart 1 lan se xoa du lieu ao
+rem Sau khi xoa xong: doi DEMO_SEED_CLEANUP=false (tranh xoa nham bao cao DD that)
+set "DEMO_SEED=false"
+set "DEMO_SEED_CLEANUP=true"
+
+rem === Bo sung phep 8/2026 (4 NV) — bat 1 lan roi tat ===
+rem Restart voi MANUAL_LEAVE_SEED=true → tu tao don LEAVE + ap cong
+rem Sau khi kiem tra phep/cong OK: doi thanh false
+set "MANUAL_LEAVE_SEED=true"
+
 rem === Tro ly AI (bat buoc de chat AI tren production) ===
 set "HR_ASSISTANT_ENABLED=true"
 rem Dat GROQ_API_KEY trong bien moi truong may chu (khong commit key vao git)
@@ -75,6 +86,9 @@ java -Dfile.encoding=UTF-8 -jar "%JAR%" ^
   --spring.datasource.username=%MYSQL_USER% ^
   --spring.datasource.password=%MYSQL_PASS% ^
   --minhan.hrm.jwt.secret=%JWT_SECRET% ^
+  --minhan.hrm.demo-seed.enabled=%DEMO_SEED% ^
+  --minhan.hrm.demo-seed.cleanup=%DEMO_SEED_CLEANUP% ^
+  --minhan.hrm.manual-leave-seed.enabled=%MANUAL_LEAVE_SEED% ^
   --minhan.hrm.upload.dir=%HRM_HOME%/data/uploads ^
   --minhan.hrm.cors.allowed-origins=%PUBLIC_ORIGIN% ^
   --minhan.hrm.erp-auth.base-url=%PUBLIC_ORIGIN% ^

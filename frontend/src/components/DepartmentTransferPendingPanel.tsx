@@ -15,7 +15,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import * as departmentTransferService from '../services/departmentTransferService';
 import {
@@ -25,10 +25,9 @@ import {
 import { DepartmentTransferDetailDialog } from './DepartmentTransferDetailDialog';
 import {
   applyRequestListFilters,
-  EMPTY_REQUEST_FILTERS,
   RequestListFilters,
-  type RequestListFilterState,
 } from './requests/RequestListFilters';
+import { useLazyHistoryList } from './requests/useLazyHistoryList';
 import { RequestListTable, formatRequestSubject, type RequestListRow } from './requests/RequestListTable';
 
 export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () => void }) {
@@ -36,14 +35,10 @@ export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () =
   const { user } = useAuth();
   const canReview = user?.role === 'ADMIN' || user?.role === 'DIRECTOR';
 
-  const [pending, setPending] = useState<departmentTransferService.DepartmentTransfer[]>([]);
-  const [history, setHistory] = useState<departmentTransferService.DepartmentTransfer[]>([]);
   const [subTab, setSubTab] = useState(0);
-  const [listLoading, setListLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
-  const [filters, setFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
   const [confirm, setConfirm] = useState<{
     requests: departmentTransferService.DepartmentTransfer[];
     approved: boolean;
@@ -51,32 +46,36 @@ export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () =
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  const reload = useCallback(() => {
-    setListLoading(true);
-    Promise.all([
+  const loadPending = useCallback(
+    () =>
       departmentTransferService
         .fetchPendingTransfers()
         .catch(() => [] as departmentTransferService.DepartmentTransfer[]),
+    [],
+  );
+  const loadHistory = useCallback(
+    (range: { fromDate?: string; toDate?: string }) =>
       departmentTransferService
-        .fetchTransferHistory()
+        .fetchTransferHistory(range)
         .catch(() => [] as departmentTransferService.DepartmentTransfer[]),
-    ])
-      .then(([p, h]) => {
-        setPending(p);
-        setHistory(h);
-        setErr(null);
-      })
-      .catch(() => setErr('Không tải được danh sách luân chuyển.'))
-      .finally(() => setListLoading(false));
-  }, []);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  useEffect(() => {
-    setFilters(EMPTY_REQUEST_FILTERS);
-  }, [subTab]);
+    [],
+  );
+  const {
+    pending,
+    history,
+    listLoading,
+    historyLoaded,
+    filters,
+    setFilters,
+    filterReset,
+    clearLabel,
+    reload,
+  } = useLazyHistoryList({
+    historyActive: subTab === 1,
+    canLoad: true,
+    loadPending,
+    loadHistory,
+  });
 
   const list = subTab === 0 ? pending : history;
 
@@ -240,7 +239,7 @@ export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () =
             <Tab
               icon={<HistoryIcon fontSize="small" />}
               iconPosition="start"
-              label={`Lịch sử (${history.length})`}
+              label={historyLoaded ? `Lịch sử (${history.length})` : 'Lịch sử'}
             />
           </Tabs>
         </Box>
@@ -253,7 +252,7 @@ export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () =
         emptyHint={
           subTab === 0
             ? 'Khi HCNS gửi đề nghị luân chuyển, đơn sẽ xuất hiện tại đây.'
-            : 'Các đơn đã duyệt, từ chối, đã chuyển hoặc hủy sẽ lưu tại đây.'
+            : 'Mặc định xem đơn trong tháng hiện tại. Đổi khoảng ngày để xem thêm.'
         }
         actionBusyId={actionBusyId}
         bulkBusy={bulkBusy}
@@ -263,6 +262,9 @@ export function DepartmentTransferPendingPanel({ onChanged }: { onChanged?: () =
             onChange={setFilters}
             statusOptions={statusOptions}
             resultCount={filtered.length}
+            resetFilters={filterReset}
+            clearLabel={clearLabel}
+            title={subTab === 1 ? 'Bộ lọc lịch sử (mặc định tháng này)' : 'Bộ lọc đơn'}
           />
         }
         onView={(row) => setDetailId(Number(row.id))}

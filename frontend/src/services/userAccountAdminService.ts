@@ -10,6 +10,16 @@ export type UserAccountAdminRow = {
   directorApprovalEnabled: boolean;
   /** Được xem báo cáo nhân lực (cấp bởi Admin). */
   reportViewEnabled: boolean;
+  /** Được xuất Excel báo cáo công (cấp bởi Admin). */
+  attendanceExcelExportEnabled: boolean;
+  /** Được xem hồ sơ NV toàn viện, không gồm lương (cấp bởi Admin). */
+  hospitalWideEmployeeViewEnabled: boolean;
+  /** Được xem báo cáo Trình độ chuyên môn (cấp bởi Admin). */
+  professionalQualificationReportEnabled: boolean;
+  /**
+   * Phân quyền công: chỉ cần chấm vào sáng + ra chiều để đủ công cả ngày.
+   */
+  twoPunchAttendance: boolean;
   /** Trưởng khoa chỉ quản lý bộ phận của mình. */
   workUnitScoped: boolean;
   mustChangePassword: boolean;
@@ -113,6 +123,38 @@ export async function setDirectorApprovalEnabled(userId: number, enabled: boolea
 export async function setReportViewEnabled(userId: number, enabled: boolean) {
   const { data } = await api.put<UserAccountAdminRow>(
     `/v1/admin/user-accounts/${userId}/report-view`,
+    { enabled },
+  );
+  return data;
+}
+
+export async function setAttendanceExcelExportEnabled(userId: number, enabled: boolean) {
+  const { data } = await api.put<UserAccountAdminRow>(
+    `/v1/admin/user-accounts/${userId}/attendance-excel-export`,
+    { enabled },
+  );
+  return data;
+}
+
+export async function setHospitalWideEmployeeViewEnabled(userId: number, enabled: boolean) {
+  const { data } = await api.put<UserAccountAdminRow>(
+    `/v1/admin/user-accounts/${userId}/hospital-wide-employee-view`,
+    { enabled },
+  );
+  return data;
+}
+
+export async function setProfessionalQualificationReportEnabled(userId: number, enabled: boolean) {
+  const { data } = await api.put<UserAccountAdminRow>(
+    `/v1/admin/user-accounts/${userId}/professional-qualification-report`,
+    { enabled },
+  );
+  return data;
+}
+
+export async function setTwoPunchAttendance(userId: number, enabled: boolean) {
+  const { data } = await api.put<UserAccountAdminRow>(
+    `/v1/admin/user-accounts/${userId}/two-punch-attendance`,
     { enabled },
   );
   return data;

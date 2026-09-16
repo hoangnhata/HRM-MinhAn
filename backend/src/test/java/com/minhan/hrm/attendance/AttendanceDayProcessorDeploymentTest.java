@@ -29,11 +29,12 @@ class AttendanceDayProcessorDeploymentTest {
                     + "(=1.0 sáng / =0 chiều / +0 ngoài giờ) [DDTC:S=07:00-11:30;A=-]";
 
     private AttendanceDayProcessor processor;
+    private ContinuousShiftService continuousShiftService;
 
     @BeforeEach
     void setUp() {
         AttendanceShiftScheduleService scheduleService = mock(AttendanceShiftScheduleService.class);
-        ContinuousShiftService continuousShiftService = mock(ContinuousShiftService.class);
+        continuousShiftService = mock(ContinuousShiftService.class);
         HolidayWorkDayService holidayWorkDayService = mock(HolidayWorkDayService.class);
         AttendanceShiftSchedule schedule = new AttendanceShiftSchedule(
                 LocalTime.of(7, 0),
@@ -180,6 +181,37 @@ class AttendanceDayProcessorDeploymentTest {
     }
 
     @Test
+    void unpaidFullDaySeminarKeepsMorningWorkFromActualPunches() {
+        // Hội thảo không công cả ngày nhưng vẫn đi làm ca sáng (log 6:18–11:46).
+        AttendanceRecord record = record(
+                "[\"06:18\",\"11:46\"]",
+                "Hội thảo đã duyệt (không công, cả ngày) [SEMINAR:FULL_DAY:UNPAID]: "
+                        + "Hội nghị đau toàn quốc lần IV năm 2026 tại Thành Phố Huế");
+
+        processor.applyToRecord(record);
+
+        assertEquals(0, record.getMorningWorkUnits().compareTo(AttendanceShiftSchedule.MORNING_UNITS));
+        assertEquals(0, record.getAfternoonWorkUnits().compareTo(BigDecimal.ZERO));
+        assertEquals("SEMINAR", record.getStatus());
+        assertNull(record.getForgotShifts());
+        assertEquals(LocalTime.of(6, 18), record.getMorningCheckIn());
+        assertEquals(LocalTime.of(11, 46), record.getMorningCheckOut());
+    }
+
+    @Test
+    void unpaidFullDaySeminarWithoutPunchesStaysZeroWork() {
+        AttendanceRecord record = record(
+                "[]",
+                "Hội thảo đã duyệt (không công, cả ngày) [SEMINAR:FULL_DAY:UNPAID]");
+
+        processor.applyToRecord(record);
+
+        assertEquals(0, record.getMorningWorkUnits().compareTo(BigDecimal.ZERO));
+        assertEquals(0, record.getAfternoonWorkUnits().compareTo(BigDecimal.ZERO));
+        assertEquals("SEMINAR", record.getStatus());
+    }
+
+    @Test
     void strippingDeploymentNoteClearsLeftoverOvertimeUnits() {
         AttendanceRecord record = record(
                 "[\"06:54\"]",
@@ -193,6 +225,70 @@ class AttendanceDayProcessorDeploymentTest {
         processor.applyToRecord(record);
 
         assertEquals(0, record.getOvertimeWorkUnits().compareTo(BigDecimal.ZERO));
+    }
+
+    @Test
+    void continuousInsideDeploymentCreditsFullDayAfterInAndOutPunches() {
+        when(continuousShiftService.isContinuousShift(anyLong(), any(LocalDate.class))).thenReturn(true);
+        AttendanceRecord record = record(
+                "[\"07:00\",\"17:00\"]",
+                "Điều động trong ca thông tầm ×1.5: Ca thông tầm 07:00–17:00 — chờ đủ giờ vào/ra "
+                        + "(=1.0 sáng / =0.5 chiều / +0 ngoài giờ) [DDTC:S=07:00-17:00;A=-]");
+
+        processor.applyToRecord(record);
+
+        assertEquals(0, record.getMorningWorkUnits().compareTo(new BigDecimal("1.0")));
+        assertEquals(0, record.getAfternoonWorkUnits().compareTo(new BigDecimal("0.5")));
+        assertEquals("PRESENT", record.getStatus());
+        assertNull(record.getForgotShifts());
+        assertEquals(LocalTime.of(7, 0), record.getCheckIn());
+        assertEquals(LocalTime.of(17, 0), record.getCheckOut());
+    }
+
+    @Test
+    void continuousInsideDeploymentDoesNotCreditWithoutBothPunches() {
+        when(continuousShiftService.isContinuousShift(anyLong(), any(LocalDate.class))).thenReturn(true);
+        AttendanceRecord record = record(
+                "[\"07:00\"]",
+                "Điều động trong ca thông tầm ×1.5: Ca thông tầm 07:00–17:00 — chờ đủ giờ vào/ra "
+                        + "(=1.0 sáng / =0.5 chiều / +0 ngoài giờ) [DDTC:S=07:00-17:00;A=-]");
+
+        processor.applyToRecord(record);
+
+        assertEquals(0, record.getMorningWorkUnits().compareTo(BigDecimal.ZERO));
+        assertEquals(0, record.getAfternoonWorkUnits().compareTo(BigDecimal.ZERO));
+        assertTrue(record.getForgotShifts() != null && record.getForgotShifts().contains("AFTERNOON"));
+    }
+
+    @Test
+    void twoPunchAttendanceCreditsFullDayWithMorningInAndAfternoonOutOnly() {
+        when(continuousShiftService.isContinuousShift(anyLong(), any(LocalDate.class))).thenReturn(false);
+        when(continuousShiftService.isTwoPunchAttendance(anyLong())).thenReturn(true);
+        AttendanceRecord record = record("[\"07:05\",\"17:02\"]", null);
+
+        processor.applyToRecord(record);
+
+        assertEquals(0, record.getMorningWorkUnits().compareTo(AttendanceShiftSchedule.MORNING_UNITS));
+        assertEquals(0, record.getAfternoonWorkUnits().compareTo(AttendanceShiftSchedule.AFTERNOON_UNITS));
+        assertEquals("PRESENT", record.getStatus());
+        assertNull(record.getForgotShifts());
+        assertEquals(LocalTime.of(7, 5), record.getMorningCheckIn());
+        assertNull(record.getMorningCheckOut());
+        assertNull(record.getAfternoonCheckIn());
+        assertEquals(LocalTime.of(17, 2), record.getAfternoonCheckOut());
+    }
+
+    @Test
+    void twoPunchAttendanceFlagsMissingAfternoonOut() {
+        when(continuousShiftService.isContinuousShift(anyLong(), any(LocalDate.class))).thenReturn(false);
+        when(continuousShiftService.isTwoPunchAttendance(anyLong())).thenReturn(true);
+        AttendanceRecord record = record("[\"07:00\"]", null);
+
+        processor.applyToRecord(record);
+
+        assertEquals(0, record.getMorningWorkUnits().compareTo(AttendanceShiftSchedule.MORNING_UNITS));
+        assertEquals(0, record.getAfternoonWorkUnits().compareTo(BigDecimal.ZERO));
+        assertTrue(record.getForgotShifts() != null && record.getForgotShifts().contains("AFTERNOON"));
     }
 
     private static AttendanceRecord record(String punches, String note) {

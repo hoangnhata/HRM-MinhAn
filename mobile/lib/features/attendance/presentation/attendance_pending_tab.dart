@@ -8,6 +8,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/confirm_dialog.dart';
+import '../../../core/widgets/app_month_picker.dart';
+import '../../../core/widgets/history_month_bar.dart';
 import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/highlight_pulse.dart';
@@ -31,8 +33,10 @@ class AttendancePendingTab extends ConsumerStatefulWidget {
   });
 
   final AttendanceRequestScope scope;
+
   /// False khi người dùng đang ở tab khác — tắt chế độ chọn local.
   final bool isActive;
+
   /// Báo parent (ẩn FAB…) — chỉ gọi sau frame, không gọi trong build/setState.
   final ValueChanged<bool>? onSelectModeChanged;
   final int? highlightRequestId;
@@ -56,16 +60,16 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
   List<({String value, String label})> get _typeOptions {
     return switch (widget.scope) {
       AttendanceRequestScope.leave => const [
-          (value: 'LEAVE', label: 'Nghỉ phép'),
-          (value: 'UNPAID_LEAVE', label: 'Không lương'),
-        ],
+        (value: 'LEAVE', label: 'Nghỉ phép'),
+        (value: 'UNPAID_LEAVE', label: 'Không lương'),
+      ],
       AttendanceRequestScope.work => const [
-          (value: 'EXPLANATION', label: 'Giải trình'),
-          (value: 'UPDATE', label: 'Cập nhật công'),
-        ],
+        (value: 'EXPLANATION', label: 'Giải trình'),
+        (value: 'UPDATE', label: 'Cập nhật công'),
+      ],
       AttendanceRequestScope.deployment => const [
-          (value: 'DEPLOYMENT', label: 'Điều động'),
-        ],
+        (value: 'DEPLOYMENT', label: 'Điều động'),
+      ],
     };
   }
 
@@ -135,8 +139,7 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
 
     if (fineTargets.isNotEmpty) {
       final includeKeep = fineTargets.any(
-        (r) =>
-            r.requestType == 'EXPLANATION' && r.status == 'PENDING_DIRECTOR',
+        (r) => r.requestType == 'EXPLANATION' && r.status == 'PENDING_DIRECTOR',
       );
       final decision = await showBulkFineDecisionSheet(
         context,
@@ -152,11 +155,11 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
         context,
         title: approved
             ? (targets.length > 1
-                ? 'Duyệt ${targets.length} đơn?'
-                : 'Duyệt đơn này?')
+                  ? 'Duyệt ${targets.length} đơn?'
+                  : 'Duyệt đơn này?')
             : (targets.length > 1
-                ? 'Từ chối ${targets.length} đơn?'
-                : 'Từ chối đơn này?'),
+                  ? 'Từ chối ${targets.length} đơn?'
+                  : 'Từ chối đơn này?'),
         message: approved
             ? 'Các đơn đã chọn sẽ được duyệt ở bước hiện tại (đồng bộ với web).'
             : 'Các đơn đã chọn sẽ bị từ chối ở bước hiện tại.',
@@ -185,10 +188,10 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
 
     final fineNote = approved && fineTargets.isNotEmpty
         ? (keepOriginalPunchTimes == true
-            ? ' (giữ giờ gốc, không trừ tiền)'
-            : waiveForgotFine == true
-                ? ' (không trừ tiền)'
-                : ' (có trừ tiền)')
+              ? ' (giữ giờ gốc, không trừ tiền)'
+              : waiveForgotFine == true
+              ? ' (không trừ tiền)'
+              : ' (có trừ tiền)')
         : '';
 
     final messenger = ScaffoldMessenger.of(context);
@@ -228,6 +231,16 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
     final highlightId = widget.highlightRequestId;
     if (highlightId != null &&
         !_autoSwitchedHistory &&
+        !state.loading &&
+        !state.historyLoaded &&
+        !state.historyLoading &&
+        !pending.any((r) => r.id == highlightId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) controller.loadHistory();
+      });
+    }
+    if (highlightId != null &&
+        !_autoSwitchedHistory &&
         !pending.any((r) => r.id == highlightId) &&
         history.any((r) => r.id == highlightId)) {
       _autoSwitchedHistory = true;
@@ -263,8 +276,8 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
     final emptyNoun = widget.scope == AttendanceRequestScope.leave
         ? 'đơn nghỉ'
         : widget.scope == AttendanceRequestScope.deployment
-            ? 'đơn điều động'
-            : 'đơn công';
+        ? 'đơn điều động'
+        : 'đơn công';
 
     // Chỉ chọn khi đang ở tab chờ duyệt.
     final canSelect = !_showHistory;
@@ -288,8 +301,7 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
             selectMode: selectMode,
             selectedCount: _selected.length,
             selectableCount: canSelect ? filtered.length : 0,
-            onSelectModeChanged:
-                canSelect ? (v) => _setSelectMode(v) : null,
+            onSelectModeChanged: canSelect ? (v) => _setSelectMode(v) : null,
             leading: AppSegmentedControl(
               expand: false,
               style: AppSegmentStyle.soft,
@@ -311,13 +323,20 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
                   }
                 });
                 _notifySelectMode(false);
+                // Lịch sử tải lười theo tháng — lần đầu mở tab mới gọi API.
+                if (!state.historyLoaded && !state.historyLoading) {
+                  controller.loadHistory();
+                }
               },
               items: [
                 AppSegmentItem(
                   label: pending.isEmpty ? 'Chờ duyệt' : 'Chờ',
                   count: pending.length,
                 ),
-                AppSegmentItem(label: 'Đã xử lý', count: history.length),
+                AppSegmentItem(
+                  label: 'Đã xử lý',
+                  count: state.historyLoaded ? history.length : null,
+                ),
               ],
             ),
           ),
@@ -341,113 +360,130 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
               ),
               onClear: () => setState(_selected.clear),
               onApprove: () {
-                final targets =
-                    filtered.where((r) => _selected.contains(r.id)).toList();
+                final targets = filtered
+                    .where((r) => _selected.contains(r.id))
+                    .toList();
                 _runBulk(approved: true, targets: targets);
               },
               onReject: () {
-                final targets =
-                    filtered.where((r) => _selected.contains(r.id)).toList();
+                final targets = filtered
+                    .where((r) => _selected.contains(r.id))
+                    .toList();
                 _runBulk(approved: false, targets: targets);
               },
             ),
           ),
+        if (_showHistory)
+          HistoryMonthBar(
+            month: state.historyMonth ?? DateTime.now(),
+            loading: state.historyLoading,
+            onPick: () async {
+              final current = state.historyMonth ?? DateTime.now();
+              final picked = await showAppMonthPicker(
+                context,
+                year: current.year,
+                month: current.month,
+                title: 'Tháng đã xử lý',
+              );
+              if (picked == null) return;
+              await controller.loadHistory(
+                month: DateTime(picked.$1, picked.$2),
+              );
+            },
+          ),
         Expanded(
-          child: state.loading && source.isEmpty
+          child:
+              (state.loading && source.isEmpty) ||
+                  (_showHistory && state.historyLoading && source.isEmpty)
               ? const SkeletonList(itemCount: 4, showAvatar: false)
               : state.error != null && source.isEmpty
-                  ? ErrorState(
-                      message: state.error!,
-                      onRetry: controller.refreshAll,
-                    )
-                  : RefreshIndicator(
-                      onRefresh: controller.refreshAll,
-                      child: source.isEmpty
-                          ? ListView(
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              children: [
-                                EmptyState(
-                                  icon: _showHistory
-                                      ? Icons.history_rounded
-                                      : Icons.task_alt_rounded,
-                                  color: _showHistory
-                                      ? AppColors.info
-                                      : AppColors.success,
-                                  title: _showHistory
-                                      ? 'Chưa có đơn nào đã xử lý'
-                                      : 'Không có đơn chờ bạn duyệt',
-                                  message: _showHistory
-                                      ? 'Các đơn bạn đã duyệt hoặc từ chối sẽ hiện ở đây.'
-                                      : 'Bạn đã xử lý hết $emptyNoun thuộc thẩm quyền.',
+              ? ErrorState(
+                  message: state.error!,
+                  onRetry: controller.refreshAll,
+                )
+              : RefreshIndicator(
+                  onRefresh: controller.refreshAll,
+                  child: source.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            EmptyState(
+                              icon: _showHistory
+                                  ? Icons.history_rounded
+                                  : Icons.task_alt_rounded,
+                              color: _showHistory
+                                  ? AppColors.info
+                                  : AppColors.success,
+                              title: _showHistory
+                                  ? 'Chưa có đơn nào đã xử lý'
+                                  : 'Không có đơn chờ bạn duyệt',
+                              message: _showHistory
+                                  ? 'Không có đơn đã xử lý trong tháng này. Chạm vào tháng để xem tháng khác.'
+                                  : 'Bạn đã xử lý hết $emptyNoun thuộc thẩm quyền.',
+                            ),
+                          ],
+                        )
+                      : filtered.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: const [
+                            EmptyState(
+                              icon: Icons.filter_alt_off_outlined,
+                              title: 'Không có đơn phù hợp',
+                              message:
+                                  'Thử đổi từ khoá hoặc xoá bớt điều kiện lọc.',
+                            ),
+                          ],
+                        )
+                      : ListView(
+                          controller: _scroll,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: EdgeInsets.fromLTRB(
+                            AppSpacing.page,
+                            AppSpacing.xs,
+                            AppSpacing.page,
+                            selectMode ? 120 : AppSpacing.xxl,
+                          ),
+                          children: [
+                            if (state.error != null)
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  bottom: AppSpacing.sm,
                                 ),
-                              ],
-                            )
-                          : filtered.isEmpty
-                              ? ListView(
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  children: const [
-                                    EmptyState(
-                                      icon: Icons.filter_alt_off_outlined,
-                                      title: 'Không có đơn phù hợp',
-                                      message:
-                                          'Thử đổi từ khoá hoặc xoá bớt điều kiện lọc.',
+                                child: NoticeBanner.error(
+                                  title: 'Dữ liệu có thể chưa mới nhất',
+                                  message: state.error!,
+                                  action: TextButton.icon(
+                                    onPressed: controller.refreshAll,
+                                    icon: const Icon(
+                                      Icons.refresh_rounded,
+                                      size: 17,
                                     ),
-                                  ],
-                                )
-                              : ListView(
-                                  controller: _scroll,
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  padding: EdgeInsets.fromLTRB(
-                                    AppSpacing.page,
-                                    AppSpacing.xs,
-                                    AppSpacing.page,
-                                    selectMode ? 120 : AppSpacing.xxl,
+                                    label: const Text('Thử lại'),
                                   ),
-                                  children: [
-                                    if (state.error != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: AppSpacing.sm,
-                                        ),
-                                        child: NoticeBanner.error(
-                                          title:
-                                              'Dữ liệu có thể chưa mới nhất',
-                                          message: state.error!,
-                                          action: TextButton.icon(
-                                            onPressed: controller.refreshAll,
-                                            icon: const Icon(
-                                              Icons.refresh_rounded,
-                                              size: 17,
-                                            ),
-                                            label: const Text('Thử lại'),
-                                          ),
-                                        ),
-                                      ),
-                                    for (final request in filtered)
-                                      AttendanceRequestCard(
-                                        key: request.id == highlightId
-                                            ? _highlightKey
-                                            : null,
-                                        request: request,
-                                        highlighted: request.id == highlightId,
-                                        showEmployeeName: true,
-                                        selectMode: selectMode,
-                                        selected:
-                                            _selected.contains(request.id),
-                                        onSelectedChanged: (v) =>
-                                            _toggleSelected(request, v),
-                                        onTap: () => context.push(
-                                          RoutePaths
-                                              .attendanceRequestDetailPath(
-                                            request.id,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
                                 ),
-                    ),
+                              ),
+                            for (final request in filtered)
+                              AttendanceRequestCard(
+                                key: request.id == highlightId
+                                    ? _highlightKey
+                                    : null,
+                                request: request,
+                                highlighted: request.id == highlightId,
+                                showEmployeeName: true,
+                                selectMode: selectMode,
+                                selected: _selected.contains(request.id),
+                                onSelectedChanged: (v) =>
+                                    _toggleSelected(request, v),
+                                onTap: () => context.push(
+                                  RoutePaths.attendanceRequestDetailPath(
+                                    request.id,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                ),
         ),
       ],
     );
@@ -490,8 +526,10 @@ class _BulkActionBar extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.primary.withValues(alpha: 0.12),
                     borderRadius: AppRadius.brPill,
@@ -544,11 +582,7 @@ class _BulkActionBar extends StatelessWidget {
                   color: AppColors.border.withValues(alpha: 0.7),
                 ),
                 const SizedBox(width: 4),
-                _BulkLink(
-                  label: 'Bỏ chọn',
-                  enabled: !busy,
-                  onTap: onClear,
-                ),
+                _BulkLink(label: 'Bỏ chọn', enabled: !busy, onTap: onClear),
               ],
             ),
             const SizedBox(height: 12),
@@ -667,9 +701,7 @@ class _BulkLink extends StatelessWidget {
           style: AppTypography.style(
             fontSize: 12.5,
             fontWeight: FontWeight.w700,
-            color: enabled
-                ? AppColors.primaryDark
-                : AppColors.textTertiary,
+            color: enabled ? AppColors.primaryDark : AppColors.textTertiary,
           ),
         ),
       ),

@@ -95,8 +95,13 @@ export async function fetchPendingDirectorTrainingProposals() {
   return data;
 }
 
-export async function fetchTrainingProposalHistory() {
-  const { data } = await api.get<TrainingProposal[]>('/v1/training-proposals/history');
+export async function fetchTrainingProposalHistory(opts?: { fromDate?: string; toDate?: string }) {
+  const { data } = await api.get<TrainingProposal[]>('/v1/training-proposals/history', {
+    params: {
+      fromDate: opts?.fromDate || undefined,
+      toDate: opts?.toDate || undefined,
+    },
+  });
   return data;
 }
 

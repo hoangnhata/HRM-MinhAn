@@ -49,6 +49,15 @@ public class CustomUserDetailsService implements UserDetailsService {
         if (u.isReportViewEnabled()) {
             authorities.add(new SimpleGrantedAuthority("ROLE_REPORT_VIEWER"));
         }
+        if (u.isAttendanceExcelExportEnabled()) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_ATTENDANCE_EXCEL_EXPORT"));
+        }
+        if (u.isHospitalWideEmployeeViewEnabled()) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_HOSPITAL_EMPLOYEE_VIEWER"));
+        }
+        if (u.isProfessionalQualificationReportEnabled()) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_PROFESSIONAL_QUALIFICATION_VIEWER"));
+        }
         return User.builder()
                 .username(u.getUsername())
                 .password(u.getPasswordHash())

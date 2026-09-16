@@ -1,0 +1,618 @@
+{
+  "version": 1,
+  "name": "Đánh giá quy trình kỹ thuật điều dưỡng",
+  "note": "Trưởng khoa / Điều dưỡng trưởng khoa đánh giá nhân viên khối ĐD theo từng kỹ thuật (thang điểm 10). Phiếu gửi Trưởng phòng Điều dưỡng xem và tổng hợp.",
+  "procedures": [
+    {
+      "code": "IV_INJECTION",
+      "name": "Kỹ thuật tiêm tĩnh mạch",
+      "durationMinutes": 8,
+      "maxTotal": 10,
+      "sections": [
+        {
+          "id": "PREP",
+          "title": "I. Chuẩn bị",
+          "steps": [
+            {
+              "id": "IV_INJ_P1",
+              "no": 1,
+              "title": "Chuẩn bị điều dưỡng: Đội mũ, đeo khẩu trang, sát khuẩn tay nhanh.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INJ_P2",
+              "no": 2,
+              "title": "Chuẩn bị NB: Xem y lệnh, 5 đúng, thông báo thuốc và kỹ thuật sắp làm.",
+              "detail": "Chuẩn bị NB: Xem y lệnh, thực hiện 5 đúng, thông báo thuốc, kỹ thuật sắp làm cho NB.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INJ_P3",
+              "no": 3,
+              "title": "Chuẩn bị thuốc (kiểm tra lần 1) và dụng cụ đầy đủ theo xe tiêm (tầng 1–3, thùng rác).",
+              "detail": "Chuẩn bị thuốc (kiểm tra thuốc lần 1) và dụng cụ đầy đủ:\n• Tầng 1: Khay chữ nhật lớn, 1 hộp đựng bông khô vô khuẩn, 1 hộp bông có thấm cồn 70°, 1 hộp đựng gạc sạch, trụ cắm kìm, kìm kocher, khay hạt đậu, hộp thuốc cấp cứu phản vệ.\n• Tầng 2: Thuốc theo y lệnh, găng tay sạch, gối kê tay (nếu cần), dây garo, băng dính, bơm tiêm, kim lấy thuốc, huyết áp.\n• Thành xe tầng 1: Dung dịch sát khuẩn tay nhanh.\n• Tầng 3 và 2 bên thành xe: Thùng đựng rác thải theo quy định.",
+              "maxPoints": 1.0
+            }
+          ]
+        },
+        {
+          "id": "TECH",
+          "title": "II. Kỹ thuật tiến hành",
+          "steps": [
+            {
+              "id": "IV_INJ_T1",
+              "no": 1,
+              "title": "Điều dưỡng sát khuẩn tay nhanh.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INJ_T2",
+              "no": 2,
+              "title": "Xé bơm kim tiêm, kiểm tra bơm kim tiêm và kim lấy thuốc.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INJ_T3",
+              "no": 3,
+              "title": "Kiểm tra thuốc lần 2, sát khuẩn ống thuốc, bẻ ống thuốc bằng gạc.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INJ_T4",
+              "no": 4,
+              "title": "Thay kim lấy thuốc → pha/hút thuốc → thay kim tiêm → đuổi khí đúng kỹ thuật.",
+              "detail": "Thay kim lấy thuốc, pha thuốc (nếu là thuốc bột pha tiêm), hút thuốc vào bơm tiêm, thay kim tiêm.\nĐuổi khí: Vặn chặt đốc kim, chỉnh mũi vát (hướng dọc theo thân bơm tiêm chia vạch ml), đậy chặt nắp kim, cầm bơm tiêm vuông góc với mặt phẳng ngang, để ngang tầm mắt, ngón tay giữ đốc kim, đẩy nhẹ pitton đến khi thuốc đọng giọt sương ở đầu mũi vát, đặt vào khay vô khuẩn.",
+              "maxPoints": 1.5
+            },
+            {
+              "id": "IV_INJ_T5",
+              "no": 5,
+              "title": "Hướng dẫn NB nằm tư thế phù hợp; bộc lộ vùng tiêm, chọn TM; thắt garo 10–15 cm.",
+              "detail": "• Hướng dẫn NB nằm tư thế phù hợp.\n• Điều dưỡng thực hiện bộc lộ vùng tiêm, chọn tĩnh mạch.\n• Thắt dây garo trên vị trí tiêm 10–15 cm.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INJ_T6",
+              "no": 6,
+              "title": "Điều dưỡng thực hiện sát khuẩn tay hoặc đi găng.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INJ_T7",
+              "no": 7,
+              "title": "Sát khuẩn vị trí 2 lần; đâm kim đúng kỹ thuật, thấy máu vào đốc kim, tháo garo.",
+              "detail": "• Sát khuẩn vị trí tiêm từ trong ra ngoài theo hình xoáy ốc, 2 lần bằng cồn 70°.\n• Báo NB sắp tiêm để NB hợp tác (nếu NB tỉnh), cầm bơm kim tiêm đuổi khí (nếu còn khí), một tay căng da, một tay cầm kim tiêm mũi vát lên trên đâm kim vào tĩnh mạch chếch 30° so với mặt da ngập mũi vát, hạ bơm tiêm song song với mặt da luồn kim vào đường đi tĩnh mạch, khi thấy máu vào đốc kim (rút thử nòng bơm tiêm nếu cần) tháo dây garo.",
+              "maxPoints": 1.5
+            },
+            {
+              "id": "IV_INJ_T8",
+              "no": 8,
+              "title": "Bơm thuốc từ từ, theo dõi NB; rút kim, sát khuẩn, đặt bông, dán băng dính (nếu cần).",
+              "detail": "• Bơm thuốc từ từ, theo dõi vị trí tiêm, sắc mặt và cảm giác người bệnh.\n• Khi tiêm hết thuốc rút bơm tiêm gắn kim nhanh, kéo chếch da nơi tiêm, sát khuẩn lại vị trí tiêm, đặt và giữ bông vô khuẩn lên nơi tiêm đến khi hết chảy máu, dán băng dính (nếu cần).",
+              "maxPoints": 1.0
+            },
+            {
+              "id": "IV_INJ_T9",
+              "no": 9,
+              "title": "Giúp NB nằm lại tư thế thích hợp; dặn NB / người nhà những điều cần thiết.",
+              "detail": "• Giúp NB nằm lại tư thế thích hợp.\n• Dặn NB hoặc người nhà những điều cần thiết.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INJ_T10",
+              "no": 10,
+              "title": "Thu dọn dụng cụ, xử lý chất thải theo quy định.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INJ_T11",
+              "no": 11,
+              "title": "Sát khuẩn tay nhanh.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INJ_T12",
+              "no": 12,
+              "title": "Ghi hồ sơ (có thể sau khi xong các quy trình chăm sóc trong nhóm).",
+              "detail": "Ghi hồ sơ (có thể thực hiện sau khi tiến hành xong các quy trình chăm sóc NB trong nhóm mình phụ trách).",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INJ_T13",
+              "no": 13,
+              "title": "Đúng thời gian.",
+              "maxPoints": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "code": "IV_INFUSION",
+      "name": "Kỹ thuật truyền tĩnh mạch",
+      "durationMinutes": 8,
+      "maxTotal": 10,
+      "sections": [
+        {
+          "id": "PREP",
+          "title": "I. Chuẩn bị",
+          "steps": [
+            {
+              "id": "IV_INF_P1",
+              "no": 1,
+              "title": "Chuẩn bị điều dưỡng: Đội mũ đeo khẩu trang, sát khuẩn tay nhanh.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INF_P2",
+              "no": 2,
+              "title": "Chuẩn bị NB: Y lệnh, 5 đúng, thông báo; cho NB đi tiểu / đại tiện.",
+              "detail": "Chuẩn bị NB: Xem y lệnh, thực hiện 5 đúng, thông báo thuốc, kỹ thuật sắp làm cho NB, cho người bệnh đi tiểu, đại tiện.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INF_P3",
+              "no": 3,
+              "title": "Chuẩn bị thuốc và dụng cụ đầy đủ theo xe truyền (tầng 1–3, thùng rác).",
+              "detail": "Chuẩn bị thuốc và dụng cụ đầy đủ:\n• Tầng 1: Khay chữ nhật lớn, 1 hộp đựng bông khô vô khuẩn, 1 hộp đựng bông có thấm cồn 70°, trụ cắm kìm, kìm kocher, khay hạt đậu, kéo, hộp thuốc cấp cứu phản vệ.\n• Tầng 2: Dịch truyền, dây truyền, găng tay sạch, gối kê tay (nếu cần), dây garo, băng dính, kim luồn, huyết áp.\n• Thành xe tầng 1: Dung dịch sát khuẩn tay nhanh.\n• Tầng 3 và 2 bên thành xe: Thùng đựng rác thải theo quy định.",
+              "maxPoints": 1.0
+            }
+          ]
+        },
+        {
+          "id": "TECH",
+          "title": "II. Kỹ thuật tiến hành",
+          "steps": [
+            {
+              "id": "IV_INF_T1",
+              "no": 1,
+              "title": "Điều dưỡng sát khuẩn tay nhanh.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INF_T2",
+              "no": 2,
+              "title": "Kiểm tra dịch truyền theo y lệnh, pha thuốc (nếu có), bật và sát khuẩn nút chai.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INF_T3",
+              "no": 3,
+              "title": "Chuẩn bị dây truyền, đuổi khí hình chữ U, treo chai/dây đúng kỹ thuật; cắt băng dính.",
+              "detail": "• Xé túi đựng dây truyền, khóa dây truyền lại, cắm dây truyền vào chai dịch, thay kim truyền (nếu cần).\n• Treo chai dịch lên cọc truyền, cho dịch chảy đầy 2/3 bầu đếm giọt, đuổi khí trong dây truyền theo hình chữ U và khóa lại (đảm bảo hết khí), treo dây truyền lên cọc truyền sao cho kim truyền không chạm vào thành cọc truyền.\n• Cắt băng dính.",
+              "maxPoints": 1.5
+            },
+            {
+              "id": "IV_INF_T4",
+              "no": 4,
+              "title": "Hướng dẫn NB nằm tư thế phù hợp; bộc lộ vị trí truyền; thắt garo 10–15 cm.",
+              "detail": "• Hướng dẫn NB nằm tư thế phù hợp.\n• Bộc lộ vị trí truyền.\n• Thắt dây garo trên vị trí truyền 10–15 cm.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INF_T5",
+              "no": 5,
+              "title": "Sát khuẩn tay hoặc đi găng (nếu cần).",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INF_T6",
+              "no": 6,
+              "title": "Sát khuẩn vị trí truyền 2 lần bằng cồn 70° theo hình xoáy ốc.",
+              "detail": "Sát khuẩn vị trí truyền từ trong ra ngoài 2 lần bằng bông cồn 70° theo hình xoáy ốc.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INF_T7",
+              "no": 7,
+              "title": "Đâm kim đúng kỹ thuật; thấy máu vào đốc kim; tháo garo.",
+              "detail": "Báo NB sắp tiến hành thủ thuật để NB hợp tác (nếu NB tỉnh), một tay căng da, một tay cầm kim tiêm ngửa mũi vát lên trên đâm kim vào tĩnh mạch chếch 30° so với mặt da ngập mũi vát, hạ kim tiêm song song với mặt da luồn kim vào đường đi tĩnh mạch, khi thấy máu vào đốc kim tháo dây garo.",
+              "maxPoints": 1.0
+            },
+            {
+              "id": "IV_INF_T8",
+              "no": 8,
+              "title": "Mở khóa cho dịch chảy, quan sát NB; cố định kim và dây truyền.",
+              "detail": "• Một tay mở khóa cho dịch chảy, quan sát sắc mặt NB.\n• Một tay giữ kim, cố định đốc kim và dây truyền. Che kim bằng bông khô vô khuẩn.\n• Cố định bông, cố định vị trí truyền.",
+              "maxPoints": 1.0
+            },
+            {
+              "id": "IV_INF_T9",
+              "no": 9,
+              "title": "Điều chỉnh tốc độ nhỏ giọt theo y lệnh.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INF_T10",
+              "no": 10,
+              "title": "Giúp NB nằm thoải mái; dặn NB/NNNB; theo dõi tai biến.",
+              "detail": "• Giúp NB nằm lại thoải mái.\n• Dặn NB hoặc NNNB những điều cần thiết, theo dõi và phát hiện tai biến trong quá trình truyền.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INF_T11",
+              "no": 11,
+              "title": "Thu dọn dụng cụ, xử lý chất thải theo quy định.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_INF_T12",
+              "no": 12,
+              "title": "Sát khuẩn tay nhanh.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INF_T13",
+              "no": 13,
+              "title": "Ghi hồ sơ (có thể sau khi xong các quy trình chăm sóc trong nhóm).",
+              "detail": "Ghi hồ sơ (có thể thực hiện sau khi tiến hành xong các quy trình chăm sóc NB trong nhóm mình phụ trách).",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_INF_T14",
+              "no": 14,
+              "title": "Đúng thời gian.",
+              "maxPoints": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "code": "IV_CATHETER",
+      "name": "Kỹ thuật tiêm qua kim lưu",
+      "durationMinutes": 7,
+      "maxTotal": 10,
+      "sections": [
+        {
+          "id": "PREP",
+          "title": "I. Chuẩn bị",
+          "steps": [
+            {
+              "id": "IV_CAT_P1",
+              "no": 1,
+              "title": "Chuẩn bị điều dưỡng: Đội mũ, đeo khẩu trang, sát khuẩn tay nhanh.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_CAT_P2",
+              "no": 2,
+              "title": "Chuẩn bị NB: Xem y lệnh, 5 đúng, thông báo thuốc và kỹ thuật sắp làm.",
+              "detail": "Chuẩn bị NB: Xem y lệnh, thực hiện 5 đúng, thông báo thuốc, kỹ thuật sắp làm cho NB.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_CAT_P3",
+              "no": 3,
+              "title": "Chuẩn bị thuốc (kiểm tra lần 1) và dụng cụ đầy đủ theo xe tiêm (tầng 1–3).",
+              "detail": "Chuẩn bị thuốc (kiểm tra thuốc lần 1) và dụng cụ đầy đủ:\n• Tầng 1: Khay chữ nhật lớn, 1 hộp đựng bông khô vô khuẩn, 1 hộp đựng bông thấm cồn 70°, 1 hộp đựng gạc sạch, trụ cắm kìm, kìm kocher, khay hạt đậu, hộp thuốc cấp cứu phản vệ.\n• Tầng 2: Thuốc theo y lệnh, găng tay, gối kê tay (nếu cần), dây garo, băng dính, bơm tiêm, kim lấy thuốc, huyết áp.\n• Thành xe tầng 1: Dung dịch sát khuẩn tay nhanh.\n• Tầng 3 và 2 bên thành xe: Thùng đựng rác thải theo quy định.",
+              "maxPoints": 1.0
+            }
+          ]
+        },
+        {
+          "id": "TECH",
+          "title": "II. Kỹ thuật tiến hành",
+          "steps": [
+            {
+              "id": "IV_CAT_T1",
+              "no": 1,
+              "title": "Sát khuẩn tay nhanh; xé và kiểm tra bơm kim tiêm / kim lấy thuốc.",
+              "detail": "Điều dưỡng sát khuẩn tay bằng dung dịch sát khuẩn tay nhanh, xé bơm kim tiêm, kiểm tra bơm kim tiêm và kim lấy thuốc.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_CAT_T2",
+              "no": 2,
+              "title": "Kiểm tra thuốc lần 2, sát khuẩn ống thuốc, bẻ ống bằng gạc.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_CAT_T3",
+              "no": 3,
+              "title": "Thay kim lấy thuốc → pha/hút thuốc → thay kim tiêm → đuổi khí đúng kỹ thuật.",
+              "detail": "Thay kim lấy thuốc, pha thuốc (nếu là thuốc bột pha tiêm), hút thuốc vào bơm tiêm, thay kim tiêm.\nVặn chặt đốc kim, chỉnh mũi vát (hướng dọc theo thân bơm tiêm chia vạch ml), đậy chặt nắp kim, cầm bơm tiêm vuông góc với mặt phẳng ngang, để ngang tầm mắt, ngón tay giữ đốc kim, đẩy nhẹ pitton đến khi thuốc đọng giọt sương ở đầu mũi vát, đặt vào khay vô khuẩn.",
+              "maxPoints": 1.5
+            },
+            {
+              "id": "IV_CAT_T4",
+              "no": 4,
+              "title": "Hướng dẫn NB nằm tư thế phù hợp; bộc lộ và kiểm tra vùng kim lưu.",
+              "detail": "Hướng dẫn NB nằm tư thế phù hợp.\nBộc lộ và kiểm tra vùng kim lưu.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_CAT_T5",
+              "no": 5,
+              "title": "Sát khuẩn tay hoặc mang găng.",
+              "detail": "Điều dưỡng thực hiện sát khuẩn tay hoặc mang găng.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_CAT_T6",
+              "no": 6,
+              "title": "Sát khuẩn nút chặn bằng bông thấm cồn 70°.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_CAT_T7",
+              "no": 7,
+              "title": "Mở nút chặn, đè mũi kim tránh máu chảy; sát khuẩn cửa bơm thuốc.",
+              "detail": "Một tay mở nút chặn, một tay đè lên mũi kim tránh máu chảy ra, sát khuẩn cửa bơm thuốc bằng bông thấm cồn 70°.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_CAT_T8",
+              "no": 8,
+              "title": "Đuổi khí; lắp bơm tiêm; kiểm tra thông suốt; bơm thuốc từ từ, theo dõi NB.",
+              "detail": "• Cầm bơm tiêm đuổi khí (nếu còn khí).\n• Lắp đầu bơm tiêm vào cửa bơm thuốc, nhấc tay lên khỏi mũi kim luồn, kiểm tra đầu kim thông suốt, bơm thuốc từ từ vào tĩnh mạch đồng thời quan sát theo dõi sắc mặt người bệnh và vị trí tiêm.",
+              "maxPoints": 1.0
+            },
+            {
+              "id": "IV_CAT_T9",
+              "no": 9,
+              "title": "Hết thuốc rút bơm tiêm; bơm 2–3 ml NaCl 0,9%; sát khuẩn khóa; vặn nút chặn.",
+              "detail": "• Hết thuốc, rút bơm tiêm.\n• Bơm 2–3 ml dd NaCl 0,9%, sát khuẩn khóa lưu kim, dùng nút chặn vặn lại.",
+              "maxPoints": 1.0
+            },
+            {
+              "id": "IV_CAT_T10",
+              "no": 10,
+              "title": "Giúp NB nằm lại tư thế thích hợp; dặn NB / người nhà.",
+              "detail": "Giúp NB nằm lại tư thế thích hợp.\nDặn NB hoặc người nhà những điều cần thiết.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_CAT_T11",
+              "no": 11,
+              "title": "Thu dọn dụng cụ, xử lý chất thải theo quy định.",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "IV_CAT_T12",
+              "no": 12,
+              "title": "Sát khuẩn tay nhanh.",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_CAT_T13",
+              "no": 13,
+              "title": "Ghi hồ sơ (có thể sau khi xong các quy trình chăm sóc trong nhóm).",
+              "detail": "Ghi hồ sơ (có thể thực hiện sau khi tiến hành xong các quy trình chăm sóc NB trong nhóm mình phụ trách).",
+              "maxPoints": 0.25
+            },
+            {
+              "id": "IV_CAT_T14",
+              "no": 14,
+              "title": "Đúng thời gian.",
+              "maxPoints": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "code": "HAND_WASH",
+      "name": "Quy trình rửa tay thường quy",
+      "durationMinutes": 4,
+      "maxTotal": 10,
+      "note": "Thời gian mỗi lần rửa tay tối thiểu 30 giây.",
+      "checkOptions": {
+        "label": "Thời điểm rửa tay",
+        "hint": "Lựa chọn 1 trong 5 thời điểm trên",
+        "options": [
+          {
+            "code": "BEFORE_PATIENT",
+            "label": "Trước khi tiếp xúc với người bệnh"
+          },
+          {
+            "code": "BEFORE_ASEPTIC",
+            "label": "Trước khi làm thủ thuật vô khuẩn"
+          },
+          {
+            "code": "AFTER_FLUID",
+            "label": "Sau khi tiếp xúc với dịch tiết hoặc máu"
+          },
+          {
+            "code": "AFTER_PATIENT",
+            "label": "Sau khi tiếp xúc với người bệnh"
+          },
+          {
+            "code": "AFTER_SURROUNDINGS",
+            "label": "Sau khi tiếp xúc với môi trường xung quanh người bệnh"
+          }
+        ]
+      },
+      "sections": [
+        {
+          "id": "PREP",
+          "title": "I. Chuẩn bị",
+          "steps": [
+            {
+              "id": "HW_P1",
+              "no": 1,
+              "title": "Điều dưỡng viên: đội mũ, đeo khẩu trang.",
+              "maxPoints": 1.25
+            }
+          ]
+        },
+        {
+          "id": "TECH",
+          "title": "II. Kỹ thuật tiến hành",
+          "steps": [
+            {
+              "id": "HW_T1",
+              "no": 1,
+              "title": "Làm ướt tay bằng nước và xà phòng, chà hai lòng bàn tay vào nhau.",
+              "maxPoints": 1.25
+            },
+            {
+              "id": "HW_T2",
+              "no": 2,
+              "title": "Chà lòng bàn tay này lên mu và kẽ ngoài các ngón tay của bàn tay kia và ngược lại.",
+              "maxPoints": 1.25
+            },
+            {
+              "id": "HW_T3",
+              "no": 3,
+              "title": "Chà hai lòng bàn tay vào nhau, miết mạnh các kẽ ngón tay.",
+              "maxPoints": 1.25
+            },
+            {
+              "id": "HW_T4",
+              "no": 4,
+              "title": "Chà mặt ngoài các ngón tay của bàn tay này vào lòng bàn tay kia.",
+              "maxPoints": 1.25
+            },
+            {
+              "id": "HW_T5",
+              "no": 5,
+              "title": "Dùng lòng bàn tay này xoay ngón cái bàn tay kia và ngược lại.",
+              "maxPoints": 1.25
+            },
+            {
+              "id": "HW_T6",
+              "no": 6,
+              "title": "Xoay đầu ngón tay vào lòng bàn tay kia; rửa sạch đến cổ tay và làm khô tay.",
+              "detail": "Xoay các đầu ngón tay này vào lòng bàn tay kia và ngược lại. Rửa sạch tay dưới vòi nước chảy đến cổ tay và làm khô tay.",
+              "maxPoints": 1.25
+            },
+            {
+              "id": "HW_T7",
+              "no": 7,
+              "title": "Đúng thời gian (mỗi lần rửa tay tối thiểu 30 giây).",
+              "detail": "Đúng thời gian.\nLưu ý: Thời gian mỗi lần rửa tay tối thiểu 30 giây.",
+              "maxPoints": 1.25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "code": "GDSK_COUNSELING",
+      "name": "Tư vấn, truyền thông giáo dục sức khỏe",
+      "durationMinutes": 15,
+      "maxTotal": 10,
+      "requiresPatientCode": true,
+      "passMinScore": 7,
+      "requiredFullStepIds": ["GDSK_12", "GDSK_13", "GDSK_14"],
+      "allowedDepartmentKeys": [
+        "NOI-NHI",
+        "NOI NHI",
+        "LIEN CHUYEN KHOA",
+        "KHOA NGOAI",
+        "KHOA SAN",
+        "HOI SUC CAP CUU",
+        "Y HOC CO TRUYEN"
+      ],
+      "note": "Chỉ áp dụng các khoa: Nội–Nhi, Liên chuyên khoa, Ngoại, Sản, Hồi sức cấp cứu, Y học cổ truyền. Đạt khi ≥ 7/10 và đủ điểm tiêu chí bắt buộc 12, 13, 14.",
+      "sections": [
+        {
+          "id": "CONTENT",
+          "title": "I. Nội dung tư vấn",
+          "steps": [
+            {
+              "id": "GDSK_01",
+              "no": 1,
+              "title": "Xác định đúng nhu cầu kiến thức của NB/NNNB, lựa chọn nội dung tư vấn phù hợp với bệnh, tuổi, tình trạng và khả năng tiếp nhận",
+              "maxPoints": 1.0
+            },
+            {
+              "id": "GDSK_02",
+              "no": 2,
+              "title": "Chuẩn bị đầy đủ tài liệu/phương tiện hỗ trợ khi cần thiết",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "GDSK_03",
+              "no": 3,
+              "title": "Hướng dẫn đúng về sử dụng thuốc/điều trị theo chỉ định",
+              "maxPoints": 0.75
+            },
+            {
+              "id": "GDSK_04",
+              "no": 4,
+              "title": "Hướng dẫn chế độ dinh dưỡng, sinh hoạt/vận động phù hợp",
+              "maxPoints": 0.75
+            },
+            {
+              "id": "GDSK_05",
+              "no": 5,
+              "title": "Hướng dẫn cách tự chăm sóc và phòng ngừa biến chứng",
+              "maxPoints": 0.75
+            },
+            {
+              "id": "GDSK_06",
+              "no": 6,
+              "title": "Hướng dẫn dấu hiệu bất thường và thời điểm cần báo NVYT/tái khám",
+              "maxPoints": 0.75
+            }
+          ]
+        },
+        {
+          "id": "COMM",
+          "title": "II. Kỹ năng giao tiếp",
+          "steps": [
+            {
+              "id": "GDSK_07",
+              "no": 7,
+              "title": "Giao tiếp lịch sự, tạo sự tin tưởng và hợp tác",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "GDSK_08",
+              "no": 8,
+              "title": "Sử dụng ngôn ngữ dễ hiểu, tránh thuật ngữ chuyên môn khó hiểu",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "GDSK_09",
+              "no": 9,
+              "title": "Tư vấn rõ ràng, có trọng tâm, không cung cấp thông tin quá tải",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "GDSK_10",
+              "no": 10,
+              "title": "Khuyến khích NB/NB người nhà đặt câu hỏi và trao đổi",
+              "maxPoints": 0.5
+            },
+            {
+              "id": "GDSK_11",
+              "no": 11,
+              "title": "Kiểm tra sự hiểu biết của NB sau tư vấn",
+              "maxPoints": 0.5
+            }
+          ]
+        },
+        {
+          "id": "OUTCOME",
+          "title": "III. Kết quả tư vấn (tiêu chí bắt buộc)",
+          "steps": [
+            {
+              "id": "GDSK_12",
+              "no": 12,
+              "title": "NB/người nhà nhắc lại được nội dung chính đã được tư vấn",
+              "maxPoints": 1.0,
+              "required": true
+            },
+            {
+              "id": "GDSK_13",
+              "no": 13,
+              "title": "NB/người nhà mô tả đúng cách thực hiện theo hướng dẫn",
+              "maxPoints": 1.0,
+              "required": true
+            },
+            {
+              "id": "GDSK_14",
+              "no": 14,
+              "title": "NB/người nhà nhận biết được dấu hiệu bất thường cần báo NVYT",
+              "maxPoints": 1.0,
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

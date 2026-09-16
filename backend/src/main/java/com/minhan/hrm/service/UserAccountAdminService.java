@@ -264,6 +264,59 @@ public class UserAccountAdminService {
 
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional
+    public UserAccountAdminDto setAttendanceExcelExportEnabled(Long userId, boolean enabled) {
+        UserAccount target = userAccountRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản"));
+        target.setAttendanceExcelExportEnabled(enabled);
+        userAccountRepository.save(target);
+        Employee emp = employeeRepository.findByUser(target).orElse(null);
+        return toDto(target, emp,
+                emp != null ? workforceDetailsRepository.findByEmployee(emp).orElse(null) : null);
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    public UserAccountAdminDto setHospitalWideEmployeeViewEnabled(Long userId, boolean enabled) {
+        UserAccount target = userAccountRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản"));
+        target.setHospitalWideEmployeeViewEnabled(enabled);
+        userAccountRepository.save(target);
+        Employee emp = employeeRepository.findByUser(target).orElse(null);
+        return toDto(target, emp,
+                emp != null ? workforceDetailsRepository.findByEmployee(emp).orElse(null) : null);
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    public UserAccountAdminDto setProfessionalQualificationReportEnabled(Long userId, boolean enabled) {
+        UserAccount target = userAccountRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản"));
+        target.setProfessionalQualificationReportEnabled(enabled);
+        userAccountRepository.save(target);
+        Employee emp = employeeRepository.findByUser(target).orElse(null);
+        return toDto(target, emp,
+                emp != null ? workforceDetailsRepository.findByEmployee(emp).orElse(null) : null);
+    }
+
+    /**
+     * Phân quyền công: bật → chỉ cần chấm vào sáng + ra chiều để đủ công.
+     * Lưu trên {@link Employee#isContinuousShift()}.
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    public UserAccountAdminDto setTwoPunchAttendance(Long userId, boolean enabled) {
+        UserAccount target = userAccountRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản"));
+        Employee emp = employeeRepository.findByUser(target)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
+                        "Tài khoản chưa gắn hồ sơ nhân viên — không thể bật phân quyền công"));
+        emp.setContinuousShift(enabled);
+        employeeRepository.save(emp);
+        return toDto(target, emp, workforceDetailsRepository.findByEmployee(emp).orElse(null));
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public UserAccountAdminDto setWorkUnitScoped(Long userId, boolean enabled) {
         UserAccount target = userAccountRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản"));
@@ -401,6 +454,10 @@ public class UserAccountAdminService {
                 .enabled(u.isEnabled())
                 .directorApprovalEnabled(u.isDirectorApprovalEnabled())
                 .reportViewEnabled(u.isReportViewEnabled())
+                .attendanceExcelExportEnabled(u.isAttendanceExcelExportEnabled())
+                .hospitalWideEmployeeViewEnabled(u.isHospitalWideEmployeeViewEnabled())
+                .professionalQualificationReportEnabled(u.isProfessionalQualificationReportEnabled())
+                .twoPunchAttendance(emp != null && emp.isContinuousShift())
                 .workUnitScoped(u.isWorkUnitScoped())
                 .mustChangePassword(u.isMustChangePassword())
                 .hasSignature(u.getSignaturePath() != null && !u.getSignaturePath().isBlank())

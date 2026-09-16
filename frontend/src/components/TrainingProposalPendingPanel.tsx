@@ -16,7 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
 import {
@@ -27,6 +27,7 @@ import * as tps from '../services/trainingProposalService';
 import { TrainingProposalDetailDialog } from './TrainingProposalDetailDialog';
 import {
   applyRequestListFilters,
+  currentMonthRequestFilters,
   EMPTY_REQUEST_FILTERS,
   RequestListFilters,
   type RequestListFilterState,
@@ -43,6 +44,7 @@ export function TrainingProposalPendingPanel({ onChanged }: { onChanged?: () => 
   const [pendingHr, setPendingHr] = useState<tps.TrainingProposal[]>([]);
   const [pendingDirector, setPendingDirector] = useState<tps.TrainingProposal[]>([]);
   const [history, setHistory] = useState<tps.TrainingProposal[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [mine, setMine] = useState<tps.TrainingProposal[]>([]);
   const [subTab, setSubTab] = useState(0);
   const [listLoading, setListLoading] = useState(true);
@@ -56,8 +58,28 @@ export function TrainingProposalPendingPanel({ onChanged }: { onChanged?: () => 
   } | null>(null);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const historyReq = useRef(0);
 
-  const reload = useCallback(() => {
+  const isAdmin = user?.role === 'ADMIN';
+  const isApprover = isHrOrAdmin || isDirectorOrAdmin;
+  const isCreatorOnly = isHeadDepartmentRole(user?.role);
+  const canLoadHistory = isHrOrAdmin || isDirectorOrAdmin || isHead;
+
+  const tabKeys = useMemo(() => {
+    const keys: string[] = [];
+    if (isApprover) {
+      keys.push('pending', 'history');
+    }
+    if (isCreatorOnly) {
+      keys.push('mine');
+    }
+    return keys;
+  }, [isApprover, isCreatorOnly]);
+
+  const activeKey = tabKeys[Math.min(subTab, Math.max(tabKeys.length - 1, 0))];
+  const historyActive = activeKey === 'history';
+
+  const reloadPending = useCallback(() => {
     setListLoading(true);
     const tasks: Promise<void>[] = [];
     if (isHrOrAdmin || isDirectorOrAdmin || isHead) {
@@ -72,12 +94,6 @@ export function TrainingProposalPendingPanel({ onChanged }: { onChanged?: () => 
           .fetchPendingDirectorTrainingProposals()
           .then(setPendingDirector)
           .catch(() => setPendingDirector([])),
-      );
-      tasks.push(
-        tps
-          .fetchTrainingProposalHistory()
-          .then(setHistory)
-          .catch(() => setHistory([])),
       );
     }
     if (isHead) {
@@ -94,13 +110,66 @@ export function TrainingProposalPendingPanel({ onChanged }: { onChanged?: () => 
       .finally(() => setListLoading(false));
   }, [isHrOrAdmin, isDirectorOrAdmin, isHead]);
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  const reloadHistory = useCallback(
+    (nextFilters: RequestListFilterState) => {
+      if (!canLoadHistory) return;
+      const reqId = ++historyReq.current;
+      setListLoading(true);
+      tps
+        .fetchTrainingProposalHistory({
+          fromDate: nextFilters.dateFrom || undefined,
+          toDate: nextFilters.dateTo || undefined,
+        })
+        .then((rows) => {
+          if (historyReq.current !== reqId) return;
+          setHistory(rows);
+          setHistoryLoaded(true);
+        })
+        .catch(() => {
+          if (historyReq.current !== reqId) return;
+          setHistory([]);
+          setHistoryLoaded(true);
+        })
+        .finally(() => {
+          if (historyReq.current === reqId) setListLoading(false);
+        });
+    },
+    [canLoadHistory],
+  );
 
-  const isAdmin = user?.role === 'ADMIN';
-  const isApprover = isHrOrAdmin || isDirectorOrAdmin;
-  const isCreatorOnly = isHeadDepartmentRole(user?.role);
+  useEffect(() => {
+    reloadPending();
+  }, [reloadPending]);
+
+  useEffect(() => {
+    if (historyActive) {
+      const month = currentMonthRequestFilters();
+      setFilters(month);
+      reloadHistory(month);
+    } else {
+      setFilters(EMPTY_REQUEST_FILTERS);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyActive, canLoadHistory]);
+
+  const onFiltersChange = useCallback(
+    (next: RequestListFilterState) => {
+      const dateChanged =
+        next.dateFrom !== filters.dateFrom || next.dateTo !== filters.dateTo;
+      setFilters(next);
+      if (historyActive && dateChanged) {
+        reloadHistory(next);
+      }
+    },
+    [filters.dateFrom, filters.dateTo, historyActive, reloadHistory],
+  );
+
+  const reload = useCallback(() => {
+    reloadPending();
+    if (historyActive) {
+      reloadHistory(filters);
+    }
+  }, [reloadPending, historyActive, reloadHistory, filters]);
 
   const pendingForMe = useMemo(() => {
     const byId = new Map<number, tps.TrainingProposal>();
@@ -143,25 +212,28 @@ export function TrainingProposalPendingPanel({ onChanged }: { onChanged?: () => 
         count: pendingForMe.length,
         list: pendingForMe,
       });
-      tabs.push({ key: 'history', label: 'Lịch sử', count: history.length, list: history });
+      tabs.push({
+        key: 'history',
+        label: historyLoaded ? `Lịch sử (${history.length})` : 'Lịch sử',
+        count: history.length,
+        list: history,
+      });
     }
     if (isCreatorOnly) {
       tabs.push({ key: 'mine', label: 'Phiếu tôi lập', count: mine.length, list: mine });
     }
     return tabs;
-  }, [isApprover, isCreatorOnly, pendingForMe, history, mine]);
+  }, [isApprover, isCreatorOnly, pendingForMe, history, historyLoaded, mine]);
 
   useEffect(() => {
     if (subTab >= tabDefs.length) setSubTab(0);
   }, [tabDefs.length, subTab]);
 
-  useEffect(() => {
-    setFilters(EMPTY_REQUEST_FILTERS);
-  }, [subTab]);
-
   const active = tabDefs[subTab];
   const list = active?.list ?? [];
   const canActOnTab = active?.key === 'pending' || active?.key === 'history';
+  const filterReset = historyActive ? currentMonthRequestFilters() : EMPTY_REQUEST_FILTERS;
+  const clearLabel = historyActive ? 'Về tháng này' : 'Xóa lọc';
 
   const filtered = useMemo(
     () =>
@@ -396,15 +468,24 @@ export function TrainingProposalPendingPanel({ onChanged }: { onChanged?: () => 
         rows={rows}
         loading={listLoading}
         emptyTitle="Không có phiếu trong mục này"
-        emptyHint="Khi có phiếu đề xuất đào tạo, chúng sẽ xuất hiện tại đây."
+        emptyHint={
+          historyActive
+            ? 'Mặc định xem phiếu trong tháng hiện tại. Đổi khoảng ngày để xem thêm.'
+            : 'Khi có phiếu đề xuất đào tạo, chúng sẽ xuất hiện tại đây.'
+        }
         actionBusyId={actionBusyId}
         bulkBusy={bulkBusy}
         toolbar={
           <RequestListFilters
             value={filters}
-            onChange={setFilters}
+            onChange={onFiltersChange}
             statusOptions={statusOptions}
             resultCount={filtered.length}
+            resetFilters={filterReset}
+            clearLabel={clearLabel}
+            title={
+              historyActive ? 'Bộ lọc lịch sử (mặc định tháng này)' : 'Bộ lọc đơn'
+            }
           />
         }
         onView={(row) => setDetailId(Number(row.id))}

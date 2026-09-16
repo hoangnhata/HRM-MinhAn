@@ -8,6 +8,7 @@ import { Box, Grid, Stack, TextField, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { todayLocalIso } from '../utils/dateFormat';
 import * as att from '../services/attendanceService';
 import * as employeeService from '../services/employeeService';
 import { DatePickerField, TimePickerField, dateTimeFieldSx } from '../components/ui/DateTimeFields';
@@ -36,6 +37,8 @@ type Props = {
   employeeId?: number | null;
   /** Ngày đang mở thuộc ca thông tầm (ưu tiên hơn lịch tháng). */
   continuousShift?: boolean;
+  /** Phân quyền công: ca sáng/chiều bình thường, chỉ vào sáng + ra chiều. */
+  twoPunchAttendance?: boolean;
   editRequest?: att.WorkRequest | null;
 };
 
@@ -149,6 +152,7 @@ export function AttendanceUpdateRequestDialog({
   attendanceRow,
   employeeId,
   continuousShift,
+  twoPunchAttendance = false,
   editRequest,
 }: Props) {
   const theme = useTheme();
@@ -156,7 +160,7 @@ export function AttendanceUpdateRequestDialog({
   const accent = theme.palette.primary.main;
   const isEditing = Boolean(editRequest);
 
-  const [workDate, setWorkDate] = useState(defaultDate ?? new Date().toISOString().slice(0, 10));
+  const [workDate, setWorkDate] = useState(defaultDate ?? todayLocalIso());
   const [updateKind, setUpdateKind] = useState<string>('MORNING_SUPPLEMENT');
   const [reason, setReason] = useState('');
   const [morningStart, setMorningStart] = useState('07:00');
@@ -169,15 +173,18 @@ export function AttendanceUpdateRequestDialog({
   const [err, setErr] = useState<string | null>(null);
   const [scenario, setScenario] = useState<att.UpdateScenario | null>(null);
   const [continuousDay, setContinuousDay] = useState(Boolean(continuousShift));
+  const [twoPunchDay, setTwoPunchDay] = useState(Boolean(twoPunchAttendance));
 
   const isContinuous = continuousDay || Boolean(scenario?.continuous);
+  const isTwoPunch = (!isContinuous && (twoPunchDay || Boolean(scenario?.twoPunch)));
+  const isTwoSlotDay = isContinuous || isTwoPunch;
   const isFullDay = updateKind === 'FULL_DAY_SUPPLEMENT';
   const forgotUnits = att.forgotUnitsForUpdateChoice(updateKind, scenario);
-  const kindLocked = Boolean(scenario?.locked) || isContinuous || isEditing;
+  const kindLocked = Boolean(scenario?.locked) || isTwoSlotDay || isEditing;
   const showKindHint =
     Boolean(scenario) &&
     !kindLocked &&
-    !isContinuous &&
+    !isTwoSlotDay &&
     (scenario?.missingMorningIn ||
       scenario?.missingMorningOut ||
       scenario?.missingAfternoonIn ||
@@ -187,11 +194,17 @@ export function AttendanceUpdateRequestDialog({
     sch: ShiftScheduleInfo,
     detected: att.UpdateScenario,
     continuous: boolean,
+    twoPunch = false,
   ) {
     if (continuous) {
       const range = continuousShiftRange(sch);
       setMorningStart(detected.existingMorningIn ?? range.start.slice(0, 5));
       setMorningEnd(detected.existingAfternoonOut ?? range.end.slice(0, 5));
+      return;
+    }
+    if (twoPunch) {
+      setMorningStart(detected.existingMorningIn ?? sch.morningStart.slice(0, 5));
+      setMorningEnd(detected.existingAfternoonOut ?? sch.afternoonEnd.slice(0, 5));
       return;
     }
     setMorningStart(detected.existingMorningIn ?? sch.morningStart);
@@ -202,20 +215,25 @@ export function AttendanceUpdateRequestDialog({
 
   useEffect(() => {
     if (!open) return;
-    const wd = editRequest?.workDate ?? defaultDate ?? new Date().toISOString().slice(0, 10);
+    const wd = editRequest?.workDate ?? defaultDate ?? todayLocalIso();
     const fallbackSchedule = scheduleForDate(wd);
 
     if (editRequest) {
       const continuous = Boolean(editRequest.continuousShift);
+      const twoPunch = Boolean(editRequest.twoPunchAttendance) && !continuous;
       setWorkDate(wd);
       setUpdateKind(editRequest.updateKind || 'MORNING_SUPPLEMENT');
       setScenario(null);
       setContinuousDay(continuous);
+      setTwoPunchDay(twoPunch);
       setReason(editRequest.reason || '');
       setErr(null);
       setDaySchedule(fallbackSchedule);
       setMorningStart(editRequest.requestedStart?.slice(0, 5) || fallbackSchedule.morningStart);
-      setMorningEnd(editRequest.requestedEnd?.slice(0, 5) || fallbackSchedule.morningEnd);
+      setMorningEnd(
+        editRequest.requestedEnd?.slice(0, 5)
+          || (twoPunch ? fallbackSchedule.afternoonEnd : fallbackSchedule.morningEnd),
+      );
       setAfternoonStart(
         editRequest.requestedAfternoonStart?.slice(0, 5) || fallbackSchedule.afternoonStart,
       );
@@ -230,6 +248,10 @@ export function AttendanceUpdateRequestDialog({
           if (cancelled) return;
           setDaySchedule(sch);
           setContinuousDay(Boolean(editRequest.continuousShift || sch.continuousShift));
+          setTwoPunchDay(
+            Boolean(editRequest.twoPunchAttendance || sch.twoPunchAttendance)
+              && !Boolean(editRequest.continuousShift || sch.continuousShift),
+          );
         })
         .catch(() => {});
       employeeService
@@ -242,27 +264,31 @@ export function AttendanceUpdateRequestDialog({
     }
 
     const initialContinuous = Boolean(continuousShift);
-    const detected = att.detectUpdateFromRow(attendanceRow, initialContinuous);
+    const initialTwoPunch = Boolean(twoPunchAttendance) && !initialContinuous;
+    const detected = att.detectUpdateFromRow(attendanceRow, initialContinuous, initialTwoPunch);
     setWorkDate(wd);
     setUpdateKind(detected.updateKind);
     setScenario(detected);
     setContinuousDay(initialContinuous);
+    setTwoPunchDay(initialTwoPunch);
     setReason('');
     setErr(null);
     setDaySchedule(fallbackSchedule);
-    applyScheduleTimes(fallbackSchedule, detected, initialContinuous);
+    applyScheduleTimes(fallbackSchedule, detected, initialContinuous, initialTwoPunch);
 
     let cancelled = false;
     att.fetchShiftSchedule(wd, employeeId ?? undefined)
       .then((sch) => {
         if (cancelled) return;
         const continuous = Boolean(continuousShift || sch.continuousShift);
-        const next = att.detectUpdateFromRow(attendanceRow, continuous);
+        const twoPunch = Boolean(twoPunchAttendance || sch.twoPunchAttendance) && !continuous;
+        const next = att.detectUpdateFromRow(attendanceRow, continuous, twoPunch);
         setDaySchedule(sch);
         setContinuousDay(continuous);
+        setTwoPunchDay(twoPunch);
         setUpdateKind(next.updateKind);
         setScenario(next);
-        applyScheduleTimes(sch, next, continuous);
+        applyScheduleTimes(sch, next, continuous, twoPunch);
       })
       .catch(() => {
         // Giữ lịch mặc định theo mùa nếu không tải được cấu hình.
@@ -274,7 +300,7 @@ export function AttendanceUpdateRequestDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, defaultDate, attendanceRow, employeeId, continuousShift, editRequest]);
+  }, [open, defaultDate, attendanceRow, employeeId, continuousShift, twoPunchAttendance, editRequest]);
 
   function handleWorkDateChange(nextDate: string) {
     setWorkDate(nextDate);
@@ -284,15 +310,17 @@ export function AttendanceUpdateRequestDialog({
     att.fetchShiftSchedule(nextDate, employeeId ?? undefined)
       .then((sch) => {
         const continuous = Boolean(sch.continuousShift);
-        const next = att.detectUpdateFromRow(null, continuous);
+        const twoPunch = Boolean(sch.twoPunchAttendance) && !continuous;
+        const next = att.detectUpdateFromRow(null, continuous, twoPunch);
         setDaySchedule(sch);
         setContinuousDay(continuous);
+        setTwoPunchDay(twoPunch);
         if (!kindLocked) {
           setUpdateKind(next.updateKind);
           setScenario(next);
-          applyScheduleTimes(sch, next, continuous);
-        } else if (continuous) {
-          applyScheduleTimes(sch, scenario ?? next, true);
+          applyScheduleTimes(sch, next, continuous, twoPunch);
+        } else if (continuous || twoPunch) {
+          applyScheduleTimes(sch, scenario ?? next, continuous, twoPunch);
         }
       })
       .catch(() => {
@@ -322,11 +350,11 @@ export function AttendanceUpdateRequestDialog({
       const payload: att.SubmitWorkRequest = {
         requestType: 'UPDATE',
         workDate,
-        shiftScope: isContinuous ? 'FULL_DAY' : shiftScopeFromKind(updateKind),
-        updateKind: (isContinuous ? 'FULL_DAY_SUPPLEMENT' : updateKind) as att.SubmitWorkRequest['updateKind'],
+        shiftScope: isTwoSlotDay ? 'FULL_DAY' : shiftScopeFromKind(updateKind),
+        updateKind: (isTwoSlotDay ? 'FULL_DAY_SUPPLEMENT' : updateKind) as att.SubmitWorkRequest['updateKind'],
         reason: reason.trim(),
       };
-      if (isContinuous) {
+      if (isTwoSlotDay) {
         payload.requestedStart =
           scenario?.missingMorningIn === false && scenario?.existingMorningIn
             ? scenario.existingMorningIn
@@ -385,11 +413,13 @@ export function AttendanceUpdateRequestDialog({
   const continuousRange = continuousShiftRange(sch);
   const scheduleHint = isContinuous
     ? `Ca thông tầm: ${continuousRange.start.slice(0, 5)} – ${continuousRange.end.slice(0, 5)} (không nghỉ trưa)`
-    : isFullDay
-      ? `${sch.seasonLabel}: ${sch.morningStart}–${sch.morningEnd} · ${sch.afternoonStart}–${sch.afternoonEnd}`
-      : updateKind === 'AFTERNOON_SUPPLEMENT'
-        ? `Ca chiều: ${sch.afternoonStart} – ${sch.afternoonEnd}`
-        : `Ca sáng: ${sch.morningStart} – ${sch.morningEnd}`;
+    : isTwoPunch
+      ? `Phân quyền công · ca sáng/chiều: vào ${sch.morningStart.slice(0, 5)} · ra ${sch.afternoonEnd.slice(0, 5)}`
+      : isFullDay
+        ? `${sch.seasonLabel}: ${sch.morningStart}–${sch.morningEnd} · ${sch.afternoonStart}–${sch.afternoonEnd}`
+        : updateKind === 'AFTERNOON_SUPPLEMENT'
+          ? `Ca chiều: ${sch.afternoonStart} – ${sch.afternoonEnd}`
+          : `Ca sáng: ${sch.morningStart} – ${sch.morningEnd}`;
 
   return (
     <WorkRequestDialogShell
@@ -423,6 +453,14 @@ export function AttendanceUpdateRequestDialog({
             Ngày này đang xếp <strong>ca thông tầm</strong> (chỉ giờ vào đầu ngày và giờ ra cuối ngày, không nghỉ
             trưa). Sau khi Giám đốc duyệt, hệ thống cập nhật 2 mốc đó. Mỗi ngày chỉ gửi một đơn đang chờ duyệt. Nếu
             Giám đốc chọn trừ tiền quên chấm: đơn này trừ <strong>{forgotUnits} lần</strong>
+            {scenario?.partial ? ` (thiếu ${forgotUnits} mốc chấm)` : ''}.
+          </>
+        ) : isTwoPunch ? (
+          <>
+            Nhân viên được <strong>phân quyền công</strong>: vẫn ca sáng/chiều bình thường, chỉ cần{' '}
+            <strong>vào sáng</strong> và <strong>ra chiều</strong> để đủ công. Đơn bổ sung 2 mốc đó. Mỗi ngày chỉ
+            gửi một đơn đang chờ duyệt. Nếu Giám đốc chọn trừ tiền quên chấm: đơn này trừ{' '}
+            <strong>{forgotUnits} lần</strong>
             {scenario?.partial ? ` (thiếu ${forgotUnits} mốc chấm)` : ''}.
           </>
         ) : (
@@ -479,7 +517,13 @@ export function AttendanceUpdateRequestDialog({
           {kindLocked ? (
             <SelectableChip
               selected
-              label={`${isContinuous ? att.CONTINUOUS_UPDATE_KIND.label : (att.UPDATE_KIND_OPTIONS.find((o) => o.value === updateKind)?.label ?? 'Cập nhật')} · trừ ${forgotUnits} lần quên chấm`}
+              label={`${
+                isContinuous
+                  ? att.CONTINUOUS_UPDATE_KIND.label
+                  : isTwoPunch
+                    ? att.TWO_PUNCH_UPDATE_KIND.label
+                    : att.UPDATE_KIND_OPTIONS.find((o) => o.value === updateKind)?.label ?? 'Cập nhật'
+              } · trừ ${forgotUnits} lần quên chấm`}
               onClick={() => {}}
             />
           ) : (
@@ -510,11 +554,13 @@ export function AttendanceUpdateRequestDialog({
         subtitle={
           isContinuous
             ? 'Chỉ nhập giờ vào đầu ngày và giờ ra cuối ngày theo ca thông tầm.'
-            : isFullDay
-              ? 'Điều chỉnh nếu khác lịch ca mặc định. Chỉ cần nhập đủ cả hai ca khi chọn bổ sung cả ngày.'
-              : updateKind === 'AFTERNOON_SUPPLEMENT'
-                ? 'Chỉ bổ sung ca chiều — ca sáng không thay đổi.'
-                : 'Chỉ bổ sung ca sáng — ca chiều (nghỉ / không làm) không cần nhập.'
+            : isTwoPunch
+              ? 'Chỉ nhập giờ vào buổi sáng và giờ ra buổi chiều (ca sáng/chiều bình thường).'
+              : isFullDay
+                ? 'Điều chỉnh nếu khác lịch ca mặc định. Chỉ cần nhập đủ cả hai ca khi chọn bổ sung cả ngày.'
+                : updateKind === 'AFTERNOON_SUPPLEMENT'
+                  ? 'Chỉ bổ sung ca chiều — ca sáng không thay đổi.'
+                  : 'Chỉ bổ sung ca sáng — ca chiều (nghỉ / không làm) không cần nhập.'
         }
       >
         <Box
@@ -526,7 +572,7 @@ export function AttendanceUpdateRequestDialog({
           }}
         >
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
-            {isContinuous ? (
+            {isTwoSlotDay ? (
               <TimelineIcon sx={{ fontSize: 18, color: accent }} />
             ) : (
               <WbTwilightIcon sx={{ fontSize: 18, color: accent }} />
@@ -536,7 +582,7 @@ export function AttendanceUpdateRequestDialog({
             </Typography>
           </Stack>
 
-          {isContinuous ? (
+          {isTwoSlotDay ? (
             scenario?.partial ? (
               <PartialShiftFields
                 existingIn={scenario.existingMorningIn}
@@ -550,11 +596,11 @@ export function AttendanceUpdateRequestDialog({
               />
             ) : (
               <ShiftTimeBlock
-                title="Ca thông tầm"
+                title={isTwoPunch ? 'Vào sáng / ra chiều' : 'Ca thông tầm'}
                 icon={<TimelineIcon sx={{ fontSize: 18, color: accent }} />}
                 accent={accent}
-                startLabel="Giờ vào"
-                endLabel="Giờ ra"
+                startLabel={isTwoPunch ? 'Giờ vào sáng' : 'Giờ vào'}
+                endLabel={isTwoPunch ? 'Giờ ra chiều' : 'Giờ ra'}
                 start={morningStart}
                 end={morningEnd}
                 onStartChange={setMorningStart}
@@ -691,9 +737,11 @@ export function AttendanceUpdateRequestDialog({
           multiline
           minRows={3}
           placeholder={
-            isContinuous
-              ? 'Ví dụ: quên chấm giờ vào/ra ca thông tầm, máy chấm lỗi…'
-              : 'Ví dụ: quên chấm công ca chiều, máy chấm lỗi…'
+            isTwoPunch
+              ? 'Ví dụ: quên chấm vào sáng / ra chiều…'
+              : isContinuous
+                ? 'Ví dụ: quên chấm giờ vào/ra ca thông tầm, máy chấm lỗi…'
+                : 'Ví dụ: quên chấm công ca chiều, máy chấm lỗi…'
           }
           value={reason}
           onChange={(e) => setReason(e.target.value)}

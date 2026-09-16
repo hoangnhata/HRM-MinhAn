@@ -19,6 +19,9 @@ import ProfilePage from '../pages/ProfilePage';
 import AccountAdminPage from '../pages/AccountAdminPage';
 import SignaturePage from '../pages/SignaturePage';
 import WorkforceReportsPage from '../pages/WorkforceReportsPage';
+import ProfessionalQualificationReportPage from '../pages/ProfessionalQualificationReportPage';
+import NursingDailyReportsPage from '../pages/NursingDailyReportsPage';
+import QtktEvaluationsPage from '../pages/QtktEvaluationsPage';
 
 export function AppRoutes() {
   return (
@@ -61,7 +64,7 @@ export function AppRoutes() {
         <Route
           path="employees/official"
           element={
-              <RoleRoute allow={['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING']}>
+              <RoleRoute allow={['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING', 'HOSPITAL_EMPLOYEE_VIEWER']}>
               <EmployeesPage />
             </RoleRoute>
           }
@@ -69,7 +72,7 @@ export function AppRoutes() {
         <Route
           path="employees/trial"
           element={
-            <RoleRoute allow={['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING']}>
+            <RoleRoute allow={['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING', 'HOSPITAL_EMPLOYEE_VIEWER']}>
               <EmployeesPage />
             </RoleRoute>
           }
@@ -77,7 +80,7 @@ export function AppRoutes() {
         <Route
           path="employees/terminated"
           element={
-            <RoleRoute allow={['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING']}>
+            <RoleRoute allow={['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING', 'HOSPITAL_EMPLOYEE_VIEWER']}>
               <EmployeesPage />
             </RoleRoute>
           }
@@ -111,6 +114,32 @@ export function AppRoutes() {
             </RoleRoute>
           }
         />
+        <Route
+          path="reports/professional-qualification"
+          element={
+            <RoleRoute allow={['ADMIN', 'HR', 'HR2', 'DIRECTOR', 'PROFESSIONAL_QUALIFICATION_VIEWER']}>
+              <ProfessionalQualificationReportPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="reports/nursing-daily"
+          element={
+            <RoleRoute allow={['ADMIN', 'HEAD_NURSING', 'HEAD_DEPARTMENT']}>
+              <NursingDailyReportsPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="reports/qtkt"
+          element={
+            <RoleRoute allow={['ADMIN', 'HEAD_NURSING', 'HEAD_DEPARTMENT']}>
+              <QtktEvaluationsPage />
+            </RoleRoute>
+          }
+        />
+        <Route path="reports/hand-hygiene-compliance" element={<Navigate to="/reports/qtkt" replace />} />
+        <Route path="reports/qtkt-compliance" element={<Navigate to="/reports/qtkt" replace />} />
         <Route
           path="salary"
           element={

@@ -328,10 +328,7 @@ class NotificationUi {
           ),
         ),
         'NURSING_EVALUATION' => NotificationTarget.route(
-          RoutePaths.withListFocus(
-            RoutePaths.evaluation,
-            id: relatedRequestId,
-          ),
+          RoutePaths.withListFocus(RoutePaths.evaluation, id: relatedRequestId),
         ),
         _ => _listFallback(category),
       };
@@ -368,8 +365,7 @@ class NotificationUi {
       ),
       'PAYROLL' ||
       'SALARY_ADJUSTMENT' ||
-      'SALARY_REVIEW' =>
-        const NotificationTarget.tab(AppShellTab.salary),
+      'SALARY_REVIEW' => const NotificationTarget.tab(AppShellTab.salary),
       'INTERNAL' => const NotificationTarget.tab(AppShellTab.profile),
       _ => const NotificationTarget.tab(AppShellTab.home),
     };

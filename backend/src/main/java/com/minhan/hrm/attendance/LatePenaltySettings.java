@@ -19,6 +19,9 @@ public record LatePenaltySettings(List<LatePenaltyTier> tiers) {
         String tierLabel() {
             if (requiresDiscipline) {
                 if (maxMinutes == null) {
+                    if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
+                        return "≥ " + minMinutes + " phút/tháng — phạt tiền + kiểm điểm";
+                    }
                     return ">" + (minMinutes - 1) + " phút/tháng — cần tự kiểm điểm";
                 }
                 return minMinutes + "–" + maxMinutes + " phút/tháng";
@@ -37,7 +40,7 @@ public record LatePenaltySettings(List<LatePenaltyTier> tiers) {
                 new LatePenaltyTier(3, 51, 60, new BigDecimal("100000"), false, null),
                 new LatePenaltyTier(4, 61, 100, new BigDecimal("150000"), false, null),
                 new LatePenaltyTier(5, 101, 200, new BigDecimal("200000"), false, null),
-                new LatePenaltyTier(6, 201, null, BigDecimal.ZERO, true,
+                new LatePenaltyTier(6, 201, null, new BigDecimal("200000"), true,
                         "Yêu cầu làm bản tự kiểm điểm và xem xét kỷ luật")));
     }
 
@@ -63,17 +66,15 @@ public record LatePenaltySettings(List<LatePenaltyTier> tiers) {
             if (tier.maxMinutes() != null && totalLateMinutes > tier.maxMinutes()) {
                 continue;
             }
-            if (tier.requiresDiscipline()) {
-                return new AttendancePenaltyCalculator.LatePenaltyResult(
-                        BigDecimal.ZERO, tier.tierLabel(), true);
-            }
+            BigDecimal amount = tier.amount() != null ? tier.amount() : BigDecimal.ZERO;
             return new AttendancePenaltyCalculator.LatePenaltyResult(
-                    tier.amount(), tier.tierLabel(), false);
+                    amount, tier.tierLabel(), tier.requiresDiscipline());
         }
         LatePenaltyTier last = sorted.isEmpty() ? null : sorted.get(sorted.size() - 1);
         if (last != null && last.requiresDiscipline() && totalLateMinutes >= last.minMinutes()) {
+            BigDecimal amount = last.amount() != null ? last.amount() : BigDecimal.ZERO;
             return new AttendancePenaltyCalculator.LatePenaltyResult(
-                    BigDecimal.ZERO, last.tierLabel(), true);
+                    amount, last.tierLabel(), true);
         }
         return new AttendancePenaltyCalculator.LatePenaltyResult(BigDecimal.ZERO, null, false);
     }

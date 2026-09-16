@@ -12,8 +12,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -59,30 +61,34 @@ public class AttendanceDayProcessor {
                 rec.getEmployee() != null ? rec.getEmployee().getId() : null, rec.getWorkDate());
 
         if (isContinuousShift(rec) && (seminar == null || seminar.scope() == AttendanceShiftScope.FULL_DAY)) {
-            applyContinuousShift(rec, punches, schedule);
-            DeploymentPunches deploymentPunches =
-                    resolveInsideDeploymentPunches(punches, schedule, insideDeployment);
-            rec.setOvertimeWorkUnits(BigDecimal.ZERO);
-            applyDeploymentBonuses(
-                    rec, filterDeploymentBonuses(deployment, insideDeployment, deploymentPunches));
+            if (isContinuousStyleDeployment(insideDeployment)) {
+                applyContinuousInsideDeployment(
+                        rec, punches, schedule, insideDeployment, deployment);
+            } else {
+                applyContinuousShift(rec, punches, schedule);
+                rec.setOvertimeWorkUnits(BigDecimal.ZERO);
+                applyDeploymentBonuses(rec, deployment);
+            }
             applyHolidayWorkMultiplier(rec);
             applySeminarProtection(rec, schedule, seminar);
             return;
         }
 
         ShiftAssignment shifts = assignShifts(punches, schedule);
+        boolean twoPunch = isTwoPunchAttendance(rec);
         DeploymentPunches deploymentPunches =
                 resolveInsideDeploymentPunches(punches, schedule, insideDeployment);
         shifts = mergeInsideDeploymentPunches(shifts, insideDeployment, deploymentPunches);
-        deployment = filterDeploymentBonuses(deployment, insideDeployment, deploymentPunches);
+        deployment = filterDeploymentBonuses(deployment, insideDeployment, deploymentPunches, twoPunch);
 
         rec.setMorningCheckIn(shifts.morningIn());
-        rec.setMorningCheckOut(shifts.morningOut());
-        rec.setAfternoonCheckIn(shifts.afternoonIn());
+        // Phân quyền công: không bắt buộc ra sáng / vào chiều — để null nếu không có log
+        rec.setMorningCheckOut(twoPunch ? null : shifts.morningOut());
+        rec.setAfternoonCheckIn(twoPunch ? null : shifts.afternoonIn());
         rec.setAfternoonCheckOut(shifts.afternoonOut());
 
-        boolean morningOk = shifts.morningCredited();
-        boolean afternoonOk = shifts.afternoonCredited();
+        boolean morningOk = twoPunch ? shifts.morningIn() != null : shifts.morningCredited();
+        boolean afternoonOk = twoPunch ? shifts.afternoonOut() != null : shifts.afternoonCredited();
         rec.setMorningWorkUnits(morningOk ? schedule.morningUnits() : BigDecimal.ZERO);
         rec.setAfternoonWorkUnits(afternoonOk ? schedule.afternoonUnits() : BigDecimal.ZERO);
         // Luôn reset ngoài giờ trước khi áp bonus từ ghi chú — tránh OT “dính” sau khi thu hồi/từ chối điều động
@@ -90,13 +96,136 @@ public class AttendanceDayProcessor {
         applyDeploymentBonuses(rec, deployment);
         applyHolidayWorkMultiplier(rec);
 
-        rec.setForgotShifts(buildForgotShifts(
-                shifts, morningOk, afternoonOk, insideDeployment, seminar));
+        if (twoPunch) {
+            List<String> forgot = new ArrayList<>();
+            if (!morningOk && !protectsMorning(seminar)) {
+                forgot.add("MORNING");
+            }
+            if (!afternoonOk && !protectsAfternoon(seminar)) {
+                forgot.add("AFTERNOON");
+            }
+            if (insideDeployment.hasMorning() && !morningOk && !forgot.contains("MORNING")) {
+                forgot.add("MORNING");
+            }
+            if (insideDeployment.hasAfternoon() && !afternoonOk && !forgot.contains("AFTERNOON")) {
+                forgot.add("AFTERNOON");
+            }
+            rec.setForgotShifts(forgot.isEmpty() ? null : String.join(",", forgot));
+            applyLateMinutesTwoPunch(rec, schedule, shifts, insideDeployment, seminar);
+        } else {
+            rec.setForgotShifts(buildForgotShifts(
+                    shifts, morningOk, afternoonOk, insideDeployment, seminar));
+            applyLateMinutes(rec, schedule, shifts, insideDeployment, seminar);
+        }
 
-        applyLateMinutes(rec, schedule, shifts, insideDeployment, seminar);
-
-        finalizeStatus(rec, shifts.morningIn(), shifts.morningOut(), shifts.afternoonOut());
+        finalizeStatus(rec, shifts.morningIn(), twoPunch ? null : shifts.morningOut(), shifts.afternoonOut());
         applySeminarProtection(rec, schedule, seminar);
+    }
+
+    /**
+     * Giải trình «giữ giờ chấm gốc»: công ca theo giờ thực tế (vào→ra) so với giờ ca chuẩn, tối đa trần ca.
+     * Miễn phạt muộn/sớm — không đồng nghĩa full công ca khi đi muộn/về sớm.
+     */
+    public void applyProportionalWorkUnitsFromPunches(AttendanceRecord rec) {
+        if (rec.getEmployee() == null || rec.getEmployee().getId() == null || rec.getWorkDate() == null) {
+            return;
+        }
+        AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(
+                rec.getEmployee().getId(), rec.getWorkDate());
+        List<LocalTime> punches = resolvePunches(rec);
+        ShiftAssignment shifts = assignShifts(punches, schedule);
+        boolean twoPunch = isTwoPunchAttendance(rec);
+
+        BigDecimal morningUnits;
+        BigDecimal afternoonUnits;
+        if (isContinuousShift(rec)) {
+            LocalTime dayIn = shifts.morningIn() != null ? shifts.morningIn() : shifts.afternoonIn();
+            LocalTime dayOut = shifts.afternoonOut() != null ? shifts.afternoonOut() : shifts.morningOut();
+            BigDecimal dayMax = schedule.morningUnits().add(schedule.afternoonUnits());
+            long scheduledMin = Duration.between(schedule.continuousDayStart(), schedule.continuousDayEnd())
+                    .toMinutes();
+            long actualMin = dayIn != null && dayOut != null && dayOut.isAfter(dayIn)
+                    ? Duration.between(dayIn, dayOut).toMinutes() : 0L;
+            BigDecimal total = proportionalUnitsFromMinutes(actualMin, scheduledMin, dayMax);
+            morningUnits = total;
+            afternoonUnits = BigDecimal.ZERO;
+        } else if (twoPunch) {
+            LocalTime dayIn = shifts.morningIn();
+            LocalTime dayOut = shifts.afternoonOut();
+            BigDecimal dayMax = schedule.morningUnits().add(schedule.afternoonUnits());
+            if (dayIn == null || dayOut == null || !dayOut.isAfter(dayIn)) {
+                morningUnits = BigDecimal.ZERO;
+                afternoonUnits = BigDecimal.ZERO;
+            } else {
+                long actualMin = Duration.between(dayIn, dayOut).toMinutes();
+                long lunchMin = Math.max(
+                        0L,
+                        Duration.between(schedule.morningEnd(), schedule.afternoonStart()).toMinutes());
+                long scheduledMin = Duration.between(schedule.morningStart(), schedule.afternoonEnd()).toMinutes()
+                        - lunchMin;
+                BigDecimal total = proportionalUnitsFromMinutes(actualMin, scheduledMin, dayMax);
+                if (dayMax.compareTo(BigDecimal.ZERO) > 0) {
+                    morningUnits = total.multiply(schedule.morningUnits())
+                            .divide(dayMax, 2, RoundingMode.HALF_UP);
+                    afternoonUnits = total.subtract(morningUnits).max(BigDecimal.ZERO);
+                } else {
+                    morningUnits = BigDecimal.ZERO;
+                    afternoonUnits = BigDecimal.ZERO;
+                }
+            }
+        } else {
+            morningUnits = proportionalShiftUnits(
+                    shifts.morningIn(), shifts.morningOut(),
+                    schedule.morningStart(), schedule.morningEnd(),
+                    schedule.morningUnits());
+            afternoonUnits = proportionalShiftUnits(
+                    shifts.afternoonIn(), shifts.afternoonOut(),
+                    schedule.afternoonStart(), schedule.afternoonEnd(),
+                    schedule.afternoonUnits());
+        }
+
+        rec.setMorningWorkUnits(morningUnits);
+        rec.setAfternoonWorkUnits(afternoonUnits);
+        rec.setOvertimeWorkUnits(BigDecimal.ZERO);
+        applyHolidayWorkMultiplier(rec);
+        finalizeStatus(
+                rec,
+                shifts.morningIn(),
+                twoPunch ? null : shifts.morningOut(),
+                shifts.afternoonOut());
+    }
+
+    private static BigDecimal proportionalShiftUnits(
+            LocalTime in,
+            LocalTime out,
+            LocalTime shiftStart,
+            LocalTime shiftEnd,
+            BigDecimal maxUnits) {
+        if (in == null || out == null || maxUnits == null || maxUnits.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        if (!out.isAfter(in)) {
+            return BigDecimal.ZERO;
+        }
+        long actualMin = Duration.between(in, out).toMinutes();
+        long scheduledMin = Duration.between(shiftStart, shiftEnd).toMinutes();
+        return proportionalUnitsFromMinutes(actualMin, scheduledMin, maxUnits);
+    }
+
+    private static BigDecimal proportionalUnitsFromMinutes(
+            long actualMin, long scheduledMin, BigDecimal maxUnits) {
+        if (scheduledMin <= 0 || actualMin <= 0 || maxUnits.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        double ratio = Math.min(1.0, (double) actualMin / scheduledMin);
+        return maxUnits.multiply(BigDecimal.valueOf(ratio)).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private boolean isTwoPunchAttendance(AttendanceRecord rec) {
+        if (rec.getEmployee() == null || rec.getEmployee().getId() == null) {
+            return false;
+        }
+        return continuousShiftService.isTwoPunchAttendance(rec.getEmployee().getId());
     }
 
     private boolean isContinuousShift(AttendanceRecord rec) {
@@ -167,6 +296,16 @@ public class AttendanceDayProcessor {
 
         LocalTime dayIn = pickMinInWindow(
                 available, dayStart, w.morningInBeforeMin(), w.morningInAfterMin());
+        // Vào sớm ngoài cửa sổ (vd 6h07 khi ca 6h45) — vẫn lấy lần quẹt sớm nhất trước giờ ra ca
+        if (dayIn == null) {
+            dayIn = available.stream()
+                    .filter(t -> !t.isAfter(dayEnd))
+                    .min(LocalTime::compareTo)
+                    .orElse(null);
+            if (dayIn != null) {
+                available.remove(dayIn);
+            }
+        }
 
         LocalTime dayOut = pickMaxInWindow(
                 available, dayEnd, w.afternoonOutBeforeMin(), w.afternoonOutAfterMin());
@@ -203,6 +342,103 @@ public class AttendanceDayProcessor {
         }
 
         finalizeStatus(rec, dayIn, null, dayOut);
+    }
+
+    /**
+     * Điều động trong ca thông tầm: một khung vào–ra cả ngày (DDTC chỉ có S=…;A=-),
+     * khớp punch bằng cửa sổ vào sáng / ra chiều của ca thông tầm.
+     */
+    private void applyContinuousInsideDeployment(
+            AttendanceRecord rec,
+            List<LocalTime> punches,
+            AttendanceShiftSchedule schedule,
+            InsideDeploymentRequirement requirement,
+            DeploymentBonusSplit deployment) {
+        DeploymentPunches deploymentPunches =
+                resolveContinuousInsideDeploymentPunches(punches, schedule, requirement);
+        LocalTime dayIn = deploymentPunches.morningIn();
+        LocalTime dayOut = deploymentPunches.morningOut();
+
+        rec.setMorningCheckIn(dayIn);
+        rec.setMorningCheckOut(null);
+        rec.setAfternoonCheckIn(null);
+        rec.setAfternoonCheckOut(dayOut);
+
+        boolean fullDay = deploymentPunches.morningCredited();
+        rec.setMorningWorkUnits(fullDay ? schedule.morningUnits() : BigDecimal.ZERO);
+        rec.setAfternoonWorkUnits(fullDay ? schedule.afternoonUnits() : BigDecimal.ZERO);
+
+        List<String> forgot = new ArrayList<>();
+        if (dayIn == null) {
+            forgot.add("MORNING");
+        }
+        if (dayOut == null) {
+            forgot.add("AFTERNOON");
+        }
+        rec.setForgotShifts(forgot.isEmpty() ? null : String.join(",", forgot));
+
+        LocalTime expectedIn = requirement.morningStart() != null
+                ? requirement.morningStart()
+                : schedule.continuousDayStart();
+        LocalTime expectedOut = requirement.morningEnd() != null
+                ? requirement.morningEnd()
+                : schedule.continuousDayEnd();
+        if (rec.isLateMinutesExempt()) {
+            rec.setLateMinutes(0);
+        } else {
+            int late = 0;
+            if (dayIn != null) {
+                late += minutesLate(dayIn, expectedIn);
+            }
+            if (dayOut != null) {
+                late += minutesEarly(dayOut, expectedOut);
+            }
+            rec.setLateMinutes(late);
+        }
+
+        rec.setOvertimeWorkUnits(BigDecimal.ZERO);
+        // Ca thông tầm: cả sáng+chiều trong ghi chú chỉ áp khi đủ cặp vào đầu ngày / ra cuối ngày
+        applyDeploymentBonuses(rec, filterContinuousDeploymentBonuses(deployment, deploymentPunches));
+        finalizeStatus(rec, dayIn, null, dayOut);
+    }
+
+    private static DeploymentBonusSplit filterContinuousDeploymentBonuses(
+            DeploymentBonusSplit deployment, DeploymentPunches punches) {
+        boolean ok = punches.morningCredited();
+        return new DeploymentBonusSplit(
+                ok ? deployment.morning() : BigDecimal.ZERO,
+                ok && deployment.replaceMorning(),
+                ok ? deployment.afternoon() : BigDecimal.ZERO,
+                ok && deployment.replaceAfternoon(),
+                deployment.overtime());
+    }
+
+    /** Trong ca thông tầm: chỉ có khung S (A=-). */
+    private static boolean isContinuousStyleDeployment(InsideDeploymentRequirement requirement) {
+        return requirement.hasMorning() && !requirement.hasAfternoon();
+    }
+
+    private static DeploymentPunches resolveContinuousInsideDeploymentPunches(
+            List<LocalTime> punches,
+            AttendanceShiftSchedule schedule,
+            InsideDeploymentRequirement requirement) {
+        if (!requirement.hasMorning()) {
+            return DeploymentPunches.EMPTY;
+        }
+        List<LocalTime> available = new ArrayList<>(punches.stream().sorted().distinct().toList());
+        AttendancePunchWindows windows = schedule.punchWindows();
+        LocalTime dayIn = pickMinInWindow(
+                available,
+                requirement.morningStart(),
+                windows.morningInBeforeMin(),
+                windows.morningInAfterMin());
+        LocalTime dayOut = pickMaxInWindow(
+                available,
+                requirement.morningEnd(),
+                windows.afternoonOutBeforeMin(),
+                windows.afternoonOutAfterMin());
+        // morningIn/morningOut = vào đầu ngày / ra cuối ngày (không có ca giữa trưa)
+        return new DeploymentPunches(dayIn, dayOut, null, null);
     }
 
     public List<LocalTime> resolvePunches(AttendanceRecord rec) {
@@ -512,6 +748,21 @@ public class AttendanceDayProcessor {
             applyToRecord(rec);
             return;
         }
+        if (isTwoPunchAttendance(rec)) {
+            // Phân quyền công: chỉ bổ sung vào sáng + ra chiều
+            List<LocalTime> punches = new ArrayList<>();
+            if (mStart != null) {
+                punches.add(mStart);
+            }
+            if (aEnd != null) {
+                punches.add(aEnd);
+            } else if (mEnd != null) {
+                punches.add(mEnd);
+            }
+            rec.setPunchTimesJson(writePunches(punches.stream().sorted().distinct().toList()));
+            applyToRecord(rec);
+            return;
+        }
         List<LocalTime> punches = new ArrayList<>();
         if (mStart != null) {
             punches.add(mStart);
@@ -538,11 +789,12 @@ public class AttendanceDayProcessor {
         AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(
                 rec.getEmployee() != null ? rec.getEmployee().getId() : null, rec.getWorkDate());
         if (isContinuousShift(rec)) {
-            List<LocalTime> punches = new ArrayList<>();
-            if (start != null) {
+            // Giữ log máy hiện có; chỉ bổ sung mốc vào/ra từ đơn (không ghi đè mất giờ vào gốc).
+            List<LocalTime> punches = new ArrayList<>(resolvePunches(rec));
+            if (start != null && punches.stream().noneMatch(start::equals)) {
                 punches.add(start);
             }
-            if (end != null) {
+            if (end != null && punches.stream().noneMatch(end::equals)) {
                 punches.add(end);
             }
             rec.setPunchTimesJson(writePunches(punches.stream().sorted().distinct().toList()));
@@ -715,6 +967,34 @@ public class AttendanceDayProcessor {
         rec.setLateMinutes(late);
     }
 
+    /** Phân quyền công: chỉ trừ muộn theo giờ vào sáng và về sớm theo giờ ra chiều. */
+    private static void applyLateMinutesTwoPunch(
+            AttendanceRecord rec,
+            AttendanceShiftSchedule schedule,
+            ShiftAssignment shifts,
+            InsideDeploymentRequirement deployment,
+            SeminarProtection seminar) {
+        if (rec.isLateMinutesExempt()) {
+            rec.setLateMinutes(0);
+            return;
+        }
+        int late = 0;
+        if (!protectsMorning(seminar) && shifts.morningIn() != null) {
+            LocalTime expectedIn = deployment.hasMorning()
+                    ? deployment.morningStart() : schedule.morningStart();
+            late += minutesLate(shifts.morningIn(), expectedIn);
+        }
+        if (!protectsAfternoon(seminar) && shifts.afternoonOut() != null) {
+            LocalTime expectedOut = deployment.hasAfternoon()
+                    ? deployment.afternoonEnd() : schedule.afternoonEnd();
+            // Về sớm chỉ khi đã có giờ vào sáng (đã làm ngày đó)
+            if (shifts.morningIn() != null) {
+                late += minutesEarly(shifts.afternoonOut(), expectedOut);
+            }
+        }
+        rec.setLateMinutes(late);
+    }
+
     private static SeminarProtection extractSeminarProtection(String note) {
         if (note == null || note.isBlank()) {
             return null;
@@ -747,11 +1027,14 @@ public class AttendanceDayProcessor {
         if (seminar == null) {
             return;
         }
-        if (protectsMorning(seminar)) {
-            rec.setMorningWorkUnits(seminar.withPay() ? schedule.morningUnits() : BigDecimal.ZERO);
+        // Có công (PAID): gán đủ trần ca được bảo vệ.
+        // Không công (UNPAID): không cộng công hội thảo, nhưng giữ công đã tính từ
+        // máy chấm — ví dụ duyệt hội thảo không công cả ngày mà vẫn đi làm ca sáng.
+        if (protectsMorning(seminar) && seminar.withPay()) {
+            rec.setMorningWorkUnits(schedule.morningUnits());
         }
-        if (protectsAfternoon(seminar)) {
-            rec.setAfternoonWorkUnits(seminar.withPay() ? schedule.afternoonUnits() : BigDecimal.ZERO);
+        if (protectsAfternoon(seminar) && seminar.withPay()) {
+            rec.setAfternoonWorkUnits(schedule.afternoonUnits());
         }
         rec.setForgotShifts(removeForgotScope(rec.getForgotShifts(), seminar.scope()));
         if (seminar.scope() == AttendanceShiftScope.FULL_DAY) {
@@ -900,11 +1183,21 @@ public class AttendanceDayProcessor {
             DeploymentBonusSplit deployment,
             InsideDeploymentRequirement requirement,
             DeploymentPunches punches) {
+        return filterDeploymentBonuses(deployment, requirement, punches, false);
+    }
+
+    private static DeploymentBonusSplit filterDeploymentBonuses(
+            DeploymentBonusSplit deployment,
+            InsideDeploymentRequirement requirement,
+            DeploymentPunches punches,
+            boolean twoPunch) {
         if (!requirement.hasMorning() && !requirement.hasAfternoon()) {
             return deployment;
         }
-        boolean morningOk = !requirement.hasMorning() || punches.morningCredited();
-        boolean afternoonOk = !requirement.hasAfternoon() || punches.afternoonCredited();
+        boolean morningOk = !requirement.hasMorning()
+                || (twoPunch ? punches.morningIn() != null : punches.morningCredited());
+        boolean afternoonOk = !requirement.hasAfternoon()
+                || (twoPunch ? punches.afternoonOut() != null : punches.afternoonCredited());
         return new DeploymentBonusSplit(
                 morningOk ? deployment.morning() : BigDecimal.ZERO,
                 morningOk && deployment.replaceMorning(),

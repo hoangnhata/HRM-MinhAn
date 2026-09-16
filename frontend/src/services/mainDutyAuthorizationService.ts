@@ -115,8 +115,16 @@ export async function fetchPendingDirectorMainDutyAuthorizations() {
   return data;
 }
 
-export async function fetchMainDutyAuthorizationHistory() {
-  const { data } = await api.get<MainDutyAuthorization[]>('/v1/main-duty-authorizations/history');
+export async function fetchMainDutyAuthorizationHistory(opts?: {
+  fromDate?: string;
+  toDate?: string;
+}) {
+  const { data } = await api.get<MainDutyAuthorization[]>('/v1/main-duty-authorizations/history', {
+    params: {
+      fromDate: opts?.fromDate || undefined,
+      toDate: opts?.toDate || undefined,
+    },
+  });
   return data;
 }
 

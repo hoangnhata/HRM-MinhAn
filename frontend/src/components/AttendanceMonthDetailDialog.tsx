@@ -53,7 +53,12 @@ export function AttendanceMonthDetailDialog({
           <>
             <Typography variant="body2" sx={{ mb: 2 }}>
               Tổng công:{" "}
-              <strong>{formatWorkUnits(detail.totalWorkUnits)}</strong> ·
+              <strong>{formatWorkUnits(detail.totalWorkUnits)}</strong>
+              {" · "}
+              Công phép:{" "}
+              <strong>{formatWorkUnits(detail.leaveWorkUnits ?? 0)}</strong> (không
+              tính vào tổng)
+              {" · "}
               Muộn/sớm: {detail.lateMinutesTotal} phút →{" "}
               {att.formatMoney(detail.latePenalty)}{" "}
               {detail.latePenaltyTier && `(${detail.latePenaltyTier})`} · Quên

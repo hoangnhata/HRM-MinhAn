@@ -19,8 +19,32 @@ export type AppNotification = {
   actionPath?: string | null;
 };
 
-export async function fetchNotifications() {
-  const { data } = await api.get<AppNotification[]>('/v1/notifications');
+export type NotificationPage = {
+  items: AppNotification[];
+  page: number;
+  size: number;
+  hasMore: boolean;
+  total: number;
+  unread: number;
+};
+
+export const NOTIFICATION_PAGE_SIZE = 20;
+
+/**
+ * Một trang thông báo: chưa đọc trước, mới nhất trước. Popover tải trang đầu
+ * khi mở và tải tiếp khi bấm "Xem thêm" — trước đây kéo toàn bộ lịch sử nên
+ * tài khoản duyệt nhiều đơn bị treo khi bấm chuông.
+ */
+export async function fetchNotificationPage(page: number, size = NOTIFICATION_PAGE_SIZE) {
+  const { data } = await api.get<NotificationPage>('/v1/notifications/page', {
+    params: { page, size },
+  });
+  return data;
+}
+
+/** Trang đầu dạng danh sách phẳng — giữ cho nơi chỉ cần vài thông báo mới nhất. */
+export async function fetchNotifications(limit = NOTIFICATION_PAGE_SIZE) {
+  const { data } = await api.get<AppNotification[]>('/v1/notifications', { params: { limit } });
   return data;
 }
 

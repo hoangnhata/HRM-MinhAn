@@ -147,6 +147,13 @@ public class AttendanceWorkRequest {
     @Builder.Default
     private boolean hrWaiveForgotFine = false;
 
+    /**
+     * Giải trình: Giám đốc miễn phạt muộn/sớm nhưng không thay giờ chấm — giữ giờ máy gốc và công theo giờ thực tế.
+     */
+    @Column(name = "explanation_keep_original_times", nullable = false)
+    @Builder.Default
+    private boolean explanationKeepOriginalTimes = false;
+
     /** Số lần trừ quên chấm khi duyệt (1 = thiếu một mốc, 2 = thiếu cả ca, 4 = cả ngày). */
     @Column(name = "forgot_fine_units")
     private Integer forgotFineUnits;

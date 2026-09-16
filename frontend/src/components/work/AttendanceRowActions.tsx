@@ -6,6 +6,7 @@ import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import type { WorkRequest } from '../../services/attendanceService';
+import { endOfMonthLocalIso, todayLocalIso } from '../../utils/dateFormat';
 
 export type AttendanceRow = Record<string, unknown>;
 
@@ -20,28 +21,16 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function endOfMonthIso(fromIso?: string): string {
-  const base = fromIso ? new Date(`${fromIso}T12:00:00`) : new Date();
-  const y = base.getFullYear();
-  const m = base.getMonth();
-  const last = new Date(y, m + 1, 0);
-  return last.toISOString().slice(0, 10);
-}
-
 /** Cho phép mọi ngày đã qua; ngày tương lai chỉ trong tháng hiện tại. */
 export function canDeployOnDate(workDate: string): boolean {
-  const today = todayIso();
+  const today = todayLocalIso();
   if (workDate <= today) return true;
-  return workDate <= endOfMonthIso(today);
+  return workDate <= endOfMonthLocalIso(today);
 }
 
 /** Ngày chưa chấm / thiếu ca cần đơn cập nhật công. */
 export function rowNeedsUpdate(row: AttendanceRow | null, workDate?: string): boolean {
-  if (workDate && workDate > todayIso()) return false;
+  if (workDate && workDate > todayLocalIso()) return false;
   if (!row) return true;
   const status = str(row.status);
   if (status === 'ABSENT' || status === 'PARTIAL') return true;

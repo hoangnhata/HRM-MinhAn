@@ -1,5 +1,6 @@
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
+import EventBusyOutlinedIcon from '@mui/icons-material/EventBusyOutlined';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import GavelIcon from '@mui/icons-material/Gavel';
 import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
@@ -11,6 +12,7 @@ import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import {
   Alert,
@@ -45,6 +47,7 @@ import { AttendanceScheduleBanner } from '../components/work/AttendanceScheduleB
 import { AttendanceScheduleEditDialog } from '../components/work/AttendanceScheduleEditDialog';
 import { DeploymentRequestDialog } from '../components/DeploymentRequestDialog';
 import { DepartmentAttendanceMatrixDialog } from '../components/work/DepartmentAttendanceMatrixDialog';
+import { LowAttendanceEmployeesDialog } from '../components/work/LowAttendanceEmployeesDialog';
 import { DutyShiftDialog } from '../components/work/DutyShiftDialog';
 import { BulkWorkSupplementDialog } from '../components/work/BulkWorkSupplementDialog';
 import { BulkDeploymentDialog } from '../components/work/BulkDeploymentDialog';
@@ -77,6 +80,7 @@ import {
 } from '../utils/shiftSchedule';
 import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
 import { isNursingBlockTitle } from '../utils/nursingBlock';
+import { endOfMonthLocalIso, monthRangeLocalIso, startOfMonthLocalIso } from '../utils/dateFormat';
 
 const STATUS_CHIP: Record<string, { label: string; color: 'success' | 'warning' | 'default' | 'error' | 'info' }> = {
   PRESENT: { label: 'Đủ công', color: 'success' },
@@ -90,10 +94,7 @@ const STATUS_CHIP: Record<string, { label: string; color: 'success' | 'warning' 
 };
 
 function monthRangeFor(year: number, month: number) {
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0);
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  return { from: iso(start), to: iso(end) };
+  return monthRangeLocalIso(year, month);
 }
 
 function currentYearMonth() {
@@ -168,6 +169,10 @@ export default function WorkPage() {
   const isNursingHead = user?.role === 'HEAD_NURSING';
   const isHeadRole = isHeadDepartmentRole(user?.role);
   const isHead = user?.role === 'ADMIN' || isHeadRole || isNursingHead;
+  const canExportAttendanceExcel =
+    isHrOrAdmin || isHeadRole || isNursingHead || user?.attendanceExcelExportEnabled === true;
+  /** Được xuất Excel toàn viện (không khóa khoa) — cờ Admin «Xuất Excel công». */
+  const canExportHospitalWideExcel = isHrOrAdmin || user?.attendanceExcelExportEnabled === true;
   const canPickEmployee = !selfOnly && (isHrOrAdmin || isHr2Viewer || isHead);
   const ownDepartmentId = user?.departmentId ?? null;
   const deptFilterLocked = isHeadRole && !isHrOrAdmin && !isHr2Viewer && !isNursingHead && ownDepartmentId != null;
@@ -217,6 +222,7 @@ export default function WorkPage() {
   const [continuousShift, setContinuousShift] = useState(false);
   const [continuousDates, setContinuousDates] = useState<Set<string>>(() => new Set());
   const [splitDates, setSplitDates] = useState<Set<string>>(() => new Set());
+  const [twoPunchAttendance, setTwoPunchAttendance] = useState(false);
   const [continuousConfigOpen, setContinuousConfigOpen] = useState(false);
   const [continuousTypeOpen, setContinuousTypeOpen] = useState(false);
   const [continuousTypes, setContinuousTypes] = useState<attSvc.ContinuousShiftType[]>([]);
@@ -235,6 +241,7 @@ export default function WorkPage() {
   const [deploymentDate, setDeploymentDate] = useState('');
   const [supplementInitialTab, setSupplementInitialTab] = useState<0 | 1 | 2 | undefined>(undefined);
   const [matrixOpen, setMatrixOpen] = useState(false);
+  const [lowAttendanceOpen, setLowAttendanceOpen] = useState(false);
   const pendingSelectRef = useRef<number | null>(null);
 
   const selectedEmployee = useMemo(
@@ -244,7 +251,10 @@ export default function WorkPage() {
 
   const attByDate = useMemo(() => {
     const m = new Map<string, Record<string, unknown>>();
-    att.forEach((r) => m.set(String(r.workDate), r));
+    att.forEach((r) => {
+      const key = String(r.workDate ?? '').slice(0, 10);
+      if (key) m.set(key, r);
+    });
     return m;
   }, [att]);
 
@@ -296,8 +306,8 @@ export default function WorkPage() {
       youngChildReq
         .fetchPendingYoungChildForEmployee(
           id,
-          `${periodYear}-${String(periodMonth).padStart(2, '0')}-01`,
-          new Date(Date.UTC(periodYear, periodMonth, 0)).toISOString().slice(0, 10),
+          startOfMonthLocalIso(periodYear, periodMonth),
+          endOfMonthLocalIso(startOfMonthLocalIso(periodYear, periodMonth)),
         )
         .then((p) => setYoungChildPending(Boolean(p?.id)))
         .catch(() => setYoungChildPending(false));
@@ -314,6 +324,7 @@ export default function WorkPage() {
       setContinuousDates(new Set());
       setSplitDates(new Set());
       setContinuousShift(false);
+      setTwoPunchAttendance(false);
       return;
     }
     attSvc
@@ -338,11 +349,13 @@ export default function WorkPage() {
         setContinuousDates(continuous);
         setSplitDates(split);
         setContinuousShift(continuous.size > 0);
+        setTwoPunchAttendance(Boolean(r.twoPunchAttendance));
       })
       .catch(() => {
         setContinuousDates(new Set());
         setSplitDates(new Set());
         setContinuousShift(false);
+        setTwoPunchAttendance(false);
       });
   }
 
@@ -593,22 +606,24 @@ export default function WorkPage() {
     }
   }
 
-  async function handleExportReport() {
-    if (!isHrOrAdmin && !isHeadRole) return;
+  async function handleExportReport(scope: 'department' | 'hospital' = 'department') {
+    if (!canExportAttendanceExcel) return;
     setExportingReport(true);
     setNotifyMsg(null);
     try {
-      const departmentId =
-        isHeadRole && !isHrOrAdmin
-          ? ownDepartmentId ?? undefined
-          : filterDept === ''
-            ? undefined
-            : Number(filterDept);
+      let departmentId: number | undefined;
+      if (scope === 'hospital' && canExportHospitalWideExcel) {
+        departmentId = undefined;
+      } else if (isHeadRole && !isHrOrAdmin) {
+        departmentId = ownDepartmentId ?? undefined;
+      } else {
+        departmentId = filterDept === '' ? undefined : Number(filterDept);
+      }
       await attSvc.downloadMonthlyReport(year, month, departmentId);
       setNotifyMsg(
-        isHeadRole && !isHrOrAdmin
-          ? `Đã xuất báo cáo công khoa của bạn tháng ${month}/${year}.`
-          : `Đã xuất báo cáo công tháng ${month}/${year}.`,
+        departmentId == null
+          ? `Đã xuất báo cáo công toàn viện tháng ${month}/${year}.`
+          : `Đã xuất báo cáo công khoa của bạn tháng ${month}/${year}.`,
       );
     } catch {
       setNotifyMsg('Không xuất được báo cáo công.');
@@ -766,23 +781,41 @@ export default function WorkPage() {
         }
         actions={
           canPickEmployee ? (
-            <Button
-              variant="contained"
-              color="primary"
-              startIcon={<TableChartOutlinedIcon />}
-              onClick={() => setMatrixOpen(true)}
-              sx={{
-                textTransform: 'none',
-                fontWeight: 700,
-                borderRadius: 2,
-                px: 2.25,
-                py: 1,
-                boxShadow: 'none',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Bảng công theo khoa
-            </Button>
+            <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<WarningAmberRoundedIcon />}
+                onClick={() => setLowAttendanceOpen(true)}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  borderRadius: 2,
+                  px: 2.25,
+                  py: 1,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Công thấp trong tháng
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<TableChartOutlinedIcon />}
+                onClick={() => setMatrixOpen(true)}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  borderRadius: 2,
+                  px: 2.25,
+                  py: 1,
+                  boxShadow: 'none',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Bảng công theo khoa
+              </Button>
+            </Stack>
           ) : undefined
         }
       />
@@ -855,7 +888,7 @@ export default function WorkPage() {
                 onImportSql={() => setImportOpen(true)}
                 onSyncChamcong={() => setSyncOpen(true)}
                 chamcongSyncEnabled={chamcongSyncEnabled}
-                onExportReport={handleExportReport}
+                onExportReport={() => void handleExportReport()}
                 exporting={exportingReport}
                 onRecalculate={handleRecalculate}
                 recalculating={recalculating}
@@ -871,12 +904,23 @@ export default function WorkPage() {
                 <Button
                   variant="outlined"
                   startIcon={<FileDownloadOutlinedIcon />}
-                  onClick={handleExportReport}
+                  onClick={() => void handleExportReport('department')}
                   disabled={exportingReport}
                   sx={{ borderRadius: 2, fontWeight: 700 }}
                 >
                   {exportingReport ? 'Đang xuất…' : 'Xuất Excel khoa'}
                 </Button>
+                {canExportHospitalWideExcel && (
+                  <Button
+                    variant="contained"
+                    startIcon={<FileDownloadOutlinedIcon />}
+                    onClick={() => void handleExportReport('hospital')}
+                    disabled={exportingReport}
+                    sx={{ borderRadius: 2, fontWeight: 700 }}
+                  >
+                    {exportingReport ? 'Đang xuất…' : 'Xuất Excel toàn viện'}
+                  </Button>
+                )}
                 <Button
                   variant="outlined"
                   startIcon={<GroupAddOutlinedIcon />}
@@ -894,6 +938,21 @@ export default function WorkPage() {
                   Điều động hàng loạt
                 </Button>
               </Stack>
+            )}
+            {!isHrOrAdmin && !isHeadRole && canExportAttendanceExcel && (
+              <Button
+                variant="outlined"
+                startIcon={<FileDownloadOutlinedIcon />}
+                onClick={() => void handleExportReport(canExportHospitalWideExcel ? 'hospital' : 'department')}
+                disabled={exportingReport}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+              >
+                {exportingReport
+                  ? 'Đang xuất…'
+                  : canExportHospitalWideExcel
+                    ? 'Xuất Excel toàn viện'
+                    : 'Xuất Excel công'}
+              </Button>
             )}
           </Stack>
 
@@ -933,8 +992,17 @@ export default function WorkPage() {
                       icon={<EventAvailableIcon />}
                       label="Tổng công tháng"
                       value={formatWorkUnits(summary.totalWorkUnits)}
-                      sub={`${formatWorkUnits(summary.clockedWorkUnits ?? summary.attendanceWorkUnits ?? 0)} chấm + ${formatWorkUnits(summary.leaveWorkUnits ?? 0)} phép + ${formatWorkUnits(summary.dutyWorkUnitsTotal ?? 0)} trực`}
+                      sub={`${formatWorkUnits(summary.clockedWorkUnits ?? 0)} chấm + ${formatWorkUnits(summary.deploymentWorkUnits ?? 0)} điều động + ${formatWorkUnits(summary.dutyWorkUnitsTotal ?? 0)} trực · QT ${formatWorkUnits(summary.quangTrungWorkUnits ?? 0)} (đã gồm trong chấm)`}
                       accent={theme.palette.primary.main}
+                    />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <StatCard
+                      icon={<EventBusyOutlinedIcon />}
+                      label="Công phép"
+                      value={formatWorkUnits(summary.leaveWorkUnits ?? 0)}
+                      sub="Không tính vào tổng công tháng"
+                      accent="#0369a1"
                     />
                   </Grid>
                   <Grid item xs={6} md={3}>
@@ -987,6 +1055,15 @@ export default function WorkPage() {
                   </Grid>
                   <Grid item xs={6} md={3}>
                     <StatCard
+                      icon={<SwapHorizOutlinedIcon />}
+                      label="Công điều động"
+                      value={formatWorkUnits(summary.deploymentWorkUnits ?? 0)}
+                      sub="Ngoài ca / làm thêm ×1,5"
+                      accent="#0f766e"
+                    />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <StatCard
                       icon={<RestaurantIcon />}
                       label="Phụ cấp phần ăn"
                       value={attSvc.formatMoney(summary.mealAllowance ?? 0)}
@@ -1009,6 +1086,15 @@ export default function WorkPage() {
                   </Grid>
                   <Grid item xs={6} md={3}>
                     <StatCard
+                      icon={<LocationOnOutlinedIcon />}
+                      label="Công Quang Trung"
+                      value={formatWorkUnits(summary.quangTrungWorkUnits ?? 0)}
+                      sub={`${summary.quangTrungWorkDays ?? 0} ngày · đã nằm trong chấm`}
+                      accent="#0369a1"
+                    />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <StatCard
                       icon={<LocalHospitalOutlinedIcon />}
                       label="Phụ cấp Quang Trung"
                       value={attSvc.formatMoney(summary.quangTrungAllowance ?? 0)}
@@ -1021,7 +1107,9 @@ export default function WorkPage() {
 
               {summary?.requiresDiscipline && (
                 <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mb: 2 }}>
-                  Tổng muộn/sớm &gt; 200 phút trong tháng — cần tự kiểm điểm theo quy định.
+                  Tổng muộn/sớm từ 201 phút trong tháng — phạt{' '}
+                  <strong>{attSvc.formatMoney(summary.latePenalty ?? 0)}</strong> và cần tự kiểm điểm
+                  theo quy định.
                 </Alert>
               )}
 
@@ -1055,7 +1143,7 @@ export default function WorkPage() {
                         Ca chiều / Ra
                       </TableCell>
                       <TableCell align="center" sx={{ fontWeight: 700, width: 88 }}>
-                        Ngoài giờ
+                        Điều động
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700, width: 64 }}>
                         Công
@@ -1173,14 +1261,25 @@ export default function WorkPage() {
                             <TableCell align="right" sx={{ fontWeight: 600 }}>
                               {(() => {
                                 const attUnits = row ? normalizeWorkUnits(Number(row.totalWorkUnits ?? 0)) : 0;
+                                const clockedUnits = row
+                                  ? normalizeWorkUnits(
+                                      Number(row.morningWorkUnits ?? 0) + Number(row.afternoonWorkUnits ?? 0),
+                                    )
+                                  : 0;
+                                const deploymentUnits = row
+                                  ? normalizeWorkUnits(Number(row.overtimeWorkUnits ?? 0))
+                                  : 0;
                                 const dutyUnits = duty ? normalizeWorkUnits(Number(duty.workUnits ?? 0)) : 0;
                                 const total = normalizeWorkUnits(attUnits + dutyUnits);
                                 if (!row && !duty) return '—';
-                                if (dutyUnits > 0 && attUnits > 0) {
+                                if (dutyUnits > 0 || deploymentUnits > 0) {
+                                  const parts = [
+                                    clockedUnits > 0 ? `${formatWorkUnits(clockedUnits)} chấm` : null,
+                                    deploymentUnits > 0 ? `${formatWorkUnits(deploymentUnits)} điều động` : null,
+                                    dutyUnits > 0 ? `${formatWorkUnits(dutyUnits)} trực` : null,
+                                  ].filter(Boolean);
                                   return (
-                                    <Tooltip
-                                      title={`${formatWorkUnits(attUnits)} chấm công + ${formatWorkUnits(dutyUnits)} ca trực`}
-                                    >
+                                    <Tooltip title={parts.join(' + ')}>
                                       <Typography component="span" variant="body2" fontWeight={600}>
                                         {formatWorkUnits(total)}
                                       </Typography>
@@ -1358,6 +1457,7 @@ export default function WorkPage() {
         attendanceRow={updateRow}
         employeeId={selected !== '' ? Number(selected) : user?.employeeId}
         continuousShift={dialogDate ? continuousDates.has(dialogDate) : false}
+        twoPunchAttendance={twoPunchAttendance}
       />
       <AttendanceExplanationDialog
         open={explainOpen}
@@ -1366,6 +1466,7 @@ export default function WorkPage() {
         defaultDate={dialogDate}
         attendanceRow={explainRow}
         continuousShift={dialogDate ? continuousDates.has(dialogDate) : false}
+        twoPunchAttendance={twoPunchAttendance}
         employeeId={selected !== '' ? Number(selected) : user?.employeeId}
         schedule={schedule}
         initialSelectedKeys={explainInitialKeys}
@@ -1517,7 +1618,7 @@ export default function WorkPage() {
           onClose={closeDeployment}
           onSubmitted={() => {
             setNotifyMsg(
-              isNursingBlockTitle(selectedEmployee?.positionTitle)
+              isNursingBlockTitle(selectedEmployee?.positionTitle, selectedEmployee?.departmentName)
                 ? 'Đã tạo đơn điều động và chuyển Trưởng phòng Điều dưỡng duyệt.'
                 : 'Đã tạo đơn điều động và chuyển HCNS duyệt.',
             );
@@ -1526,10 +1627,12 @@ export default function WorkPage() {
           employeeId={Number(selected)}
           employeeName={employeeName}
           positionTitle={selectedEmployee?.positionTitle}
+          departmentName={selectedEmployee?.departmentName}
           workDate={deploymentDate}
           periodYear={year}
           periodMonth={month}
           schedule={schedule}
+          continuousShift={continuousDates.has(deploymentDate)}
           getDayStatus={(d) => {
             const row = attByDate.get(d);
             return row ? String(row.status ?? '') : null;
@@ -1546,6 +1649,21 @@ export default function WorkPage() {
           departments={departments}
           deptFilterLocked={deptFilterLocked}
           onViewEmployee={openEmployeeFromMatrix}
+        />
+      )}
+      {canPickEmployee && (
+        <LowAttendanceEmployeesDialog
+          open={lowAttendanceOpen}
+          onClose={() => setLowAttendanceOpen(false)}
+          year={year}
+          month={month}
+          departmentId={filterDept}
+          departments={departments}
+          deptFilterLocked={deptFilterLocked}
+          onViewEmployee={(employeeId, deptId) => {
+            setLowAttendanceOpen(false);
+            openEmployeeFromMatrix(employeeId, deptId);
+          }}
         />
       )}
     </Box>

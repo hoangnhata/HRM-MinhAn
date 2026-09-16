@@ -41,6 +41,9 @@ export type ShiftScheduleInfo = {
   referenceDate?: string;
   continuousShift?: boolean;
   continuousLabel?: string;
+  /** Phân quyền công: ca sáng/chiều, chỉ vào sáng + ra chiều. */
+  twoPunchAttendance?: boolean;
+  twoPunchLabel?: string;
   youngChild?: boolean;
   youngChildLabel?: string;
   effectiveDayHours?: number;

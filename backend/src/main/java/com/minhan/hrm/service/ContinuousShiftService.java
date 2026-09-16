@@ -2,10 +2,12 @@ package com.minhan.hrm.service;
 
 import com.minhan.hrm.dto.attendance.ContinuousShiftDayAssignment;
 import com.minhan.hrm.entity.ContinuousShiftType;
+import com.minhan.hrm.entity.Employee;
 import com.minhan.hrm.entity.EmployeeContinuousShiftDay;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.repository.ContinuousShiftTypeRepository;
 import com.minhan.hrm.repository.EmployeeContinuousShiftDayRepository;
+import com.minhan.hrm.repository.EmployeeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,6 +36,17 @@ public class ContinuousShiftService {
 
     private final EmployeeContinuousShiftDayRepository repository;
     private final ContinuousShiftTypeRepository shiftTypeRepository;
+    private final EmployeeRepository employeeRepository;
+
+    @Transactional(readOnly = true)
+    public boolean isTwoPunchAttendance(Long employeeId) {
+        if (employeeId == null) {
+            return false;
+        }
+        return employeeRepository.findById(employeeId)
+                .map(Employee::isContinuousShift)
+                .orElse(false);
+    }
 
     @Transactional(readOnly = true)
     public boolean isContinuousShift(Long employeeId, LocalDate date) {

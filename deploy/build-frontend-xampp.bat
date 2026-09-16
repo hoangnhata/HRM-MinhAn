@@ -13,8 +13,14 @@ if not exist package.json (
 )
 
 echo === Cai dependency (neu can) ===
-call npm install
-if errorlevel 1 exit /b 1
+if exist "node_modules\" (
+    echo Da co node_modules — bo qua npm install.
+    echo Neu can cai lai: xoa thu muc node_modules roi chay lai script.
+) else (
+    echo Dang npm install ^(co the mat vai phut, it khi in log^)...
+    call npm install --no-fund --no-audit
+    if errorlevel 1 exit /b 1
+)
 
 echo.
 echo === Build XAMPP: base /hrm/ + API /j1-api ===

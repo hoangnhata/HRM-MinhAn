@@ -76,8 +76,10 @@ function latePenaltyPreview(totalMinutes: number, tiers: TierRow[]) {
     if (t.maxMinutes != null && totalMinutes > t.maxMinutes) continue;
     if (t.requiresDiscipline) {
       return {
-        amount: 0,
-        label: t.note || `Trên ${t.minMinutes - 1} phút — kỷ luật`,
+        amount: t.amount,
+        label: t.note
+          ? `≥ ${t.minMinutes} phút — ${t.note}`
+          : `Trên ${t.minMinutes - 1} phút — phạt tiền + kỷ luật`,
         requiresDiscipline: true,
       };
     }
@@ -343,7 +345,7 @@ export function LatePenaltyConfigDialog({ open, onClose, onSaved }: Props) {
                         level={tier.sortOrder}
                         tone={tone}
                         title={`Từ ${tier.minMinutes} phút trở lên`}
-                        subtitle="Vượt ngưỡng — không phạt tiền, xử lý kỷ luật"
+                        subtitle="Phạt tiền cố định + ghi chú xử lý kỷ luật"
                       >
                         <Stack spacing={1.5}>
                           <Grid container spacing={1.5}>
@@ -361,6 +363,13 @@ export function LatePenaltyConfigDialog({ open, onClose, onSaved }: Props) {
                                 }
                                 inputProps={{ min: 1 }}
                                 sx={fieldSx}
+                              />
+                            </Grid>
+                            <Grid item xs={12} sm={6}>
+                              <MoneyField
+                                value={tier.amount}
+                                onChange={(n) => updateTier(tier.sortOrder, { amount: n })}
+                                label="Số tiền phạt"
                               />
                             </Grid>
                           </Grid>
@@ -467,9 +476,14 @@ export function LatePenaltyConfigDialog({ open, onClose, onSaved }: Props) {
                         </TableCell>
                         <TableCell align="right" sx={{ py: 1.25 }}>
                           {row.requiresDiscipline ? (
-                            <Typography variant="body2" fontWeight={700} color="error.main">
-                              Kỷ luật
-                            </Typography>
+                            <Stack alignItems="flex-end" spacing={0.25}>
+                              <Typography variant="body2" fontWeight={700} color="warning.dark">
+                                {att.formatMoney(row.amount)}
+                              </Typography>
+                              <Typography variant="caption" fontWeight={700} color="error.main">
+                                + Kỷ luật
+                              </Typography>
+                            </Stack>
                           ) : (
                             <Typography variant="body2" fontWeight={700} color="warning.dark">
                               {att.formatMoney(row.amount)}

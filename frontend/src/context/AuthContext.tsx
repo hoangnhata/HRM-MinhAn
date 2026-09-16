@@ -111,6 +111,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           positionTitle: a.positionTitle ?? null,
           directorApprovalEnabled: a.directorApprovalEnabled === true,
           reportViewEnabled: a.reportViewEnabled === true,
+          attendanceExcelExportEnabled: a.attendanceExcelExportEnabled === true,
+          hospitalWideEmployeeViewEnabled: a.hospitalWideEmployeeViewEnabled === true,
+          professionalQualificationReportEnabled: a.professionalQualificationReportEnabled === true,
           workUnitScoped: a.workUnitScoped === true,
           workUnitDetail: a.workUnitDetail ?? null,
         };
@@ -174,6 +177,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         positionTitle: a.positionTitle ?? null,
         directorApprovalEnabled: a.directorApprovalEnabled === true,
         reportViewEnabled: a.reportViewEnabled === true,
+        attendanceExcelExportEnabled: a.attendanceExcelExportEnabled === true,
+        hospitalWideEmployeeViewEnabled: a.hospitalWideEmployeeViewEnabled === true,
+        professionalQualificationReportEnabled: a.professionalQualificationReportEnabled === true,
         workUnitScoped: a.workUnitScoped === true,
         workUnitDetail: a.workUnitDetail ?? null,
       };
@@ -214,6 +220,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         positionTitle: a.positionTitle ?? null,
         directorApprovalEnabled: a.directorApprovalEnabled === true,
         reportViewEnabled: a.reportViewEnabled === true,
+        attendanceExcelExportEnabled: a.attendanceExcelExportEnabled === true,
+        hospitalWideEmployeeViewEnabled: a.hospitalWideEmployeeViewEnabled === true,
+        professionalQualificationReportEnabled: a.professionalQualificationReportEnabled === true,
         workUnitScoped: a.workUnitScoped === true,
         workUnitDetail: a.workUnitDetail ?? null,
       };

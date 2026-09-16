@@ -8,13 +8,14 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/j1-api/v1/young-child-requests")
@@ -41,8 +42,10 @@ public class YoungChildRequestController {
 
     @GetMapping("/history")
     @PreAuthorize("hasAnyRole('ADMIN','HR2')")
-    public List<Map<String, Object>> history() {
-        return requestService.listHistory();
+    public List<Map<String, Object>> history(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
+        return requestService.listHistory(fromDate, toDate);
     }
 
     @GetMapping("/mine")

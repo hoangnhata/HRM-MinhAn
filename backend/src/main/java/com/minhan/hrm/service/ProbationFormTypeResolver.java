@@ -18,8 +18,10 @@ public class ProbationFormTypeResolver {
 
     private static final Pattern DOCTOR = Pattern.compile(
             "\\b(bac\\s*si|bs\\.?|doctor)\\b|bacsi");
+    /** Khối ĐD (gồm Y sĩ) — dùng phiếu đánh giá lâm sàng. */
     private static final Pattern NURSE = Pattern.compile(
-            "dieu\\s*duong|\\bdd\\b|ho\\s*sinh|ky\\s*thuat\\s*vien|\\bktv\\b|y\\s*ta|nurse");
+            "dieu\\s*duong|\\bdd\\b|ho\\s*sinh|ky\\s*thuat\\s*vien|\\bktv\\b|y\\s*ta|nurse"
+                    + "|\\by\\s*s[iy]\\b");
 
     private final EmployeeSalaryProfileRepository salaryProfileRepository;
 

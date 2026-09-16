@@ -10,15 +10,23 @@ class GenericRequestRepository {
   GenericRequestRepository(this._client);
   final ApiClient _client;
 
-  String _url(RequestTypeConfig config, String suffix) => '/v1${config.basePath}/$suffix';
+  String _url(RequestTypeConfig config, String suffix) =>
+      '/v1${config.basePath}/$suffix';
 
   Future<List<Map<String, dynamic>>> related(RequestTypeConfig config) async {
-    final response = await _client.get<List<dynamic>>(_url(config, config.relatedPath));
+    final response = await _client.get<List<dynamic>>(
+      _url(config, config.relatedPath),
+    );
     return (response.data ?? []).cast<Map<String, dynamic>>();
   }
 
-  Future<List<Map<String, dynamic>>> pendingForStage(RequestTypeConfig config, RequestReviewStage stage) async {
-    final response = await _client.get<List<dynamic>>(_url(config, stage.pendingPath));
+  Future<List<Map<String, dynamic>>> pendingForStage(
+    RequestTypeConfig config,
+    RequestReviewStage stage,
+  ) async {
+    final response = await _client.get<List<dynamic>>(
+      _url(config, stage.pendingPath),
+    );
     return (response.data ?? []).cast<Map<String, dynamic>>();
   }
 
@@ -31,8 +39,24 @@ class GenericRequestRepository {
     return response.data ?? const {};
   }
 
-  Future<List<Map<String, dynamic>>> history(RequestTypeConfig config) async {
-    final response = await _client.get<List<dynamic>>(_url(config, config.historyPath));
+  /// Lịch sử đã xử lý trong khoảng ngày tạo [from, to]; mọi loại đơn đều
+  /// nhận `fromDate`/`toDate` nên luôn truyền cửa sổ tháng cho nhẹ.
+  Future<List<Map<String, dynamic>>> history(
+    RequestTypeConfig config, {
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    String ymd(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+    final response = await _client.get<List<dynamic>>(
+      _url(config, config.historyPath),
+      query: {
+        if (from != null) 'fromDate': ymd(from),
+        if (to != null) 'toDate': ymd(to),
+      },
+    );
     return (response.data ?? []).cast<Map<String, dynamic>>();
   }
 
@@ -93,6 +117,8 @@ class GenericRequestRepository {
   }
 }
 
-final genericRequestRepositoryProvider = Provider<GenericRequestRepository>((ref) {
+final genericRequestRepositoryProvider = Provider<GenericRequestRepository>((
+  ref,
+) {
   return GenericRequestRepository(ref.watch(apiClientProvider));
 });

@@ -42,6 +42,20 @@ public final class AttendancePenaltyCalculator {
             }
             LocalTime dayIn = rec.getMorningCheckIn() != null ? rec.getMorningCheckIn() : rec.getCheckIn();
             LocalTime dayOut = rec.getAfternoonCheckOut() != null ? rec.getAfternoonCheckOut() : rec.getCheckOut();
+            // Cột ca trống nhưng còn log máy → vẫn tính đã có giờ vào (tránh trừ 2 khi chỉ quên ra)
+            if (dayIn == null || dayOut == null) {
+                List<LocalTime> punches = parsePunchTimes(rec.getPunchTimesJson());
+                if (dayIn == null && !punches.isEmpty()) {
+                    dayIn = punches.get(0);
+                }
+                if (dayOut == null && punches.size() >= 2) {
+                    LocalTime last = punches.get(punches.size() - 1);
+                    // Chỉ coi là giờ ra khi cách giờ vào ≥ 4 giờ (tránh 6h07+6h14 thành đủ 2 mốc)
+                    if (dayIn != null && java.time.Duration.between(dayIn, last).toMinutes() >= 4 * 60) {
+                        dayOut = last;
+                    }
+                }
+            }
             return missingPunchCount(dayIn, dayOut);
         }
         if (kind == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
@@ -63,6 +77,39 @@ public final class AttendancePenaltyCalculator {
                     rec != null ? rec.getAfternoonCheckOut() : null);
         }
         return 2;
+    }
+
+    private static List<LocalTime> parsePunchTimes(String json) {
+        if (json == null || json.isBlank() || "[]".equals(json.trim())) {
+            return List.of();
+        }
+        try {
+            String body = json.trim();
+            if (body.startsWith("[")) {
+                body = body.substring(1);
+            }
+            if (body.endsWith("]")) {
+                body = body.substring(0, body.length() - 1);
+            }
+            if (body.isBlank()) {
+                return List.of();
+            }
+            List<LocalTime> out = new java.util.ArrayList<>();
+            for (String part : body.split(",")) {
+                String t = part.trim().replace("\"", "");
+                if (t.isEmpty()) {
+                    continue;
+                }
+                if (t.length() >= 8) {
+                    t = t.substring(0, 8);
+                }
+                out.add(LocalTime.parse(t.length() == 5 ? t + ":00" : t));
+            }
+            out.sort(LocalTime::compareTo);
+            return out;
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     /** Số mốc chưa có (0–2); không ép về 2 khi ca đã đủ. */
@@ -94,8 +141,16 @@ public final class AttendancePenaltyCalculator {
 
     /** Ưu tiên số lần quên đã lưu khi nộp đơn; fallback cho đơn cũ. */
     public static int forgotFineUnitsForWorkRequest(AttendanceWorkRequest req) {
+        return forgotFineUnitsForWorkRequest(req, false);
+    }
+
+    public static int forgotFineUnitsForWorkRequest(AttendanceWorkRequest req, boolean continuousOrTwoPunch) {
         if (req.getForgotFineUnits() != null && req.getForgotFineUnits() > 0) {
-            return req.getForgotFineUnits();
+            int stored = req.getForgotFineUnits();
+            return continuousOrTwoPunch ? Math.min(stored, 2) : stored;
+        }
+        if (continuousOrTwoPunch) {
+            return 2;
         }
         if (req.getUpdateKind() != null) {
             return switch (req.getUpdateKind()) {

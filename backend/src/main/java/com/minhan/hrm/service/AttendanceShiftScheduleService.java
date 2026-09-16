@@ -27,6 +27,8 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -134,6 +136,7 @@ public class AttendanceShiftScheduleService {
             continuous = continuousShiftService.isContinuousShift(employeeId, date);
             youngChild = youngChildHoursService.isYoungChild(employeeId, date);
             info.put("continuousShift", continuous);
+            info.put("twoPunchAttendance", continuousShiftService.isTwoPunchAttendance(employeeId));
             info.put("youngChild", youngChild);
             continuousShiftService.findDay(employeeId, date).ifPresent(day -> {
                 continuousShiftService.findType(day.getShiftTypeId()).ifPresent(type -> {
@@ -153,6 +156,11 @@ public class AttendanceShiftScheduleService {
                 if (youngChild) {
                     info.put("youngChildLabel", "Nuôi con nhỏ · giảm 1 giờ/ngày (tối thiểu 7h = 1 công)");
                 }
+                if (continuousShiftService.isTwoPunchAttendance(employeeId)) {
+                    info.put(
+                            "twoPunchLabel",
+                            "Phân quyền công · chỉ cần vào sáng + ra chiều (ca sáng/chiều bình thường)");
+                }
                 if (Boolean.FALSE.equals(continuous) && continuousShiftService.hasDayAssignment(employeeId, date)) {
                     info.put("splitDayLabel", "Ca sáng–chiều theo ngày (đi sớm về sớm, đủ công)");
                 }
@@ -160,6 +168,7 @@ public class AttendanceShiftScheduleService {
         } else {
             info.put("youngChild", false);
             info.put("continuousShift", false);
+            info.put("twoPunchAttendance", false);
             info.put("effectiveDayHours", schedule.totalHours());
         }
         return info;
@@ -399,6 +408,8 @@ public class AttendanceShiftScheduleService {
         result.put("periodMonth", month);
         result.put("dates", dates);
         result.put("days", days);
+        result.put("permanentContinuousShift", false);
+        result.put("twoPunchAttendance", employee.isContinuousShift());
         result.put("continuousShift", days.stream().anyMatch(d -> !"SPLIT".equals(d.get("kind"))));
         result.put("continuousDates", days.stream()
                 .filter(d -> !"SPLIT".equals(d.get("kind")))

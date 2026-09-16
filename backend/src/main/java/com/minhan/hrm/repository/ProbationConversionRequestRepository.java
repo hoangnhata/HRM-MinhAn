@@ -51,13 +51,20 @@ public interface ProbationConversionRequestRepository extends JpaRepository<Prob
             LEFT JOIN FETCH r.nursingHeadReviewer
             LEFT JOIN FETCH r.hrReviewer
             LEFT JOIN FETCH r.directorReviewer
-            WHERE r.status NOT IN (
+            WHERE r.nursingHeadReviewedAt IS NOT NULL
+               OR r.hrReviewedAt IS NOT NULL
+               OR r.directorReviewedAt IS NOT NULL
+               OR r.status NOT IN (
                 com.minhan.hrm.entity.ProbationConversionStatus.PENDING_NURSING_HEAD,
                 com.minhan.hrm.entity.ProbationConversionStatus.PENDING_HR,
                 com.minhan.hrm.entity.ProbationConversionStatus.PENDING_DIRECTOR
             )
             ORDER BY r.createdAt DESC, r.id DESC
             """)
+    /**
+     * Mọi đơn đã qua ít nhất một bước xử lý — kể cả đơn đang chờ bước sau
+     * (HCNS đã duyệt, đang chờ Giám đốc). Service lọc tiếp theo bước của người xem.
+     */
     List<ProbationConversionRequest> findReviewHistoryWithDetails();
 
     @Query("""

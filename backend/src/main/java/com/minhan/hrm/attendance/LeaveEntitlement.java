@@ -1,5 +1,6 @@
 package com.minhan.hrm.attendance;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
@@ -10,6 +11,8 @@ import java.time.temporal.ChronoUnit;
 public final class LeaveEntitlement {
 
     public static final int BASE_DAYS = 12;
+    /** Trần công tháng để còn được xin nghỉ phép (công chấm + phép + trực, không gồm điều động). */
+    public static final BigDecimal MONTHLY_WORK_CAP_EXCLUDING_DEPLOYMENT = new BigDecimal("27");
 
     private LeaveEntitlement() {}
 
@@ -48,5 +51,25 @@ public final class LeaveEntitlement {
             return 0;
         }
         return (int) ChronoUnit.DAYS.between(from, to) + 1;
+    }
+
+    /** Số ngày giao nhau giữa [from, to] và [rangeStart, rangeEnd], inclusive. */
+    public static int overlapDays(LocalDate from, LocalDate to, LocalDate rangeStart, LocalDate rangeEnd) {
+        if (from == null || to == null || rangeStart == null || rangeEnd == null) {
+            return 0;
+        }
+        LocalDate a = from.isBefore(rangeStart) ? rangeStart : from;
+        LocalDate b = to.isAfter(rangeEnd) ? rangeEnd : to;
+        return calendarDaysInclusive(a, b);
+    }
+
+    /**
+     * Vượt trần 27 công/tháng khi cộng thêm {@code extraDays} vào công đã có
+     * (chấm + phép + trực, chưa gồm điều động).
+     */
+    public static boolean exceedsMonthlyWorkCap(BigDecimal recordedWork, int extraDays) {
+        BigDecimal current = recordedWork != null ? recordedWork : BigDecimal.ZERO;
+        BigDecimal total = current.add(BigDecimal.valueOf(Math.max(0, extraDays)));
+        return total.compareTo(MONTHLY_WORK_CAP_EXCLUDING_DEPLOYMENT) > 0;
     }
 }

@@ -466,7 +466,7 @@ export default function RequestsPage() {
     const map = new Map<string, string>();
     for (const r of filteredByType) {
       if (!map.has(r.status)) {
-        map.set(r.status, att.requestStatusLabel(r.status, r.requestType));
+        map.set(r.status, att.requestStatusLabel(r.status, r.requestType, r.explanationKeepOriginalTimes));
       }
     }
     return [...map.entries()].map(([value, label]) => ({ value, label }));
@@ -479,7 +479,7 @@ export default function RequestsPage() {
     department: r.department,
     summary: workRequestSummary(r),
     meta: r.reason?.trim() || undefined,
-    statusLabel: att.requestStatusLabel(r.status, r.requestType),
+    statusLabel: att.requestStatusLabel(r.status, r.requestType, r.explanationKeepOriginalTimes),
     statusColor: att.requestStatusColor(r.status),
     dateLabel: att.formatWorkDate(r.workDate),
     submittedAtLabel: r.createdAt ? att.formatWorkDate(String(r.createdAt).slice(0, 10)) : undefined,
@@ -925,7 +925,11 @@ export default function RequestsPage() {
                     department: r.department,
                     summary: workRequestSummary(r),
                     meta: r.reason?.trim() || undefined,
-                    statusLabel: att.requestStatusLabel(r.status, r.requestType),
+                    statusLabel: att.requestStatusLabel(
+                      r.status,
+                      r.requestType,
+                      r.explanationKeepOriginalTimes,
+                    ),
                     statusColor: att.requestStatusColor(r.status),
                     dateLabel: att.formatWorkDate(r.workDate),
                     submittedAtLabel: r.createdAt

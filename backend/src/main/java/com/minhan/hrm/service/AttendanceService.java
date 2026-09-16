@@ -12,6 +12,7 @@ import com.minhan.hrm.entity.UserRole;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.repository.AttendanceRecordRepository;
 import com.minhan.hrm.repository.EmployeeRepository;
+import com.minhan.hrm.service.support.DateRangeSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -44,7 +45,8 @@ public class AttendanceService {
     public List<Map<String, Object>> listRange(Long employeeId, LocalDate from, LocalDate to) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
         assertCanViewAttendance(emp);
-        return attendanceRecordRepository.findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(emp, from, to)
+        LocalDate effectiveTo = DateRangeSupport.normalizeMonthEndInclusive(from, to);
+        return attendanceRecordRepository.findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(emp, from, effectiveTo)
                 .stream()
                 .map(this::toMap)
                 .collect(Collectors.toList());
@@ -421,29 +423,48 @@ public class AttendanceService {
         LocalDate to = ym.atEndOfMonth();
         List<AttendanceRecord> all = attendanceRecordRepository.findByWorkDateBetweenWithEmployee(from, to);
         Set<Long> employeeIds = all.stream().map(r -> r.getEmployee().getId()).collect(Collectors.toSet());
-        Set<String> monthKeys = continuousShiftService.monthKeysForEmployees(employeeIds, from, to);
-        Set<LocalDate> holidays = holidayWorkDayService.datesInRange(from, to);
-        dayProcessor.runWithContinuousShiftCache(monthKeys, () ->
-                dayProcessor.runWithHolidayCache(holidays, () -> {
-                    for (AttendanceRecord rec : all) {
-                        dayProcessor.applyToRecord(rec);
-                    }
-                }));
-        attendanceRecordRepository.saveAll(all);
-        workRequestService.reapplyApprovedEffectsAfterPunchSync(from, to, employeeIds);
-        return all.size();
+        return recalculateRecords(all, employeeIds, from, to);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    /**
+     * Tính lại công một NV theo tháng (ADMIN/HR hoặc trưởng khoa/phòng trong phạm vi quản lý).
+     * Dùng sau khi gắn/hủy ca thông tầm — nếu không tính lại, giờ vào/ra vẫn theo khung thông tầm cũ.
+     */
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT')")
     @Transactional
     public int recalculateEmployeeMonth(Long employeeId, int year, int month) {
+        Employee emp = employeeService.requireEmployeeEntity(employeeId);
+        var current = employeeService.currentUser();
+        if (current.getRole() == UserRole.HEAD_DEPARTMENT) {
+            employeeService.assertCanAccessEmployee(emp);
+        }
+        return recalculateEmployeeMonthInternal(employeeId, year, month);
+    }
+
+    /**
+     * Tính lại không kiểm tra PreAuthorize — gọi từ luồng nội bộ đã xác thực
+     * (xếp ca thông tầm, duyệt cấu hình ca, nuôi con nhỏ, …).
+     */
+    @Transactional
+    public int recalculateEmployeeMonthInternal(Long employeeId, int year, int month) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
         YearMonth ym = YearMonth.of(year, month);
         LocalDate from = ym.atDay(1);
         LocalDate to = ym.atEndOfMonth();
         List<AttendanceRecord> records = attendanceRecordRepository
                 .findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(emp, from, to);
-        Set<String> monthKeys = continuousShiftService.monthKeysForEmployees(Set.of(employeeId), from, to);
+        return recalculateRecords(records, Set.of(employeeId), from, to);
+    }
+
+    private int recalculateRecords(
+            List<AttendanceRecord> records,
+            Set<Long> employeeIds,
+            LocalDate from,
+            LocalDate to) {
+        if (records.isEmpty()) {
+            return 0;
+        }
+        Set<String> monthKeys = continuousShiftService.monthKeysForEmployees(employeeIds, from, to);
         Set<LocalDate> holidays = holidayWorkDayService.datesInRange(from, to);
         dayProcessor.runWithContinuousShiftCache(monthKeys, () ->
                 dayProcessor.runWithHolidayCache(holidays, () -> {
@@ -452,7 +473,7 @@ public class AttendanceService {
                     }
                 }));
         attendanceRecordRepository.saveAll(records);
-        workRequestService.reapplyApprovedEffectsAfterPunchSync(from, to, Set.of(employeeId));
+        workRequestService.reapplyApprovedEffectsAfterPunchSync(from, to, employeeIds);
         return records.size();
     }
 

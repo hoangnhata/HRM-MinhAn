@@ -11,6 +11,7 @@ import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.NursingEvaluationRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
 import com.minhan.hrm.security.ApprovalAuthority;
+import com.minhan.hrm.service.support.CreatedAtRange;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.*;
 
 @Service
@@ -89,7 +91,7 @@ public class NursingEvaluationService {
         List<Map<String, Object>> out = new ArrayList<>();
         for (NursingEvaluation n : nursingEvaluationRepository.listMonthlyForTemplate(year, month, templateCode)) {
             Employee emp = n.getEmployee();
-            if (!NursingBlockClassifier.matches(emp) || !canViewQuiet(current, emp)) {
+            if (!inNursingBlockScope(current, emp) || !canViewQuiet(current, emp)) {
                 continue;
             }
             Map<String, Object> m = new LinkedHashMap<>();
@@ -109,7 +111,7 @@ public class NursingEvaluationService {
         UserAccount current = employeeService.currentUser();
         List<Map<String, Object>> out = new ArrayList<>();
         for (NursingEvaluation n : nursingEvaluationRepository.listMonthlyForTemplate(year, month, templateCode)) {
-            if (!NursingBlockClassifier.matches(n.getEmployee()) || !canViewQuiet(current, n.getEmployee())) {
+            if (!inNursingBlockScope(current, n.getEmployee()) || !canViewQuiet(current, n.getEmployee())) {
                 continue;
             }
             if (n.getStatus() == NursingEvaluationStatus.CANCELLED
@@ -143,7 +145,7 @@ public class NursingEvaluationService {
             return List.of();
         }
         return nursingEvaluationRepository.findPendingWithDetails(statuses).stream()
-                .filter(n -> NursingBlockClassifier.matches(n.getEmployee()))
+                .filter(n -> inNursingBlockScope(current, n.getEmployee()))
                 .filter(n -> canViewQuiet(current, n.getEmployee()))
                 .filter(n -> statuses.contains(n.getStatus()))
                 .map(this::toMap)
@@ -153,7 +155,7 @@ public class NursingEvaluationService {
     /** Lịch sử phiếu đã duyệt / từ chối ở bước của người xem. */
     @Transactional(readOnly = true)
     @PreAuthorize("hasAnyRole('ADMIN','HR2','HEAD_NURSING','DIRECTOR')")
-    public List<Map<String, Object>> listHistory() {
+    public List<Map<String, Object>> listHistory(LocalDate fromDate, LocalDate toDate) {
         UserAccount current = employeeService.currentUser();
         return nursingEvaluationRepository.findHistoryWithDetails(
                         Set.of(NursingEvaluationStatus.DRAFT, NursingEvaluationStatus.CANCELLED),
@@ -163,7 +165,8 @@ public class NursingEvaluationService {
                                 NursingEvaluationStatus.HR_REJECTED,
                                 NursingEvaluationStatus.DIRECTOR_REJECTED))
                 .stream()
-                .filter(n -> NursingBlockClassifier.matches(n.getEmployee()))
+                .filter(n -> CreatedAtRange.matches(n.getCreatedAt(), fromDate, toDate))
+                .filter(n -> inNursingBlockScope(current, n.getEmployee()))
                 .filter(n -> canViewQuiet(current, n.getEmployee()))
                 .filter(n -> {
                     if (current.getRole() == UserRole.ADMIN) {
@@ -315,14 +318,22 @@ public class NursingEvaluationService {
 
         boolean submit = Boolean.TRUE.equals(req.getSubmitForReview());
         if (submit) {
-            // Trưởng khoa / ĐDT lập + ký → gửi Trưởng phòng Điều dưỡng
-            row.setStatus(NursingEvaluationStatus.PENDING_NURSING_HEAD);
+            // Khối Trưởng phòng ĐD: → PENDING_NURSING_HEAD.
+            // Phòng loại trừ (Kế hoạch tổng hợp, …): trưởng khoa/phòng quản lý → thẳng HCNS.
+            boolean nursingHeadScope = NursingBlockClassifier.matchesNursingHeadScope(emp);
+            row.setStatus(nursingHeadScope
+                    ? NursingEvaluationStatus.PENDING_NURSING_HEAD
+                    : NursingEvaluationStatus.PENDING_HR);
             row = nursingEvaluationRepository.save(row);
             row.setEvaluatorSignaturePath(
                     approvalSignatureService.snapshotForApproval(actor, "nursing-eval", row.getId(), "evaluator"));
             row.setEvaluatorSignedAt(Instant.now());
             row = nursingEvaluationRepository.save(row);
-            notifyNursingHeadsPending(row);
+            if (nursingHeadScope) {
+                notifyNursingHeadsPending(row);
+            } else {
+                notifyHrPending(row);
+            }
         } else {
             row.setStatus(NursingEvaluationStatus.DRAFT);
             row.setEvaluatorSignaturePath(null);
@@ -339,7 +350,7 @@ public class NursingEvaluationService {
         NursingEvaluation row = nursingEvaluationRepository.findDetailById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đánh giá"));
         if (reviewer.getRole() == UserRole.HEAD_NURSING
-                && !NursingBlockClassifier.matches(row.getEmployee())) {
+                && !NursingBlockClassifier.matchesNursingHeadScope(row.getEmployee())) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "Chỉ duyệt phiếu đánh giá trong khối Điều dưỡng");
         }
@@ -459,7 +470,8 @@ public class NursingEvaluationService {
     private void assertCanCreate(UserAccount actor, Employee emp) {
         if (!NursingBlockClassifier.matches(emp)) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "Chỉ đánh giá nhân viên khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa");
+                    "Chỉ đánh giá nhân viên khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa "
+                            + "(và Nhân viên khoa YHCT / Khoa khám bệnh, Dược sĩ khoa YHCT)");
         }
         if (actor.getRole() == UserRole.ADMIN || EmployeeService.isHeadRole(actor)) {
             return;
@@ -502,17 +514,24 @@ public class NursingEvaluationService {
         return self.isPresent() && self.get().getId().equals(emp.getId());
     }
 
+    private static boolean inNursingBlockScope(UserAccount current, Employee emp) {
+        if (current != null && current.getRole() == UserRole.HEAD_NURSING) {
+            return NursingBlockClassifier.matchesNursingHeadScope(emp);
+        }
+        return NursingBlockClassifier.matches(emp);
+    }
+
     private boolean canViewQuiet(UserAccount current, Employee emp) {
         if (current == null) {
             return false;
+        }
+        if (current.getRole() == UserRole.HEAD_NURSING) {
+            return NursingBlockClassifier.matchesNursingHeadScope(emp);
         }
         if (current.getRole() == UserRole.ADMIN
                 || current.getRole() == UserRole.HR
                 || EmployeeService.isHr2Role(current)
                 || ApprovalAuthority.isDirectorApprover(current)) {
-            return NursingBlockClassifier.matches(emp);
-        }
-        if (current.getRole() == UserRole.HEAD_NURSING) {
             return NursingBlockClassifier.matches(emp);
         }
         if (EmployeeService.isHeadRole(current)) {

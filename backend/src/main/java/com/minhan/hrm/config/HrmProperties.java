@@ -22,6 +22,33 @@ public class HrmProperties {
     private final SalaryAccess salaryAccess = new SalaryAccess();
     private final Assistant assistant = new Assistant();
     private final Push push = new Push();
+    private final DemoSeed demoSeed = new DemoSeed();
+    private final ManualLeaveSeed manualLeaveSeed = new ManualLeaveSeed();
+
+    @Getter
+    @Setter
+    public static class ManualLeaveSeed {
+        /**
+         * Bổ sung nghỉ phép 8/2026 (4 NV theo mã). Idempotent.
+         * Deploy/restart với {@code MANUAL_LEAVE_SEED=true}, rồi tắt lại.
+         */
+        private boolean enabled = false;
+    }
+
+    @Getter
+    @Setter
+    public static class DemoSeed {
+        /**
+         * Seed dữ liệu ảo báo cáo ĐD hằng ngày + QTKT.
+         * Bật tạm khi test: {@code DEMO_SEED=true} rồi tắt lại sau khi xong.
+         */
+        private boolean enabled = false;
+        /**
+         * Xóa dữ liệu ảo khi khởi động (idempotent).
+         * Dùng cùng {@code DEMO_SEED=false}: đặt {@code DEMO_SEED_CLEANUP=true}, restart 1 lần, rồi tắt cleanup.
+         */
+        private boolean cleanup = false;
+    }
 
     @Getter
     @Setter
@@ -101,8 +128,8 @@ public class HrmProperties {
         private String table = "dbo.CheckInOut";
         /** Số ngày lùi lại mỗi lần đồng bộ thủ công (để bắt cả chỉnh sửa trễ) */
         private int lookbackDays = 7;
-        /** Số ngày lùi khi tự động đồng bộ theo chu kỳ (nhẹ hơn lookbackDays) */
-        private int autoLookbackDays = 2;
+        /** Số ngày lùi khi tự động đồng bộ theo chu kỳ — mặc định 7 để không bỏ sót cuối tháng. */
+        private int autoLookbackDays = 7;
         /** Cron đồng bộ tự động — legacy, lịch thật lấy từ DB interval minutes */
         private String syncCron = "0 * * * * *";
     }

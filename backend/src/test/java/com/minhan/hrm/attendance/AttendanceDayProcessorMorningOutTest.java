@@ -32,11 +32,12 @@ class AttendanceDayProcessorMorningOutTest {
 
     private AttendanceDayProcessor processor;
     private AttendanceShiftSchedule schedule;
+    private ContinuousShiftService continuousShiftService;
 
     @BeforeEach
     void setUp() {
         AttendanceShiftScheduleService scheduleService = mock(AttendanceShiftScheduleService.class);
-        ContinuousShiftService continuousShiftService = mock(ContinuousShiftService.class);
+        continuousShiftService = mock(ContinuousShiftService.class);
         HolidayWorkDayService holidayWorkDayService = mock(HolidayWorkDayService.class);
         schedule = new AttendanceShiftSchedule(
                 LocalTime.of(6, 45),
@@ -96,6 +97,43 @@ class AttendanceDayProcessorMorningOutTest {
         assertTrue(punches.contains(LocalTime.of(6, 43)));
         assertEquals(LocalTime.of(11, 48), record.getMorningCheckOut());
         assertEquals(LocalTime.of(17, 0), record.getAfternoonCheckOut());
+    }
+
+    @Test
+    void keepOriginalExplanationUsesActualHoursNotFullShiftUnits() {
+        AttendanceRecord record = record("[\"07:11\",\"11:48\",\"13:54\",\"17:14\"]");
+
+        processor.applyToRecord(record);
+        assertEquals(0, AttendanceShiftSchedule.MORNING_UNITS.compareTo(record.getMorningWorkUnits()));
+
+        processor.applyProportionalWorkUnitsFromPunches(record);
+
+        // Sáng 07:11–11:48 ≈ 277/300 giờ ca → không full 0,67 công / 5h
+        assertTrue(record.getMorningWorkUnits().compareTo(new BigDecimal("0.67")) < 0);
+        assertTrue(record.getMorningWorkUnits().compareTo(new BigDecimal("0.60")) >= 0);
+        assertEquals("PARTIAL", record.getStatus());
+    }
+
+    @Test
+    void afterLeavingContinuousShiftMiddayPunchMapsToMorningOut() {
+        AttendanceRecord record = record("[\"06:16\",\"11:48\"]");
+
+        when(continuousShiftService.isContinuousShift(anyLong(), any(LocalDate.class))).thenReturn(true);
+        processor.applyToRecord(record);
+        assertEquals(LocalTime.of(6, 16), record.getMorningCheckIn());
+        assertEquals(null, record.getMorningCheckOut());
+        assertEquals(null, record.getAfternoonCheckOut());
+        assertEquals(0, BigDecimal.ZERO.compareTo(record.getMorningWorkUnits()));
+        assertEquals("ABSENT", record.getStatus());
+
+        // Hủy gắn ca thông tầm → tính lại theo ca sáng–chiều
+        when(continuousShiftService.isContinuousShift(anyLong(), any(LocalDate.class))).thenReturn(false);
+        processor.applyToRecord(record);
+
+        assertEquals(LocalTime.of(6, 16), record.getMorningCheckIn());
+        assertEquals(LocalTime.of(11, 48), record.getMorningCheckOut());
+        assertTrue(record.getMorningWorkUnits().compareTo(BigDecimal.ZERO) > 0);
+        assertEquals("PARTIAL", record.getStatus());
     }
 
     private static AttendanceRecord record(String punches) {

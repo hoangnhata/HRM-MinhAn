@@ -8,10 +8,12 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -56,8 +58,10 @@ public class ProbationConversionController {
     @GetMapping("/history")
     @PreAuthorize("hasAnyRole('ADMIN','HR2','DIRECTOR','HEAD_NURSING')")
     @Operation(summary = "Lịch sử đơn đã xử lý")
-    public List<Map<String, Object>> history() {
-        return conversionService.listReviewHistory();
+    public List<Map<String, Object>> history(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
+        return conversionService.listReviewHistory(fromDate, toDate);
     }
 
     @GetMapping("/mine")

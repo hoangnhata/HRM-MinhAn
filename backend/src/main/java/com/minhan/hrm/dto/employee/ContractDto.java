@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 @Value
-@Builder
+@Builder(toBuilder = true)
 public class ContractDto {
     Long id;
     String contractType;

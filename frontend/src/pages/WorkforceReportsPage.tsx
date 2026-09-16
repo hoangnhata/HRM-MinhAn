@@ -4,13 +4,18 @@ import CalendarTodayOutlinedIcon from '@mui/icons-material/CalendarTodayOutlined
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import LocalHospitalOutlinedIcon from '@mui/icons-material/LocalHospitalOutlined';
+import PersonOffOutlinedIcon from '@mui/icons-material/PersonOffOutlined';
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, InputAdornment,
   Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   TextField, Typography,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -45,35 +50,16 @@ function attendanceStatusLabel(value?: string | null) {
   );
 }
 
-/** Giờ vào báo cáo: check-in sáng. */
-function displayCheckIn(row: {
-  checkIn?: string | null;
-  morningCheckIn?: string | null;
-}) {
-  return row.morningCheckIn || row.checkIn || '—';
+/** Giờ vào / ra đã chuẩn hóa từ API — không lấy lại punch thô. */
+function displayCheckIn(row: { checkIn?: string | null }) {
+  return row.checkIn || '—';
 }
 
-/**
- * Giờ ra báo cáo:
- * - Ca thường / thông tầm: chỉ afternoonCheckOut (checkout chiều / ra cuối ngày).
- * - Bỏ quẹt lại buổi sáng (morningCheckOut hoặc khoảng cách &lt; 2 giờ sau giờ vào).
- */
-function displayCheckOut(row: {
-  checkIn?: string | null;
-  morningCheckIn?: string | null;
-  checkOut?: string | null;
-  afternoonCheckOut?: string | null;
-}) {
-  const inn = row.morningCheckIn || row.checkIn || '';
-  const out = row.afternoonCheckOut || row.checkOut || '';
-  if (!out) return '—';
-  if (!inn) return out;
-  if (out <= inn) return '—';
-  const [ih, im] = inn.split(':').map(Number);
-  const [oh, om] = out.split(':').map(Number);
-  if ([ih, im, oh, om].some((n) => Number.isNaN(n))) return out;
-  const minutes = oh * 60 + om - (ih * 60 + im);
-  if (minutes < 120) return '—';
+function displayCheckOut(row: { checkIn?: string | null; checkOut?: string | null }) {
+  const out = row.checkOut || '';
+  const inn = row.checkIn || '';
+  // Chặn trường hợp vào=ra (cùng HH:mm) còn sót từ API cũ / punch trùng phút
+  if (!out || (inn && out === inn)) return '—';
   return out;
 }
 
@@ -128,6 +114,25 @@ export default function WorkforceReportsPage() {
     return report.details.filter((r) => `${r.employeeCode || ''} ${r.fullName} ${r.departmentName} ${r.positionTitle} ${r.categoryLabel}`.toLocaleLowerCase('vi').includes(q));
   }, [report, search]);
 
+  const filteredAbsentByDepartment = useMemo(() => {
+    if (!report?.absentByDepartment?.length) return [];
+    const q = search.trim().toLocaleLowerCase('vi');
+    if (!q) return report.absentByDepartment;
+    return report.absentByDepartment
+      .map((dept) => {
+        const employees = dept.employees.filter((r) =>
+          `${r.employeeCode || ''} ${r.fullName} ${r.departmentName} ${r.positionTitle || ''}`.toLocaleLowerCase('vi').includes(q),
+        );
+        return { ...dept, employees, total: employees.length };
+      })
+      .filter((dept) => dept.total > 0);
+  }, [report, search]);
+
+  const filteredAbsentTotal = useMemo(
+    () => filteredAbsentByDepartment.reduce((sum, d) => sum + d.total, 0),
+    [filteredAbsentByDepartment],
+  );
+
   const topCategory = useMemo(() => {
     if (!report) return null;
     return report.categories.map((c) => ({ ...c, value: report.totals[c.key] || 0 })).sort((a, b) => b.value - a.value)[0];
@@ -172,7 +177,7 @@ export default function WorkforceReportsPage() {
         overline="Báo cáo"
         title={daily ? 'Nhân lực đi làm hằng ngày' : 'Nhân lực toàn viện'}
         description={daily
-          ? 'Quân số có mặt theo Khoa/Phòng và chức vụ trong ngày.'
+          ? 'Quân số có mặt theo Khoa/Phòng và chức vụ trong ngày. Có check-in/out sáng hoặc chiều đều tính đi làm.'
           : 'Nhân lực biên chế theo Khoa/Phòng và chức vụ trên hồ sơ.'}
         actions={<Button variant="contained" startIcon={exporting ? <CircularProgress size={17} color="inherit" /> : <FileDownloadOutlinedIcon />} onClick={exportExcel} disabled={exporting || !report}>{exporting ? 'Đang tạo Excel…' : 'Xuất Excel'}</Button>}
       />
@@ -233,6 +238,15 @@ export default function WorkforceReportsPage() {
         <>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
             <KpiCard icon={<GroupsOutlinedIcon fontSize="small" />} label={daily ? 'Có mặt' : 'Tổng nhân lực'} value={report.grandTotal} hint={daily ? `Ngày ${formatDate(report.reportDate)}` : 'Không gồm nghỉ việc'} color={theme.palette.primary.main} />
+            {daily && (
+              <KpiCard
+                icon={<PersonOffOutlinedIcon fontSize="small" />}
+                label="Không đi làm"
+                value={report.absentTotal ?? 0}
+                hint={`${report.absentDepartmentCount ?? 0} khoa/phòng`}
+                color="#0e7490"
+              />
+            )}
             <KpiCard icon={<ApartmentOutlinedIcon fontSize="small" />} label="Khoa / Phòng" value={report.departmentCount} hint="Đơn vị có dữ liệu" color="#0e7490" />
             <KpiCard icon={<BadgeOutlinedIcon fontSize="small" />} label="Chức vụ nhiều nhất" value={topCategory?.value || 0} hint={topCategory?.label || '—'} color="#b7791f" />
             <KpiCard icon={<CalendarTodayOutlinedIcon fontSize="small" />} label="Ngày báo cáo" value={formatDate(report.reportDate)} hint="Thời điểm tải" color="#6d4c9d" />
@@ -467,7 +481,7 @@ export default function WorkforceReportsPage() {
               >
                 <TableHead><TableRow>
                   <TableCell>Mã NV</TableCell><TableCell>Họ và tên</TableCell><TableCell>Khoa/Phòng</TableCell><TableCell>Chức vụ</TableCell>
-                  {daily ? <><TableCell align="center">Giờ vào</TableCell><TableCell align="center">Giờ ra</TableCell><TableCell align="center">Công</TableCell><TableCell>Trạng thái</TableCell></> : <TableCell>Trạng thái nhân viên</TableCell>}
+                  {daily ? <><TableCell>Ca</TableCell><TableCell align="center">Giờ vào</TableCell><TableCell align="center">Giờ ra</TableCell><TableCell align="center">Công</TableCell><TableCell>Trạng thái</TableCell></> : <TableCell>Trạng thái nhân viên</TableCell>}
                 </TableRow></TableHead>
                 <TableBody>
                   {filteredDetails.map((r, rowIndex) => (
@@ -483,6 +497,15 @@ export default function WorkforceReportsPage() {
                       <TableCell>{r.departmentName}</TableCell>
                       <TableCell>{r.positionTitle}</TableCell>
                       {daily ? <>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            label={r.shiftKindLabel || (r.shiftKind === 'CONTINUOUS' ? 'Ca thông tầm' : 'Ca sáng–chiều')}
+                            color={r.shiftKind === 'CONTINUOUS' ? 'info' : 'default'}
+                            variant="outlined"
+                            sx={{ fontWeight: 700 }}
+                          />
+                        </TableCell>
                         <TableCell align="center" sx={{ fontWeight: 750, fontVariantNumeric: 'tabular-nums' }}>{displayCheckIn(r)}</TableCell>
                         <TableCell align="center" sx={{ fontWeight: 750, fontVariantNumeric: 'tabular-nums' }}>{displayCheckOut(r)}</TableCell>
                         <TableCell align="center"><Chip size="small" label={Number(r.workUnits || 0).toFixed(2).replace('.', ',')} color="success" variant="outlined" sx={{ minWidth: 58, fontWeight: 850 }} /></TableCell>
@@ -494,6 +517,183 @@ export default function WorkforceReportsPage() {
               </Table>
             </TableContainer>
           </Paper>
+
+          {daily && (
+            <Paper
+              elevation={0}
+              sx={{
+                mt: 1.5,
+                borderRadius: 2,
+                overflow: 'hidden',
+                border: `1px solid ${theme.palette.divider}`,
+                bgcolor: '#fff',
+              }}
+            >
+              <Box
+                sx={{
+                  px: 1.75,
+                  py: 1.1,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 1,
+                  bgcolor: alpha(theme.palette.primary.main, 0.045),
+                  borderBottom: `1px solid ${theme.palette.divider}`,
+                }}
+              >
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={800} color="#123b3a">
+                    Nhân viên không đi làm theo khoa
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {filteredAbsentTotal} người · {filteredAbsentByDepartment.length} khoa/phòng · Bấm khoa để phóng to / thu gọn danh sách
+                  </Typography>
+                </Box>
+                <Chip
+                  size="small"
+                  icon={<PersonOffOutlinedIcon />}
+                  label="Vắng mặt"
+                  variant="outlined"
+                  color="primary"
+                  sx={{ fontWeight: 750 }}
+                />
+              </Box>
+
+              {filteredAbsentByDepartment.length === 0 ? (
+                <Box sx={{ py: 5, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Không có nhân viên vắng mặt khớp bộ lọc.
+                  </Typography>
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    maxHeight: 560,
+                    overflow: 'auto',
+                    px: 0.75,
+                    py: 0.5,
+                    scrollbarColor: `${alpha(theme.palette.primary.main, 0.3)} transparent`,
+                    '&::-webkit-scrollbar': { width: 8, height: 8 },
+                    '&::-webkit-scrollbar-thumb': {
+                      bgcolor: alpha(theme.palette.primary.main, 0.28),
+                      borderRadius: 999,
+                      border: '2px solid #fff',
+                    },
+                  }}
+                >
+                  {filteredAbsentByDepartment.map((dept, deptIdx) => (
+                    <Accordion
+                      key={dept.departmentId}
+                      defaultExpanded={deptIdx === 0}
+                      disableGutters
+                      elevation={0}
+                      sx={{
+                        mb: 0.75,
+                        borderRadius: '10px !important',
+                        border: `1px solid ${alpha('#0f172a', 0.08)}`,
+                        overflow: 'hidden',
+                        bgcolor: '#fff',
+                        '&:before': { display: 'none' },
+                        '&.Mui-expanded': {
+                          borderColor: alpha(theme.palette.primary.main, 0.28),
+                          boxShadow: `0 1px 0 ${alpha(theme.palette.primary.main, 0.06)}`,
+                        },
+                      }}
+                    >
+                      <AccordionSummary
+                        expandIcon={<ExpandMoreIcon sx={{ color: theme.palette.primary.main }} />}
+                        sx={{
+                          minHeight: 48,
+                          px: 1.5,
+                          bgcolor: alpha(theme.palette.primary.main, 0.03),
+                          '& .MuiAccordionSummary-content': { my: 0.75 },
+                          '&.Mui-expanded': {
+                            bgcolor: alpha(theme.palette.primary.main, 0.06),
+                            borderBottom: `1px solid ${alpha(theme.palette.primary.main, 0.12)}`,
+                          },
+                        }}
+                      >
+                        <Stack direction="row" spacing={1.25} alignItems="center" sx={{ width: '100%', pr: 1 }}>
+                          <Box
+                            sx={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 1.25,
+                              display: 'grid',
+                              placeItems: 'center',
+                              flexShrink: 0,
+                              bgcolor: alpha(theme.palette.primary.main, 0.1),
+                              color: theme.palette.primary.dark,
+                            }}
+                          >
+                            <ApartmentOutlinedIcon sx={{ fontSize: 18 }} />
+                          </Box>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={800} color="#123b3a" noWrap title={dept.departmentName}>
+                              {dept.departmentName}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Nhân viên không chấm công trong ngày
+                            </Typography>
+                          </Box>
+                          <Chip
+                            size="small"
+                            label={`${dept.total} người`}
+                            color="primary"
+                            variant="outlined"
+                            sx={{ fontWeight: 750, height: 26 }}
+                          />
+                        </Stack>
+                      </AccordionSummary>
+                      <AccordionDetails sx={{ px: 0, pt: 0, pb: 0 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ py: 0.85, fontWeight: 800, color: '#244846', bgcolor: '#f4f8f7', width: 120 }}>Mã NV</TableCell>
+                              <TableCell sx={{ py: 0.85, fontWeight: 800, color: '#244846', bgcolor: '#f4f8f7' }}>Họ và tên</TableCell>
+                              <TableCell sx={{ py: 0.85, fontWeight: 800, color: '#244846', bgcolor: '#f4f8f7' }}>Chức vụ</TableCell>
+                              <TableCell sx={{ py: 0.85, fontWeight: 800, color: '#244846', bgcolor: '#f4f8f7', width: 140 }}>Trạng thái</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {dept.employees.map((r, idx) => (
+                              <TableRow
+                                key={r.employeeId}
+                                sx={{
+                                  bgcolor: idx % 2 === 0 ? '#fff' : '#f8fbfa',
+                                  '&:hover': { bgcolor: '#eef7f6' },
+                                  '& td': { borderColor: alpha('#0f172a', 0.06), py: 0.9 },
+                                }}
+                              >
+                                <TableCell sx={{ color: 'text.secondary', fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
+                                  {r.employeeCode || '—'}
+                                </TableCell>
+                                <TableCell>
+                                  <Typography variant="body2" fontWeight={800} color="#123b3a">
+                                    {r.fullName}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell sx={{ color: 'text.secondary' }}>{r.positionTitle || '—'}</TableCell>
+                                <TableCell>
+                                  <Chip
+                                    size="small"
+                                    label={employeeStatusLabel(r.employeeStatus)}
+                                    variant="outlined"
+                                    color={r.employeeStatus === 'ACTIVE' ? 'success' : 'default'}
+                                    sx={{ fontWeight: 650 }}
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </AccordionDetails>
+                    </Accordion>
+                  ))}
+                </Box>
+              )}
+            </Paper>
+          )}
         </>
       )}
     </Box>

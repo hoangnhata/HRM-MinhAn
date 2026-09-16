@@ -23,6 +23,7 @@ import { DatePickerField, TimePickerField, dateTimeFieldSx } from '../ui/DateTim
 import { FormSection, InfoBanner, WorkRequestDialogShell } from './WorkRequestFormUi';
 import * as att from '../../services/attendanceService';
 import * as employeeService from '../../services/employeeService';
+import { endOfMonthLocalIso, startOfMonthLocalIso, todayLocalIso } from '../../utils/dateFormat';
 import { scheduleForDate, type ShiftScheduleInfo } from '../../utils/shiftSchedule';
 
 type Props = {
@@ -67,30 +68,20 @@ function normalizeSearch(value: string) {
     .trim();
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function endOfMonthIso(fromIso?: string): string {
-  const base = fromIso ? new Date(`${fromIso}T12:00:00`) : new Date();
-  const last = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-  return last.toISOString().slice(0, 10);
-}
-
 function monthStartIso(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, '0')}-01`;
+  return startOfMonthLocalIso(year, month);
 }
 
 function deployMaxDate(periodYear?: number, periodMonth?: number): string {
-  const today = todayIso();
+  const today = todayLocalIso();
   if (periodYear && periodMonth) {
-    const monthEnd = endOfMonthIso(monthStartIso(periodYear, periodMonth));
+    const monthEnd = endOfMonthLocalIso(monthStartIso(periodYear, periodMonth));
     const [ty, tm] = today.split('-').map(Number);
     if (periodYear < ty || (periodYear === ty && periodMonth < tm)) return monthEnd;
-    if (periodYear === ty && periodMonth === tm) return endOfMonthIso(today);
+    if (periodYear === ty && periodMonth === tm) return endOfMonthLocalIso(today);
     return monthEnd;
   }
-  return endOfMonthIso(today);
+  return endOfMonthLocalIso(today);
 }
 
 function toMinutes(t: string): number {
@@ -163,6 +154,23 @@ async function submitDeploy(
   reason: string,
   cfg: EmpDeployConfig,
 ) {
+  const [year, month] = workDate.split('-').map(Number);
+  let continuous = false;
+  let contStart = '';
+  let contEnd = '';
+  try {
+    const cont = await att.fetchEmployeeContinuousShiftDays(empId, year, month);
+    const dates = cont.continuousDates ?? cont.dates ?? [];
+    continuous = dates.includes(workDate);
+    if (continuous) {
+      const sch = await att.fetchShiftSchedule(workDate, empId);
+      contStart = String(sch.continuousStart ?? sch.morningStart).slice(0, 5);
+      contEnd = String(sch.continuousEnd ?? sch.afternoonEnd).slice(0, 5);
+    }
+  } catch {
+    continuous = false;
+  }
+
   if (cfg.timeMode === 'OUTSIDE') {
     await att.submitWorkRequest({
       requestType: 'DEPLOYMENT',
@@ -175,6 +183,34 @@ async function submitDeploy(
     });
     return;
   }
+
+  if (continuous) {
+    // Ca thông tầm: một khung vào–ra; FULL_DAY ≈ cả ca, MORNING/AFTERNOON = phần đã chọn
+    let start = contStart;
+    let end = contEnd;
+    if (cfg.insideScope === 'MORNING') {
+      start = cfg.morningStart.slice(0, 5);
+      end = cfg.morningEnd.slice(0, 5);
+    } else if (cfg.insideScope === 'AFTERNOON') {
+      start = cfg.afternoonStart.slice(0, 5);
+      end = cfg.afternoonEnd.slice(0, 5);
+    } else {
+      // Cả ngày trên UI tách sáng/chiều → gộp thành một khung thông tầm
+      start = cfg.morningStart.slice(0, 5);
+      end = cfg.afternoonEnd.slice(0, 5);
+    }
+    await att.submitWorkRequest({
+      requestType: 'DEPLOYMENT',
+      employeeId: empId,
+      workDate,
+      shiftScope: 'FULL_DAY',
+      reason,
+      requestedStart: start,
+      requestedEnd: end,
+    });
+    return;
+  }
+
   if (cfg.insideScope === 'MORNING') {
     await att.submitWorkRequest({
       requestType: 'DEPLOYMENT',

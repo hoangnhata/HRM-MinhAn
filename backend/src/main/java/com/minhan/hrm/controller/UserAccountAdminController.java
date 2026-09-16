@@ -99,6 +99,50 @@ public class UserAccountAdminController {
         return userAccountAdminService.setReportViewEnabled(userId, enabled);
     }
 
+    @PutMapping("/{userId}/attendance-excel-export")
+    @Operation(summary = "Bật / tắt quyền xuất Excel báo cáo công")
+    public UserAccountAdminDto setAttendanceExcelExport(
+            @PathVariable Long userId, @RequestBody Map<String, Boolean> body) {
+        Boolean enabled = body != null ? body.get("enabled") : null;
+        if (enabled == null) {
+            throw new com.minhan.hrm.exception.ApiException(HttpStatus.BAD_REQUEST, "Thiếu enabled");
+        }
+        return userAccountAdminService.setAttendanceExcelExportEnabled(userId, enabled);
+    }
+
+    @PutMapping("/{userId}/hospital-wide-employee-view")
+    @Operation(summary = "Bật / tắt quyền xem hồ sơ nhân viên toàn viện (không gồm lương)")
+    public UserAccountAdminDto setHospitalWideEmployeeView(
+            @PathVariable Long userId, @RequestBody Map<String, Boolean> body) {
+        Boolean enabled = body != null ? body.get("enabled") : null;
+        if (enabled == null) {
+            throw new com.minhan.hrm.exception.ApiException(HttpStatus.BAD_REQUEST, "Thiếu enabled");
+        }
+        return userAccountAdminService.setHospitalWideEmployeeViewEnabled(userId, enabled);
+    }
+
+    @PutMapping("/{userId}/professional-qualification-report")
+    @Operation(summary = "Bật / tắt quyền xem báo cáo Trình độ chuyên môn")
+    public UserAccountAdminDto setProfessionalQualificationReport(
+            @PathVariable Long userId, @RequestBody Map<String, Boolean> body) {
+        Boolean enabled = body != null ? body.get("enabled") : null;
+        if (enabled == null) {
+            throw new com.minhan.hrm.exception.ApiException(HttpStatus.BAD_REQUEST, "Thiếu enabled");
+        }
+        return userAccountAdminService.setProfessionalQualificationReportEnabled(userId, enabled);
+    }
+
+    @PutMapping("/{userId}/two-punch-attendance")
+    @Operation(summary = "Bật / tắt phân quyền công (vào sáng + ra chiều = đủ công)")
+    public UserAccountAdminDto setTwoPunchAttendance(
+            @PathVariable Long userId, @RequestBody Map<String, Boolean> body) {
+        Boolean enabled = body != null ? body.get("enabled") : null;
+        if (enabled == null) {
+            throw new com.minhan.hrm.exception.ApiException(HttpStatus.BAD_REQUEST, "Thiếu enabled");
+        }
+        return userAccountAdminService.setTwoPunchAttendance(userId, enabled);
+    }
+
     @PutMapping("/{userId}/work-unit-scope")
     @Operation(summary = "Bật / tắt Trưởng bộ phận (chỉ quản lý bộ phận, không cả khoa)")
     public UserAccountAdminDto setWorkUnitScope(

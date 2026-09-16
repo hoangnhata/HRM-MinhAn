@@ -33,7 +33,7 @@ public class EmployeeController {
     private final EmployeeService employeeService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','DIRECTOR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','DIRECTOR','HEAD_DEPARTMENT','HEAD_NURSING','HOSPITAL_EMPLOYEE_VIEWER')")
     @Operation(summary = "Danh sách nhân viên (phân trang, lọc theo tên/mã/username, phòng ban, bộ phận, trạng thái hoặc nhóm tab)")
     public Page<EmployeeSummaryDto> list(
             @PageableDefault(size = 20) Pageable pageable,

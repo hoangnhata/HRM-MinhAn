@@ -86,14 +86,15 @@ public class EmployeeService {
      * trưởng khoa / ĐDT chỉ xem nhân lực khoa mình (bắt buộc gắn hồ sơ NV có phòng ban);
      * Trưởng phòng ĐD xem toàn viện nhưng chỉ khối ĐD–KTV–HS–Thư ký y khoa.
      */
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','DIRECTOR','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','DIRECTOR','HEAD_DEPARTMENT','HEAD_NURSING','HOSPITAL_EMPLOYEE_VIEWER')")
     @Transactional(readOnly = true)
     public Page<EmployeeSummaryDto> listForCaller(
             Pageable pageable, String q, Long departmentId, String workUnitDetail, EmployeeStatus status,
             EmployeeStatusGroup statusGroup, OfficialWorkFilter officialWorkFilter) {
         UserAccount caller = currentUser();
         // HEAD_HR vừa là trưởng khoa vừa HCNS 2: danh sách nhân sự theo HCNS 2 (toàn viện).
-        if (!isHr2Role(caller)) {
+        // HOSPITAL_EMPLOYEE_VIEWER: toàn viện (không bị khóa khoa).
+        if (!isHr2Role(caller) && !hasHospitalWideEmployeeView(caller)) {
             Long scopedDept = resolveHeadDepartmentScope(caller);
             if (scopedDept != null) {
                 departmentId = scopedDept;
@@ -103,7 +104,7 @@ public class EmployeeService {
                 workUnitDetail = scopedUnit;
             }
         }
-        if (caller != null && caller.getRole() == UserRole.HEAD_NURSING) {
+        if (caller != null && caller.getRole() == UserRole.HEAD_NURSING && !hasHospitalWideEmployeeView(caller)) {
             return filterNursingBlockPage(
                     pageable, q, departmentId, workUnitDetail, status, statusGroup, officialWorkFilter);
         }
@@ -117,7 +118,7 @@ public class EmployeeService {
         Specification<Employee> spec = EmployeeSpecifications.withFilters(
                 q, departmentId, workUnitDetail, status, statusGroup, officialWorkFilter);
         List<Employee> all = employeeRepository.findAll(spec, Sort.unsorted()).stream()
-                .filter(NursingBlockClassifier::matches)
+                .filter(NursingBlockClassifier::matchesNursingHeadScope)
                 .toList();
         int from = (int) pageable.getOffset();
         int to = Math.min(from + pageable.getPageSize(), all.size());
@@ -358,8 +359,13 @@ public class EmployeeService {
                     })
                     .toList();
         }
-        // Chỉ khối ĐD–KTV–HS–Thư ký
-        list = list.stream().filter(NursingBlockClassifier::matches).toList();
+        // Chỉ khối ĐD–KTV–HS–Thư ký trong phạm vi Trưởng phòng ĐD (nếu áp dụng)
+        list = list.stream().filter(e -> {
+            if (caller.getRole() == UserRole.HEAD_NURSING) {
+                return NursingBlockClassifier.matchesNursingHeadScope(e);
+            }
+            return NursingBlockClassifier.matches(e);
+        }).toList();
         if (caller.getRole() == UserRole.HEAD_NURSING) {
             // toàn khối
             return list.stream().map(EmployeeMapper::toSummary).toList();
@@ -1074,15 +1080,67 @@ public class EmployeeService {
     }
 
     private EmployeeDetailDto loadDetail(Employee e) {
-        SalaryInfo salary = salaryInfoRepository.findByEmployee(e).orElse(null);
+        UserAccount viewer = currentUser();
+        boolean includeSalary = canViewEmployeeSalaryFields(viewer, e);
+        SalaryInfo salary = includeSalary
+                ? salaryInfoRepository.findByEmployee(e).orElse(null)
+                : null;
         List<Contract> contracts = contractRepository.findByEmployeeOrderByStartDateDesc(e);
-        EmployeeDetailDto base = EmployeeMapper.toDetail(e, salary, contracts);
+        EmployeeDetailDto mapped = EmployeeMapper.toDetail(e, salary, contracts);
+        final EmployeeDetailDto base = includeSalary ? mapped : stripSalaryFromDetail(mapped);
         return employeeWorkforceDetailsRepository.findByEmployee(e)
                 .map(w -> {
                     Map<String, Object> profile = WorkforceProfileMapper.toMap(w);
+                    if (!includeSalary) {
+                        profile = stripSalaryFromWorkforceProfile(profile);
+                    }
                     return profile.isEmpty() ? base : base.toBuilder().workforceProfile(profile).build();
                 })
                 .orElse(base);
+    }
+
+    /** ADMIN/HR xem lương mọi hồ sơ; còn lại chỉ xem lương trên hồ sơ của chính mình (nếu được phép). */
+    private boolean canViewEmployeeSalaryFields(UserAccount viewer, Employee target) {
+        if (viewer == null) {
+            return false;
+        }
+        if (viewer.getRole() == UserRole.ADMIN || viewer.getRole() == UserRole.HR) {
+            return true;
+        }
+        var linkedSelf = employeeLinkService.findLinkedEmployee(viewer);
+        if (linkedSelf.isPresent() && linkedSelf.get().getId().equals(target.getId())) {
+            return canViewOwnSalary(target);
+        }
+        return false;
+    }
+
+    private static EmployeeDetailDto stripSalaryFromDetail(EmployeeDetailDto dto) {
+        List<com.minhan.hrm.dto.employee.ContractDto> contracts = dto.getContracts() == null
+                ? List.of()
+                : dto.getContracts().stream()
+                        .map(c -> c.toBuilder().salaryBase(null).build())
+                        .toList();
+        return dto.toBuilder()
+                .salary(null)
+                .contracts(contracts)
+                .build();
+    }
+
+    private static Map<String, Object> stripSalaryFromWorkforceProfile(Map<String, Object> profile) {
+        if (profile == null || profile.isEmpty()) {
+            return profile;
+        }
+        Map<String, Object> copy = new java.util.LinkedHashMap<>(profile);
+        Object notes = copy.get("workforceNotes");
+        if (notes instanceof String s && s.contains("Mức lương:")) {
+            String cleaned = s.replaceAll("\\s*\\|\\s*Mức lương:.*$", "").trim();
+            if (cleaned.isEmpty()) {
+                copy.remove("workforceNotes");
+            } else {
+                copy.put("workforceNotes", cleaned);
+            }
+        }
+        return copy;
     }
 
     /**
@@ -1101,7 +1159,7 @@ public class EmployeeService {
             return;
         }
         if (current != null && current.getRole() == UserRole.HEAD_NURSING) {
-            if (!NursingBlockClassifier.matches(target)) {
+            if (!NursingBlockClassifier.matchesNursingHeadScope(target)) {
                 throw new ApiException(HttpStatus.FORBIDDEN,
                         "Chỉ xem được nhân sự khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa");
             }
@@ -1247,7 +1305,7 @@ public class EmployeeService {
         if (selfId != null && selfId.equals(target.getId())) {
             return true;
         }
-        return NursingBlockClassifier.matches(target);
+        return NursingBlockClassifier.matchesNursingHeadScope(target);
     }
 
     /** ADMIN / HEAD_NURSING được nhận thông báo chờ duyệt bước Trưởng phòng Điều dưỡng. */
@@ -1261,7 +1319,7 @@ public class EmployeeService {
         if (account.getRole() != UserRole.HEAD_NURSING) {
             return false;
         }
-        return NursingBlockClassifier.matches(employee);
+        return NursingBlockClassifier.matchesNursingHeadScope(employee);
     }
 
     private Long requireHeadDepartmentId(UserAccount head) {
@@ -1283,11 +1341,17 @@ public class EmployeeService {
         return u != null && u.getRole() != null && u.getRole().isHr2();
     }
 
-    /** ADMIN / HR / DIRECTOR xem toàn bệnh viện. */
+    /** ADMIN / HR / DIRECTOR / quyền «Hồ sơ toàn viện» xem toàn bệnh viện. */
     public static boolean canViewHospitalWide(UserAccount u) {
         return u != null && (u.getRole() == UserRole.ADMIN
                 || u.getRole() == UserRole.HR
-                || u.getRole() == UserRole.DIRECTOR);
+                || u.getRole() == UserRole.DIRECTOR
+                || hasHospitalWideEmployeeView(u));
+    }
+
+    /** Cờ Admin cấp quyền xem hồ sơ NV toàn viện (không gồm lương). */
+    public static boolean hasHospitalWideEmployeeView(UserAccount u) {
+        return u != null && u.isHospitalWideEmployeeViewEnabled();
     }
 
     /** Có quyền xem danh sách nhân sự rộng hơn bản thân (toàn viện hoặc theo khoa / khối ĐD). */

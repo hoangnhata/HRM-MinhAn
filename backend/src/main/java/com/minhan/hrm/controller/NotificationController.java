@@ -2,6 +2,7 @@ package com.minhan.hrm.controller;
 
 import com.minhan.hrm.dto.notification.AdhocNotificationRequest;
 import com.minhan.hrm.dto.notification.NotificationDto;
+import com.minhan.hrm.dto.notification.NotificationPageDto;
 import com.minhan.hrm.entity.Employee;
 import com.minhan.hrm.entity.UserAccount;
 import com.minhan.hrm.exception.ResourceNotFoundException;
@@ -32,9 +33,17 @@ public class NotificationController {
     private final EmployeeService employeeService;
 
     @GetMapping
-    @Operation(summary = "Thông báo của tôi")
-    public List<NotificationDto> mine() {
-        return notificationService.listMine();
+    @Operation(summary = "Thông báo của tôi (trang đầu, dạng danh sách — giữ cho client cũ)")
+    public List<NotificationDto> mine(@RequestParam(defaultValue = "50") int limit) {
+        return notificationService.listMine(limit);
+    }
+
+    @GetMapping("/page")
+    @Operation(summary = "Thông báo của tôi theo trang: chưa đọc trước, mới nhất trước")
+    public NotificationPageDto page(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return notificationService.listPage(page, size);
     }
 
     @GetMapping("/unread-count")

@@ -7,7 +7,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_ambient_background.dart';
+import '../../../core/widgets/app_month_picker.dart';
 import '../../../core/widgets/app_segmented_control.dart';
+import '../../../core/widgets/history_month_bar.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/highlight_pulse.dart';
@@ -70,8 +72,7 @@ class _RequestTypeScreenState extends ConsumerState<RequestTypeScreen>
     super.initState();
     final auth = ref.read(authControllerProvider);
     final role = auth.role;
-    final directorApproval =
-        auth.currentUser?.directorApprovalEnabled ?? false;
+    final directorApproval = auth.currentUser?.directorApprovalEnabled ?? false;
     final config = RequestTypeConfig.byKey(widget.typeKey);
     _canReview = config.canReview(
       role,
@@ -134,9 +135,8 @@ class _RequestTypeScreenState extends ConsumerState<RequestTypeScreen>
       backgroundColor: AppColors.background,
       floatingActionButton: canCreate
           ? FloatingActionButton.extended(
-              onPressed: () => context.push(
-                RoutePaths.requestCreatePath(widget.typeKey),
-              ),
+              onPressed: () =>
+                  context.push(RoutePaths.requestCreatePath(widget.typeKey)),
               icon: const Icon(Icons.add_rounded),
               label: const Text('Tạo đơn'),
             )
@@ -174,48 +174,50 @@ class _RequestTypeScreenState extends ConsumerState<RequestTypeScreen>
                 child: loadingFirstTime
                     ? const SkeletonList(itemCount: 5)
                     : state.error != null && allListsEmpty
-                        ? ErrorState(
-                            message: state.error!,
-                            onRetry: controller.refreshAll,
-                          )
-                        : TabBarView(
-                            controller: _tabController,
-                            children: [
-                              _RequestList(
-                                items: [
-                                  for (final raw in state.related)
-                                    (raw, null),
-                                ],
-                                error: state.error,
-                                onRefresh: controller.refreshAll,
-                                typeKey: config.key,
-                                accent: config.color,
-                                highlightRequestId: widget.highlightRequestId,
-                                emptyIcon: Icons.folder_open_outlined,
-                                emptyTitle: _canReview
-                                    ? 'Bạn chưa có đơn nào'
-                                    : 'Chưa có phiếu bạn lập',
-                                emptyMessage: _canReview
-                                    ? 'Các đơn gắn với hồ sơ của bạn hiện ở đây. Duyệt đơn ở tab Chờ duyệt.'
-                                    : 'Các phiếu bạn tạo sẽ xuất hiện ở đây.',
-                              ),
-                              _PendingWithHistoryList(
-                                pending: [
-                                  for (final item in state.pending)
-                                    (item.raw, item.stage.label),
-                                ],
-                                history: [
-                                  for (final raw in state.history)
-                                    (raw, null),
-                                ],
-                                error: state.error,
-                                onRefresh: controller.refreshAll,
-                                typeKey: config.key,
-                                accent: config.color,
-                                highlightRequestId: widget.highlightRequestId,
-                              ),
+                    ? ErrorState(
+                        message: state.error!,
+                        onRetry: controller.refreshAll,
+                      )
+                    : TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _RequestList(
+                            items: [
+                              for (final raw in state.related) (raw, null),
                             ],
+                            error: state.error,
+                            onRefresh: controller.refreshAll,
+                            typeKey: config.key,
+                            accent: config.color,
+                            highlightRequestId: widget.highlightRequestId,
+                            emptyIcon: Icons.folder_open_outlined,
+                            emptyTitle: _canReview
+                                ? 'Bạn chưa có đơn nào'
+                                : 'Chưa có phiếu bạn lập',
+                            emptyMessage: _canReview
+                                ? 'Các đơn gắn với hồ sơ của bạn hiện ở đây. Duyệt đơn ở tab Chờ duyệt.'
+                                : 'Các phiếu bạn tạo sẽ xuất hiện ở đây.',
                           ),
+                          _PendingWithHistoryList(
+                            pending: [
+                              for (final item in state.pending)
+                                (item.raw, item.stage.label),
+                            ],
+                            history: [
+                              for (final raw in state.history) (raw, null),
+                            ],
+                            historyMonth: state.historyMonth,
+                            historyLoading: state.historyLoading,
+                            historyLoaded: state.historyLoaded,
+                            onLoadHistory: controller.loadHistory,
+                            error: state.error,
+                            onRefresh: controller.refreshAll,
+                            typeKey: config.key,
+                            accent: config.color,
+                            highlightRequestId: widget.highlightRequestId,
+                          ),
+                        ],
+                      ),
               ),
             ],
           ),
@@ -288,9 +290,8 @@ class _EmployeeRelatedScaffoldState extends State<_EmployeeRelatedScaffold> {
       backgroundColor: AppColors.background,
       floatingActionButton: canCreate
           ? FloatingActionButton.extended(
-              onPressed: () => context.push(
-                RoutePaths.requestCreatePath(config.key),
-              ),
+              onPressed: () =>
+                  context.push(RoutePaths.requestCreatePath(config.key)),
               icon: const Icon(Icons.add_rounded),
               label: const Text('Tạo đơn'),
             )
@@ -312,91 +313,90 @@ class _EmployeeRelatedScaffoldState extends State<_EmployeeRelatedScaffold> {
                 child: loadingFirstTime
                     ? const SkeletonList(itemCount: 5)
                     : state.error != null && empty
-                        ? ErrorState(
-                            message: state.error!,
-                            onRetry: onRefresh,
-                          )
-                        : RefreshIndicator(
-                            color: config.color,
-                            onRefresh: onRefresh,
-                            child: ListView(
-                              controller: _scroll,
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              padding: const EdgeInsets.fromLTRB(
-                                AppSpacing.page,
-                                AppSpacing.sm,
-                                AppSpacing.page,
-                                100,
-                              ),
-                              children: [
-                                if (state.error != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      bottom: AppSpacing.sm,
-                                    ),
-                                    child: NoticeBanner.error(
-                                      title: 'Dữ liệu có thể chưa mới nhất',
-                                      message: state.error!,
-                                      action: TextButton.icon(
-                                        onPressed: onRefresh,
-                                        icon: const Icon(
-                                          Icons.refresh_rounded,
-                                          size: 17,
-                                        ),
-                                        label: const Text('Thử lại'),
-                                      ),
-                                    ),
-                                  ),
-                                _InfoBanner(
-                                  icon: Icons.info_outline_rounded,
-                                  color: AppColors.textSecondary,
-                                  text: intro,
-                                  soft: true,
-                                ),
-                                const SizedBox(height: AppSpacing.sm),
-                                if (empty)
-                                  EmptyState(
-                                    icon: config.icon,
-                                    color: config.color,
-                                    title: 'Chưa có đơn nào liên quan đến bạn',
-                                    message:
-                                        'Khi có đơn được lập cho bạn, danh sách sẽ hiện tại đây.',
-                                  )
-                                else ...[
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Text(
-                                      '${items.length} đơn',
-                                      style: AppTypography.style(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.textSecondary,
-                                      ),
-                                    ),
-                                  ),
-                                  for (final (raw, stage) in items)
-                                    RequestGenericCard(
-                                      key: (raw['id'] as num?)?.toInt() ==
-                                              highlightRequestId
-                                          ? _highlightKey
-                                          : null,
-                                      raw: raw,
-                                      stageLabel: stage,
-                                      accentColor: config.color,
-                                      highlighted: highlightRequestId != null &&
-                                          (raw['id'] as num?)?.toInt() ==
-                                              highlightRequestId,
-                                      onTap: () => context.push(
-                                        RoutePaths.requestDetailPath(
-                                          config.key,
-                                          (raw['id'] as num).toInt(),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ],
-                            ),
+                    ? ErrorState(message: state.error!, onRetry: onRefresh)
+                    : RefreshIndicator(
+                        color: config.color,
+                        onRefresh: onRefresh,
+                        child: ListView(
+                          controller: _scroll,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.page,
+                            AppSpacing.sm,
+                            AppSpacing.page,
+                            100,
                           ),
+                          children: [
+                            if (state.error != null)
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  bottom: AppSpacing.sm,
+                                ),
+                                child: NoticeBanner.error(
+                                  title: 'Dữ liệu có thể chưa mới nhất',
+                                  message: state.error!,
+                                  action: TextButton.icon(
+                                    onPressed: onRefresh,
+                                    icon: const Icon(
+                                      Icons.refresh_rounded,
+                                      size: 17,
+                                    ),
+                                    label: const Text('Thử lại'),
+                                  ),
+                                ),
+                              ),
+                            _InfoBanner(
+                              icon: Icons.info_outline_rounded,
+                              color: AppColors.textSecondary,
+                              text: intro,
+                              soft: true,
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            if (empty)
+                              EmptyState(
+                                icon: config.icon,
+                                color: config.color,
+                                title: 'Chưa có đơn nào liên quan đến bạn',
+                                message:
+                                    'Khi có đơn được lập cho bạn, danh sách sẽ hiện tại đây.',
+                              )
+                            else ...[
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Text(
+                                  '${items.length} đơn',
+                                  style: AppTypography.style(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                              for (final (raw, stage) in items)
+                                RequestGenericCard(
+                                  key:
+                                      (raw['id'] as num?)?.toInt() ==
+                                          highlightRequestId
+                                      ? _highlightKey
+                                      : null,
+                                  raw: raw,
+                                  stageLabel: stage,
+                                  accentColor: config.color,
+                                  highlighted:
+                                      highlightRequestId != null &&
+                                      (raw['id'] as num?)?.toInt() ==
+                                          highlightRequestId,
+                                  onTap: () => context.push(
+                                    RoutePaths.requestDetailPath(
+                                      config.key,
+                                      (raw['id'] as num).toInt(),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ],
+                        ),
+                      ),
               ),
             ],
           ),
@@ -410,6 +410,10 @@ class _PendingWithHistoryList extends StatefulWidget {
   const _PendingWithHistoryList({
     required this.pending,
     required this.history,
+    required this.historyMonth,
+    required this.historyLoading,
+    required this.historyLoaded,
+    required this.onLoadHistory,
     required this.error,
     required this.onRefresh,
     required this.typeKey,
@@ -419,6 +423,10 @@ class _PendingWithHistoryList extends StatefulWidget {
 
   final List<(Map<String, dynamic>, String?)> pending;
   final List<(Map<String, dynamic>, String?)> history;
+  final DateTime? historyMonth;
+  final bool historyLoading;
+  final bool historyLoaded;
+  final Future<void> Function({DateTime? month}) onLoadHistory;
   final String? error;
   final Future<void> Function() onRefresh;
   final String typeKey;
@@ -434,14 +442,32 @@ class _PendingWithHistoryListState extends State<_PendingWithHistoryList> {
   bool _showHistory = false;
   bool _autoSwitchedHistory = false;
 
+  void _openHistoryTab() {
+    setState(() => _showHistory = true);
+    // Lịch sử tải lười theo tháng — lần đầu mở tab mới gọi API.
+    if (!widget.historyLoaded && !widget.historyLoading) {
+      widget.onLoadHistory();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final highlightId = widget.highlightRequestId;
+    final inPending = widget.pending.any(
+      (e) => (e.$1['id'] as num?)?.toInt() == highlightId,
+    );
+    // Mở từ thông báo mà đơn không còn chờ duyệt: kéo lịch sử để tìm.
+    if (highlightId != null &&
+        !inPending &&
+        !widget.historyLoaded &&
+        !widget.historyLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onLoadHistory();
+      });
+    }
     if (highlightId != null &&
         !_autoSwitchedHistory &&
-        !widget.pending.any(
-          (e) => (e.$1['id'] as num?)?.toInt() == highlightId,
-        ) &&
+        !inPending &&
         widget.history.any(
           (e) => (e.$1['id'] as num?)?.toInt() == highlightId,
         )) {
@@ -468,7 +494,13 @@ class _PendingWithHistoryListState extends State<_PendingWithHistoryList> {
                 expand: false,
                 style: AppSegmentStyle.soft,
                 selectedIndex: _showHistory ? 1 : 0,
-                onChanged: (i) => setState(() => _showHistory = i == 1),
+                onChanged: (i) {
+                  if (i == 1) {
+                    _openHistoryTab();
+                  } else {
+                    setState(() => _showHistory = false);
+                  }
+                },
                 items: [
                   AppSegmentItem(
                     label: widget.pending.isEmpty ? 'Chờ duyệt' : 'Chờ',
@@ -476,7 +508,7 @@ class _PendingWithHistoryListState extends State<_PendingWithHistoryList> {
                   ),
                   AppSegmentItem(
                     label: 'Đã xử lý',
-                    count: widget.history.length,
+                    count: widget.historyLoaded ? widget.history.length : null,
                   ),
                 ],
               ),
@@ -492,26 +524,44 @@ class _PendingWithHistoryListState extends State<_PendingWithHistoryList> {
             ],
           ),
         ),
-        Expanded(
-          child: _RequestList(
-            items: source,
-            error: widget.error,
-            onRefresh: widget.onRefresh,
-            typeKey: widget.typeKey,
-            accent: widget.accent,
-            highlightRequestId: highlightId,
-            emptyIcon: _showHistory
-                ? Icons.history_rounded
-                : Icons.task_alt_rounded,
-            emptyColor: _showHistory ? AppColors.info : AppColors.success,
-            emptyTitle: _showHistory
-                ? 'Chưa có lịch sử duyệt'
-                : 'Không có đơn chờ bạn duyệt',
-            emptyMessage: _showHistory
-                ? 'Các đơn đã xử lý sẽ được lưu ở đây.'
-                : 'Bạn đã xử lý hết đơn thuộc thẩm quyền.',
-            padTop: false,
+        if (_showHistory)
+          HistoryMonthBar(
+            month: widget.historyMonth ?? DateTime.now(),
+            loading: widget.historyLoading,
+            onPick: () async {
+              final current = widget.historyMonth ?? DateTime.now();
+              final picked = await showAppMonthPicker(
+                context,
+                year: current.year,
+                month: current.month,
+                title: 'Tháng đã xử lý',
+              );
+              if (picked == null) return;
+              await widget.onLoadHistory(month: DateTime(picked.$1, picked.$2));
+            },
           ),
+        Expanded(
+          child: _showHistory && widget.historyLoading && source.isEmpty
+              ? const SkeletonList(itemCount: 4, showAvatar: false)
+              : _RequestList(
+                  items: source,
+                  error: widget.error,
+                  onRefresh: widget.onRefresh,
+                  typeKey: widget.typeKey,
+                  accent: widget.accent,
+                  highlightRequestId: highlightId,
+                  emptyIcon: _showHistory
+                      ? Icons.history_rounded
+                      : Icons.task_alt_rounded,
+                  emptyColor: _showHistory ? AppColors.info : AppColors.success,
+                  emptyTitle: _showHistory
+                      ? 'Chưa có lịch sử duyệt'
+                      : 'Không có đơn chờ bạn duyệt',
+                  emptyMessage: _showHistory
+                      ? 'Không có đơn đã xử lý trong tháng này. Chạm vào tháng để xem tháng khác.'
+                      : 'Bạn đã xử lý hết đơn thuộc thẩm quyền.',
+                  padTop: false,
+                ),
         ),
       ],
     );
@@ -628,9 +678,7 @@ class _RequestListState extends State<_RequestList> {
       scheduleScrollToHighlight(
         _highlightKey,
         controller: _scroll,
-        index: (error != null ? 1 : 0) +
-            (widget.padTop ? 1 : 0) +
-            cardIndex,
+        index: (error != null ? 1 : 0) + (widget.padTop ? 1 : 0) + cardIndex,
       );
     }
 
@@ -692,8 +740,7 @@ class _RequestListState extends State<_RequestList> {
                     raw: raw,
                     stageLabel: stageLabel,
                     accentColor: accent,
-                    highlighted:
-                        (raw['id'] as num?)?.toInt() == highlightId,
+                    highlighted: (raw['id'] as num?)?.toInt() == highlightId,
                     onTap: () => context.push(
                       RoutePaths.requestDetailPath(
                         widget.typeKey,

@@ -36,10 +36,9 @@ import {
 import { ApprovalReviewNoteCard } from './ApprovalReviewNoteCard';
 import {
   applyRequestListFilters,
-  EMPTY_REQUEST_FILTERS,
   RequestListFilters,
-  type RequestListFilterState,
 } from './requests/RequestListFilters';
+import { useLazyHistoryList } from './requests/useLazyHistoryList';
 import { RequestListTable, formatRequestSubject, type RequestListRow } from './requests/RequestListTable';
 import {
   DetailField,
@@ -67,17 +66,14 @@ export function ShiftConfigChangePendingPanel({ onChanged }: { onChanged?: () =>
   const canRevoke = user?.role === 'ADMIN';
   const isHead = isHeadDepartmentRole(user?.role) || user?.role === 'ADMIN';
 
-  const [pending, setPending] = useState<scc.ShiftConfigChangeRequest[]>([]);
-  const [history, setHistory] = useState<scc.ShiftConfigChangeRequest[]>([]);
   const [mine, setMine] = useState<scc.ShiftConfigChangeRequest[]>([]);
+  const [mineLoading, setMineLoading] = useState(false);
   const [subTab, setSubTab] = useState(0);
-  const [listLoading, setListLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [detail, setDetail] = useState<scc.ShiftConfigChangeRequest | null>(null);
   const [comment, setComment] = useState('');
   const [acting, setActing] = useState(false);
-  const [filters, setFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
   const [confirm, setConfirm] = useState<{
     requests: scc.ShiftConfigChangeRequest[];
     approved: boolean;
@@ -85,33 +81,60 @@ export function ShiftConfigChangePendingPanel({ onChanged }: { onChanged?: () =>
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  const historyActive = canReview && subTab === 1;
+
+  const loadPending = useCallback(
+    () =>
+      scc
+        .fetchPendingShiftConfigChangeRequests()
+        .catch(() => [] as scc.ShiftConfigChangeRequest[]),
+    [],
+  );
+  const loadHistory = useCallback(
+    (range: { fromDate?: string; toDate?: string }) =>
+      scc
+        .fetchShiftConfigChangeRequestHistory(range)
+        .catch(() => [] as scc.ShiftConfigChangeRequest[]),
+    [],
+  );
+  const {
+    pending,
+    history,
+    listLoading,
+    historyLoaded,
+    filters,
+    setFilters,
+    filterReset,
+    clearLabel,
+    reload: reloadLists,
+  } = useLazyHistoryList({
+    historyActive,
+    canLoad: canReview,
+    loadPending,
+    loadHistory,
+  });
+
+  const reloadMine = useCallback(() => {
+    if (!isHead) {
+      setMine([]);
+      return;
+    }
+    setMineLoading(true);
+    scc
+      .fetchMyShiftConfigChangeRequests()
+      .then(setMine)
+      .catch(() => setMine([]))
+      .finally(() => setMineLoading(false));
+  }, [isHead]);
+
+  useEffect(() => {
+    reloadMine();
+  }, [reloadMine]);
+
   const reload = useCallback(() => {
-    setListLoading(true);
-    const tasks: Promise<unknown>[] = [];
-    if (canReview || isHead) {
-      tasks.push(
-        scc.fetchPendingShiftConfigChangeRequests().then(setPending).catch(() => setPending([])),
-      );
-      tasks.push(
-        scc.fetchShiftConfigChangeRequestHistory().then(setHistory).catch(() => setHistory([])),
-      );
-    }
-    if (isHead) {
-      tasks.push(scc.fetchMyShiftConfigChangeRequests().then(setMine).catch(() => setMine([])));
-    }
-    Promise.all(tasks)
-      .then(() => setErr(null))
-      .catch(() => setErr('Không tải được đề xuất chỉnh ca.'))
-      .finally(() => setListLoading(false));
-  }, [canReview, isHead]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  useEffect(() => {
-    setFilters(EMPTY_REQUEST_FILTERS);
-  }, [subTab]);
+    reloadLists();
+    reloadMine();
+  }, [reloadLists, reloadMine]);
 
   const tabs: { key: string; label: string; list: scc.ShiftConfigChangeRequest[] }[] = [];
   if (canReview) {
@@ -124,6 +147,7 @@ export function ShiftConfigChangePendingPanel({ onChanged }: { onChanged?: () =>
   const active = tabs[Math.min(subTab, Math.max(tabs.length - 1, 0))];
   const list = active?.list ?? [];
   const isReviewTab = active?.key === 'pending' || active?.key === 'history';
+  const isHistoryTab = active?.key === 'history';
 
   const filtered = useMemo(
     () =>
@@ -323,7 +347,13 @@ export function ShiftConfigChangePendingPanel({ onChanged }: { onChanged?: () =>
                 )
               }
               iconPosition="start"
-              label={t.key === 'history' ? `Lịch sử (${t.list.length})` : t.label}
+              label={
+                t.key === 'history'
+                  ? historyLoaded
+                    ? `Lịch sử (${t.list.length})`
+                    : 'Lịch sử'
+                  : t.label
+              }
             />
           ))}
         </Tabs>
@@ -331,9 +361,13 @@ export function ShiftConfigChangePendingPanel({ onChanged }: { onChanged?: () =>
 
       <RequestListTable
         rows={rows}
-        loading={listLoading}
+        loading={listLoading || (active?.key === 'mine' && mineLoading)}
         emptyTitle="Không có đề xuất"
-        emptyHint="Khi trưởng khoa gửi đề xuất chỉnh ca, đơn sẽ xuất hiện tại đây."
+        emptyHint={
+          isHistoryTab
+            ? 'Mặc định xem đề xuất trong tháng hiện tại. Đổi khoảng ngày để xem thêm.'
+            : 'Khi trưởng khoa gửi đề xuất chỉnh ca, đơn sẽ xuất hiện tại đây.'
+        }
         actionBusyId={actionBusyId}
         bulkBusy={bulkBusy}
         toolbar={
@@ -342,6 +376,11 @@ export function ShiftConfigChangePendingPanel({ onChanged }: { onChanged?: () =>
             onChange={setFilters}
             statusOptions={statusOptions}
             resultCount={filtered.length}
+            resetFilters={filterReset}
+            clearLabel={clearLabel}
+            title={
+              isHistoryTab ? 'Bộ lọc lịch sử (mặc định tháng này)' : 'Bộ lọc đơn'
+            }
           />
         }
         onView={(row) => {

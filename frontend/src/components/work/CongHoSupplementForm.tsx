@@ -5,11 +5,11 @@ import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
 import WbTwilightIcon from '@mui/icons-material/WbTwilight';
 import { Alert, Box, Button, Chip, CircularProgress, Grid, Stack, TextField, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DatePickerField, TimePickerField, dateTimeFieldSx } from '../ui/DateTimeFields';
 import { FormSection, InfoBanner, SelectableChip } from './WorkRequestFormUi';
 import * as att from '../../services/attendanceService';
-import { scheduleForDate } from '../../utils/shiftSchedule';
+import { scheduleForDate, type ShiftScheduleInfo } from '../../utils/shiftSchedule';
 
 type Props = {
   open: boolean;
@@ -25,6 +25,21 @@ const fieldSx = dateTimeFieldSx;
 function timeShort(v?: string): string {
   if (!v) return '';
   return v.length >= 5 ? v.slice(0, 5) : v;
+}
+
+function applyScheduleTimes(
+  sch: ShiftScheduleInfo,
+  setters: {
+    setMorningStart: (v: string) => void;
+    setMorningEnd: (v: string) => void;
+    setAfternoonStart: (v: string) => void;
+    setAfternoonEnd: (v: string) => void;
+  },
+) {
+  setters.setMorningStart(sch.morningStart);
+  setters.setMorningEnd(sch.morningEnd);
+  setters.setAfternoonStart(sch.afternoonStart);
+  setters.setAfternoonEnd(sch.afternoonEnd);
 }
 
 function ShiftTimeBlock({
@@ -86,14 +101,16 @@ export function CongHoSupplementForm({
 }: Props) {
   const theme = useTheme();
   const accent = theme.palette.success.main;
+  const bootstrappingRef = useRef(false);
 
   const [workDate, setWorkDate] = useState(initialWorkDate);
   const [updateKind, setUpdateKind] = useState<string>('MORNING_SUPPLEMENT');
   const [reason, setReason] = useState('');
-  const [morningStart, setMorningStart] = useState('07:00');
-  const [morningEnd, setMorningEnd] = useState('12:00');
-  const [afternoonStart, setAfternoonStart] = useState('14:00');
-  const [afternoonEnd, setAfternoonEnd] = useState('17:00');
+  const [schedule, setSchedule] = useState<ShiftScheduleInfo>(() => scheduleForDate(initialWorkDate));
+  const [morningStart, setMorningStart] = useState(() => scheduleForDate(initialWorkDate).morningStart);
+  const [morningEnd, setMorningEnd] = useState(() => scheduleForDate(initialWorkDate).morningEnd);
+  const [afternoonStart, setAfternoonStart] = useState(() => scheduleForDate(initialWorkDate).afternoonStart);
+  const [afternoonEnd, setAfternoonEnd] = useState(() => scheduleForDate(initialWorkDate).afternoonEnd);
   const [loading, setLoading] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(false);
   const [existing, setExisting] = useState(false);
@@ -101,61 +118,78 @@ export function CongHoSupplementForm({
   const [skipScheduleReset, setSkipScheduleReset] = useState(false);
 
   const isFullDay = updateKind === 'FULL_DAY_SUPPLEMENT';
+  const timeSetters = { setMorningStart, setMorningEnd, setAfternoonStart, setAfternoonEnd };
 
   useEffect(() => {
     if (!open) return;
+    bootstrappingRef.current = true;
     setWorkDate(initialWorkDate);
     setErr(null);
     setExisting(false);
     setLoadingExisting(true);
-    const sch = scheduleForDate(initialWorkDate);
     setUpdateKind('MORNING_SUPPLEMENT');
     setReason('');
-    setMorningStart(sch.morningStart);
-    setMorningEnd(sch.morningEnd);
-    setAfternoonStart(sch.afternoonStart);
-    setAfternoonEnd(sch.afternoonEnd);
+    const fallback = scheduleForDate(initialWorkDate);
+    setSchedule(fallback);
+    applyScheduleTimes(fallback, timeSetters);
 
     let cancelled = false;
-    att
-      .fetchCongHoSupplement(employeeId, initialWorkDate)
-      .then((info) => {
+    Promise.all([
+      att.fetchShiftSchedule(initialWorkDate, employeeId).catch(() => fallback),
+      att.fetchCongHoSupplement(employeeId, initialWorkDate).catch(() => ({ exists: false as const })),
+    ])
+      .then(([sch, info]) => {
         if (cancelled) return;
-        if (!info.exists) {
-          setExisting(false);
+        setSchedule(sch);
+        if (info.exists) {
+          setExisting(true);
+          setSkipScheduleReset(true);
+          if (info.updateKind) setUpdateKind(info.updateKind);
+          setReason(info.reason ?? '');
+          if (info.morningCheckIn) setMorningStart(timeShort(info.morningCheckIn));
+          if (info.morningCheckOut) setMorningEnd(timeShort(info.morningCheckOut));
+          if (info.afternoonCheckIn) setAfternoonStart(timeShort(info.afternoonCheckIn));
+          if (info.afternoonCheckOut) setAfternoonEnd(timeShort(info.afternoonCheckOut));
           return;
         }
-        setExisting(true);
-        setSkipScheduleReset(true);
-        if (info.updateKind) setUpdateKind(info.updateKind);
-        setReason(info.reason ?? '');
-        if (info.morningCheckIn) setMorningStart(timeShort(info.morningCheckIn));
-        if (info.morningCheckOut) setMorningEnd(timeShort(info.morningCheckOut));
-        if (info.afternoonCheckIn) setAfternoonStart(timeShort(info.afternoonCheckIn));
-        if (info.afternoonCheckOut) setAfternoonEnd(timeShort(info.afternoonCheckOut));
-      })
-      .catch(() => {
-        if (!cancelled) setExisting(false);
+        setExisting(false);
+        applyScheduleTimes(sch, timeSetters);
       })
       .finally(() => {
-        if (!cancelled) setLoadingExisting(false);
+        if (!cancelled) {
+          setLoadingExisting(false);
+          bootstrappingRef.current = false;
+        }
       });
     return () => {
       cancelled = true;
+      bootstrappingRef.current = false;
     };
   }, [open, initialWorkDate, employeeId]);
 
   useEffect(() => {
-    if (!open || skipScheduleReset) {
-      setSkipScheduleReset(false);
+    if (!open || bootstrappingRef.current || skipScheduleReset) {
+      if (skipScheduleReset) setSkipScheduleReset(false);
       return;
     }
-    const sch = scheduleForDate(workDate);
-    setMorningStart(sch.morningStart);
-    setMorningEnd(sch.morningEnd);
-    setAfternoonStart(sch.afternoonStart);
-    setAfternoonEnd(sch.afternoonEnd);
-  }, [workDate, updateKind]);
+    let cancelled = false;
+    const fallback = scheduleForDate(workDate);
+    att
+      .fetchShiftSchedule(workDate, employeeId)
+      .then((sch) => {
+        if (cancelled) return;
+        setSchedule(sch);
+        applyScheduleTimes(sch, timeSetters);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSchedule(fallback);
+        applyScheduleTimes(fallback, timeSetters);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workDate, updateKind, employeeId, open]);
 
   async function handleSave() {
     setLoading(true);
@@ -202,7 +236,7 @@ export function CongHoSupplementForm({
 
   if (!open) return null;
 
-  const sch = scheduleForDate(workDate);
+  const sch = schedule;
   const scheduleHint =
     isFullDay
       ? `${sch.seasonLabel}: ${sch.morningStart}–${sch.morningEnd} · ${sch.afternoonStart}–${sch.afternoonEnd}`
@@ -262,7 +296,7 @@ export function CongHoSupplementForm({
             </Stack>
           </FormSection>
 
-          <FormSection title="Khung giờ công" subtitle="Điều chỉnh nếu khác với lịch ca mặc định.">
+          <FormSection title="Khung giờ công" subtitle="Theo lịch ca của nhân viên — chỉnh nếu khác khung giờ thực tế.">
             <Box
               sx={{
                 p: 2,

@@ -17,13 +17,24 @@ class AttendanceRequestsState {
     this.history = const [],
     this.loading = false,
     this.error,
+    this.historyMonth,
+    this.historyLoading = false,
+    this.historyLoaded = false,
   });
 
   final List<AttendanceWorkRequest> mine;
   final List<AttendanceWorkRequest> pending;
+
+  /// Lịch sử đã xử lý của [historyMonth]. Chỉ tải khi người dùng mở tab
+  /// "Đã xử lý" — endpoint này nặng nhất nên không kéo sẵn khi mở màn.
   final List<AttendanceWorkRequest> history;
   final bool loading;
   final String? error;
+
+  /// Tháng (ngày 1) đang xem ở tab lịch sử; `null` khi chưa mở tab.
+  final DateTime? historyMonth;
+  final bool historyLoading;
+  final bool historyLoaded;
 
   AttendanceRequestsState copyWith({
     List<AttendanceWorkRequest>? mine,
@@ -32,6 +43,9 @@ class AttendanceRequestsState {
     bool? loading,
     String? error,
     bool clearError = false,
+    DateTime? historyMonth,
+    bool? historyLoading,
+    bool? historyLoaded,
   }) {
     return AttendanceRequestsState(
       mine: mine ?? this.mine,
@@ -39,6 +53,9 @@ class AttendanceRequestsState {
       history: history ?? this.history,
       loading: loading ?? this.loading,
       error: clearError ? null : (error ?? this.error),
+      historyMonth: historyMonth ?? this.historyMonth,
+      historyLoading: historyLoading ?? this.historyLoading,
+      historyLoaded: historyLoaded ?? this.historyLoaded,
     );
   }
 }
@@ -46,7 +63,7 @@ class AttendanceRequestsState {
 class AttendanceRequestsController
     extends StateNotifier<AttendanceRequestsState> {
   AttendanceRequestsController(this._ref, this._repository)
-      : super(const AttendanceRequestsState()) {
+    : super(const AttendanceRequestsState()) {
     refreshAll();
   }
 
@@ -72,29 +89,26 @@ class AttendanceRequestsController
 
   Future<void> _load({required bool showError}) async {
     try {
-      final mine = await _repository.myRequests();
-
-      var pending = const <AttendanceWorkRequest>[];
-      var history = const <AttendanceWorkRequest>[];
-
-      // Backend trả 403 cho nhân viên thường ở pending/review-history —
-      // chỉ gọi khi có quyền duyệt (giống web).
-      if (_canApprove) {
-        final results = await Future.wait([
-          _safeList(_repository.pendingRequests()),
-          _safeList(_repository.reviewHistory()),
-        ]);
-        pending = results[0];
-        history = results[1];
-      }
+      // Gọi song song thay vì chờ "đơn của tôi" xong mới gọi hàng đợi duyệt.
+      // Backend trả 403 cho nhân viên thường ở pending — chỉ gọi khi có quyền.
+      final canApprove = _canApprove;
+      final results = await Future.wait([
+        _repository.myRequests(),
+        if (canApprove) _safeList(_repository.pendingRequests()),
+      ]);
+      final mine = results[0];
+      final pending = canApprove ? results[1] : const <AttendanceWorkRequest>[];
 
       state = state.copyWith(
         mine: mine,
         pending: pending,
-        history: history,
         loading: false,
         clearError: true,
       );
+      // Lịch sử đã mở trước đó thì làm mới cùng tháng, không thì để dành.
+      if (canApprove && state.historyLoaded && state.historyMonth != null) {
+        await loadHistory(month: state.historyMonth);
+      }
     } on ApiException catch (e) {
       state = state.copyWith(
         loading: false,
@@ -105,6 +119,38 @@ class AttendanceRequestsController
         loading: false,
         error: showError ? 'Không tải được danh sách đơn' : state.error,
       );
+    }
+  }
+
+  /// Tải lịch sử đã xử lý của một tháng (mặc định tháng hiện tại).
+  ///
+  /// Backend trả toàn bộ lịch sử nếu không truyền ngày, nên luôn gửi cửa sổ
+  /// tháng — giống web, và là lý do chính màn đơn từng tải rất lâu.
+  Future<void> loadHistory({DateTime? month}) async {
+    if (!_canApprove) return;
+    final now = DateTime.now();
+    final target = DateTime(
+      (month ?? state.historyMonth ?? now).year,
+      (month ?? state.historyMonth ?? now).month,
+    );
+    state = state.copyWith(historyMonth: target, historyLoading: true);
+    try {
+      final rows = await _safeList(
+        _repository.reviewHistory(
+          from: target,
+          to: DateTime(target.year, target.month + 1, 0),
+        ),
+      );
+      // Người dùng đổi tháng trong lúc đang tải thì bỏ kết quả cũ.
+      if (state.historyMonth != target) return;
+      state = state.copyWith(
+        history: rows,
+        historyLoading: false,
+        historyLoaded: true,
+      );
+    } catch (_) {
+      if (state.historyMonth != target) return;
+      state = state.copyWith(historyLoading: false, historyLoaded: true);
     }
   }
 
@@ -171,9 +217,7 @@ class AttendanceRequestsController
   }) async {
     final slug = AttendanceEnums.reviewEndpointFor(request.status);
     if (slug == null) {
-      state = state.copyWith(
-        error: 'Đơn không còn ở bước chờ duyệt của bạn',
-      );
+      state = state.copyWith(error: 'Đơn không còn ở bước chờ duyệt của bạn');
       return false;
     }
     try {
@@ -216,13 +260,15 @@ class AttendanceRequestsController
         continue;
       }
       try {
-        final applyWaive = approved &&
+        final applyWaive =
+            approved &&
             waiveForgotFine != null &&
             (request.status == 'PENDING_HR' ||
                 request.status == 'PENDING_DIRECTOR') &&
             (request.requestType == 'UPDATE' ||
                 request.requestType == 'EXPLANATION');
-        final applyKeep = approved &&
+        final applyKeep =
+            approved &&
             keepOriginalPunchTimes == true &&
             request.requestType == 'EXPLANATION' &&
             request.status == 'PENDING_DIRECTOR';
@@ -249,11 +295,14 @@ class AttendanceRequestsController
   }
 }
 
-final attendanceRequestsControllerProvider = StateNotifierProvider<
-    AttendanceRequestsController, AttendanceRequestsState>((ref) {
-  ref.watch(sessionEpochProvider);
-  return AttendanceRequestsController(
-    ref,
-    ref.watch(attendanceRepositoryProvider),
-  );
-});
+final attendanceRequestsControllerProvider =
+    StateNotifierProvider<
+      AttendanceRequestsController,
+      AttendanceRequestsState
+    >((ref) {
+      ref.watch(sessionEpochProvider);
+      return AttendanceRequestsController(
+        ref,
+        ref.watch(attendanceRepositoryProvider),
+      );
+    });

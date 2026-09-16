@@ -10,6 +10,7 @@ import com.minhan.hrm.repository.EmployeeSalaryProfileRepository;
 import com.minhan.hrm.repository.EmployeeWorkforceDetailsRepository;
 import com.minhan.hrm.repository.SalaryInfoRepository;
 import com.minhan.hrm.salary.SalaryAmounts;
+import com.minhan.hrm.service.support.DateRangeSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -91,7 +92,8 @@ public class DutyShiftService {
     public List<Map<String, Object>> listForEmployee(Long employeeId, LocalDate from, LocalDate to) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
         assertCanView(emp);
-        return dutyShiftEntryRepository.findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(emp, from, to)
+        LocalDate effectiveTo = DateRangeSupport.normalizeMonthEndInclusive(from, to);
+        return dutyShiftEntryRepository.findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(emp, from, effectiveTo)
                 .stream()
                 .map(e -> toMap(emp, e))
                 .toList();
@@ -101,7 +103,8 @@ public class DutyShiftService {
     public Map<String, Object> monthTotals(Long employeeId, LocalDate from, LocalDate to) {
         Employee emp = employeeService.requireEmployeeEntity(employeeId);
         assertCanView(emp);
-        return rollup(emp, dutyShiftEntryRepository.findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(emp, from, to));
+        LocalDate effectiveTo = DateRangeSupport.normalizeMonthEndInclusive(from, to);
+        return rollup(emp, dutyShiftEntryRepository.findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(emp, from, effectiveTo));
     }
 
     @Transactional

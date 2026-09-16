@@ -378,6 +378,7 @@ public class WorkforceExcelExportService {
             CreationHelper helper = wb.getCreationHelper();
 
             XSSFFont titleFont = wb.createFont();
+            titleFont.setFontName("Times New Roman");
             titleFont.setBold(true);
             titleFont.setFontHeightInPoints((short) 12);
             title = wb.createCellStyle();
@@ -385,6 +386,7 @@ public class WorkforceExcelExportService {
             title.setVerticalAlignment(VerticalAlignment.CENTER);
 
             XSSFFont headerFont = wb.createFont();
+            headerFont.setFontName("Times New Roman");
             headerFont.setBold(true);
             headerFont.setColor(IndexedColors.WHITE.getIndex());
             header = wb.createCellStyle();
@@ -396,7 +398,11 @@ public class WorkforceExcelExportService {
             header.setWrapText(true);
             setBorder(header);
 
+            XSSFFont bodyFont = wb.createFont();
+            bodyFont.setFontName("Times New Roman");
+            bodyFont.setFontHeightInPoints((short) 11);
             text = wb.createCellStyle();
+            text.setFont(bodyFont);
             text.setVerticalAlignment(VerticalAlignment.CENTER);
             setBorder(text);
 

@@ -120,7 +120,7 @@ export default function SalaryGradeReviewPage() {
       <PageHeader
         overline="Lương"
         title="Nâng bậc lương"
-        description="Theo dõi nhân viên đến kỳ nâng bậc trong tháng, mức lương dự kiến và chênh lệch sau nâng bậc."
+        description="Chỉ liệt kê nhân viên khi bậc lương theo thang/thâm niên thật sự tăng trong tháng (vd. sang khoảng 2–4 năm → Bậc 2). Không hiện khi mới đủ 1 năm nhưng vẫn cùng Bậc 1 (0–2 năm)."
         actions={unlocked ? <Button variant="contained" startIcon={<DownloadOutlinedIcon />} disabled={exporting || loading} onClick={exportExcel}>{exporting ? 'Đang xuất…' : 'Xuất Excel'}</Button> : undefined}
       />
 

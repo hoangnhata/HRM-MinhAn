@@ -15,6 +15,7 @@ import com.minhan.hrm.repository.AttendanceRecordRepository;
 import com.minhan.hrm.repository.AttendanceWorkRequestRepository;
 import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.EmployeeSalaryProfileRepository;
+import com.minhan.hrm.repository.EmployeeWorkforceDetailsRepository;
 import com.minhan.hrm.repository.SeminarProposalRequestRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,8 @@ class AttendanceSummaryServiceReportScopeTest {
     private AttendanceWorkRequestRepository workRequestRepository;
     @Mock
     private EmployeeRepository employeeRepository;
+    @Mock
+    private EmployeeWorkforceDetailsRepository employeeWorkforceDetailsRepository;
     @Mock
     private EmployeeService employeeService;
     @Mock
@@ -108,6 +111,9 @@ class AttendanceSummaryServiceReportScopeTest {
         org.mockito.Mockito.lenient()
                 .when(salaryProfileRepository.findByEmployee(any(Employee.class)))
                 .thenReturn(Optional.empty());
+        org.mockito.Mockito.lenient()
+                .when(employeeWorkforceDetailsRepository.findByEmployeeIn(anyList()))
+                .thenReturn(List.of());
         org.mockito.Mockito.lenient()
                 .when(youngChildHoursService.datesForEmployee(
                         anyLong(), any(LocalDate.class), any(LocalDate.class)))
@@ -201,6 +207,26 @@ class AttendanceSummaryServiceReportScopeTest {
                 .compareTo(new BigDecimal("1.00")));
         assertEquals(0, ((BigDecimal) summary.get("leaveWorkUnits"))
                 .compareTo(new BigDecimal("1.00")));
+        assertEquals(0, ((BigDecimal) summary.get("deploymentWorkUnits"))
+                .compareTo(BigDecimal.ZERO));
+    }
+
+    @Test
+    void summarySeparatesDeploymentFromClockedWork() {
+        when(employeeService.requireEmployeeEntity(ownEmployee.getId())).thenReturn(ownEmployee);
+        AttendanceRecord present = attendanceRecord(ownEmployee, LocalDate.of(2026, 7, 1), "PRESENT", "0.67", "0.33");
+        present.setOvertimeWorkUnits(new BigDecimal("0.50"));
+        when(attendanceRecordRepository.findByEmployeeAndWorkDateBetweenOrderByWorkDateAsc(
+                eq(ownEmployee), any(LocalDate.class), any(LocalDate.class))).thenReturn(List.of(present));
+
+        Map<String, Object> summary = service.employeeMonthSummary(ownEmployee.getId(), 2026, 7);
+
+        assertEquals(0, ((BigDecimal) summary.get("clockedWorkUnits"))
+                .compareTo(new BigDecimal("1.00")));
+        assertEquals(0, ((BigDecimal) summary.get("deploymentWorkUnits"))
+                .compareTo(new BigDecimal("0.50")));
+        assertEquals(0, ((BigDecimal) summary.get("attendanceWorkUnits"))
+                .compareTo(new BigDecimal("1.50")));
     }
 
     private static Employee employee(Long id, String code, String name, Department department) {

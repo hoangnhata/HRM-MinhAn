@@ -45,7 +45,7 @@ export default function EvaluationsPage() {
         description={
           isEmployeeOnly
             ? 'Xem mẫu đánh giá xếp loại sau khi Trưởng khoa/ĐDT → Trưởng phòng ĐD → HCNS → Giám đốc duyệt xong.'
-            : 'Trưởng khoa / ĐDT khoa lập + chấm + ký → Trưởng phòng Điều dưỡng duyệt ký → HCNS duyệt ký → Giám đốc duyệt ký. Chỉ áp dụng khối ĐD–KTV–HS–Thư ký (phạm vi khoa/bộ phận của người lập).'
+            : 'Trưởng khoa / ĐDT khoa lập + chấm + ký → Trưởng phòng Điều dưỡng duyệt ký → HCNS duyệt ký → Giám đốc duyệt ký. Khối ĐD–KTV–HS–Thư ký; thêm Nhân viên khoa YHCT / Khoa khám bệnh và Dược sĩ khoa YHCT (phạm vi khoa/bộ phận của người lập).'
         }
         actions={
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>

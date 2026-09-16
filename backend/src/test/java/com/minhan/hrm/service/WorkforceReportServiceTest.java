@@ -14,6 +14,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -36,7 +37,10 @@ class WorkforceReportServiceTest {
         employeeRepository = mock(EmployeeRepository.class);
         attendanceRepository = mock(AttendanceRecordRepository.class);
         DepartmentRepository departmentRepository = mock(DepartmentRepository.class);
-        service = new WorkforceReportService(employeeRepository, attendanceRepository, departmentRepository);
+        ContinuousShiftService continuousShiftService = mock(ContinuousShiftService.class);
+        when(continuousShiftService.dayKeysForEmployees(any(), any(), any())).thenReturn(Set.of());
+        service = new WorkforceReportService(
+                employeeRepository, attendanceRepository, departmentRepository, continuousShiftService);
         Department department = Department.builder().id(1L).name("KHOA KHÁM BỆNH").build();
         when(departmentRepository.findAll(any(org.springframework.data.domain.Sort.class)))
                 .thenReturn(List.of(department));
@@ -105,6 +109,8 @@ class WorkforceReportServiceTest {
     @Test
     void dailyReportCountsOnlyEmployeesActuallyWorking() {
         AttendanceRecord present = attendance(nurse, "PRESENT", new BigDecimal("1.0"));
+        present.setMorningCheckIn(LocalTime.of(7, 0));
+        present.setAfternoonCheckOut(LocalTime.of(17, 0));
         AttendanceRecord leave = attendance(trialDoctor, "LEAVE", BigDecimal.ONE);
         when(attendanceRepository.findByWorkDateBetweenWithEmployee(DATE, DATE))
                 .thenReturn(List.of(present, leave));
@@ -175,6 +181,40 @@ class WorkforceReportServiceTest {
     }
 
     @Test
+    void dailyReportIgnoresSameMinuteCheckOut() {
+        AttendanceRecord row = attendance(nurse, "PRESENT", BigDecimal.ONE);
+        row.setMorningCheckIn(LocalTime.of(6, 54, 0));
+        row.setAfternoonCheckOut(LocalTime.of(6, 54, 40)); // cùng phút HH:mm — bỏ
+        when(attendanceRepository.findByWorkDateBetweenWithEmployee(DATE, DATE))
+                .thenReturn(List.of(row));
+
+        Map<String, Object> report = service.dailyReport(DATE);
+
+        @SuppressWarnings("unchecked") List<Map<String, Object>> details =
+                (List<Map<String, Object>>) report.get("details");
+        assertEquals("06:54", details.get(0).get("checkIn"));
+        assertNull(details.get(0).get("checkOut"));
+    }
+
+    @Test
+    void dailyReportIgnoresEqualCheckInAndCheckOut() {
+        AttendanceRecord row = attendance(nurse, "ABSENT", BigDecimal.ZERO);
+        row.setMorningCheckIn(LocalTime.of(6, 54));
+        row.setMorningCheckOut(LocalTime.of(6, 54));
+        row.setCheckIn(LocalTime.of(6, 54));
+        row.setCheckOut(LocalTime.of(6, 54));
+        when(attendanceRepository.findByWorkDateBetweenWithEmployee(DATE, DATE))
+                .thenReturn(List.of(row));
+
+        Map<String, Object> report = service.dailyReport(DATE);
+
+        @SuppressWarnings("unchecked") List<Map<String, Object>> details =
+                (List<Map<String, Object>>) report.get("details");
+        assertEquals("06:54", details.get(0).get("checkIn"));
+        assertNull(details.get(0).get("checkOut"));
+    }
+
+    @Test
     void dailyReportContinuousShiftUsesDayInAndDayOut() {
         // Ca thông tầm: morningCheckIn + afternoonCheckOut (không có ca giữa trưa)
         AttendanceRecord row = attendance(nurse, "PRESENT", BigDecimal.ONE);
@@ -215,8 +255,11 @@ class WorkforceReportServiceTest {
 
     @Test
     void dailyExportBuildsDynamicPositionColumnsAndAddsAttendanceDetail() throws Exception {
+        AttendanceRecord present = attendance(nurse, "PRESENT", BigDecimal.ONE);
+        present.setMorningCheckIn(LocalTime.of(7, 0));
+        present.setAfternoonCheckOut(LocalTime.of(17, 0));
         when(attendanceRepository.findByWorkDateBetweenWithEmployee(DATE, DATE))
-                .thenReturn(List.of(attendance(nurse, "PRESENT", BigDecimal.ONE)));
+                .thenReturn(List.of(present));
 
         byte[] file = service.exportDailyExcel(DATE);
 
@@ -225,8 +268,9 @@ class WorkforceReportServiceTest {
                     workbook.getSheetAt(0).getRow(0).getCell(0).getStringCellValue());
             assertTrue(workbook.getSheetAt(0).getRow(2).getCell(0).getStringCellValue().contains("THỰC TẾ CÓ MẶT"));
             assertEquals("TỔNG", workbook.getSheetAt(0).getRow(5).getCell(4).getStringCellValue());
-            assertEquals("Trạng thái công", workbook.getSheetAt(1).getRow(3).getCell(10).getStringCellValue());
-            assertEquals("0.00", workbook.getSheetAt(1).getRow(4).getCell(8).getCellStyle().getDataFormatString());
+            assertEquals("Ca", workbook.getSheetAt(1).getRow(3).getCell(6).getStringCellValue());
+            assertEquals("Trạng thái công", workbook.getSheetAt(1).getRow(3).getCell(11).getStringCellValue());
+            assertEquals("0.00", workbook.getSheetAt(1).getRow(4).getCell(9).getCellStyle().getDataFormatString());
             assertTrue(workbook.getSheetAt(1).getPaneInformation().isFreezePane());
         }
     }

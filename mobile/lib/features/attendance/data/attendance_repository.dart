@@ -14,11 +14,7 @@ class AttendanceRepository {
   }) async {
     final response = await _client.get<Map<String, dynamic>>(
       '/v1/attendance/report/matrix',
-      query: {
-        'year': year,
-        'month': month,
-        ?'departmentId': departmentId,
-      },
+      query: {'year': year, 'month': month, ?'departmentId': departmentId},
     );
     return AttendanceMonthMatrix.fromJson(response.data ?? const {});
   }
@@ -36,11 +32,8 @@ class AttendanceRepository {
   }
 
   /// Chi tiết tháng (summary + days kèm youngChild/deployment) — đồng bộ web.
-  Future<({AttendanceMonthSummary summary, List<AttendanceDay> days})> monthDetail(
-    int employeeId,
-    int year,
-    int month,
-  ) async {
+  Future<({AttendanceMonthSummary summary, List<AttendanceDay> days})>
+  monthDetail(int employeeId, int year, int month) async {
     final response = await _client.get<Map<String, dynamic>>(
       '/v1/attendance/employees/$employeeId/detail',
       query: {'year': year, 'month': month},
@@ -49,14 +42,11 @@ class AttendanceRepository {
     final daysRaw = data['days'];
     final days = daysRaw is List
         ? daysRaw
-            .whereType<Map>()
-            .map((e) => AttendanceDay.fromJson(Map<String, dynamic>.from(e)))
-            .toList()
+              .whereType<Map>()
+              .map((e) => AttendanceDay.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
         : <AttendanceDay>[];
-    return (
-      summary: AttendanceMonthSummary.fromJson(data),
-      days: days,
-    );
+    return (summary: AttendanceMonthSummary.fromJson(data), days: days);
   }
 
   Future<List<DutyShiftEntry>> dutyShifts({
@@ -76,7 +66,9 @@ class AttendanceRepository {
   Future<List<DutyShiftTypeOption>> dutyShiftTypes({int? employeeId}) async {
     final response = await _client.get<List<dynamic>>(
       '/v1/attendance/duty-shifts/types',
-      query: employeeId != null && employeeId > 0 ? {'employeeId': employeeId} : null,
+      query: employeeId != null && employeeId > 0
+          ? {'employeeId': employeeId}
+          : null,
     );
     return (response.data ?? [])
         .map((e) => DutyShiftTypeOption.fromJson(e as Map<String, dynamic>))
@@ -105,7 +97,10 @@ class AttendanceRepository {
   Future<void> bulkUpsertDutyShifts({
     required DateTime workDate,
     String? note,
-    required List<({int employeeId, String shiftTypeCode, String? roleTierCode})> items,
+    required List<
+      ({int employeeId, String shiftTypeCode, String? roleTierCode})
+    >
+    items,
   }) async {
     await _client.post(
       '/v1/attendance/duty-shifts/bulk',
@@ -117,9 +112,10 @@ class AttendanceRepository {
             {
               'employeeId': item.employeeId,
               'shiftTypeCode': item.shiftTypeCode,
-              if (item.roleTierCode != null && item.roleTierCode!.trim().isNotEmpty)
+              if (item.roleTierCode != null &&
+                  item.roleTierCode!.trim().isNotEmpty)
                 'roleTierCode': item.roleTierCode!.trim(),
-            }
+            },
         ],
       },
     );
@@ -129,14 +125,17 @@ class AttendanceRepository {
   Future<({int successCount, List<String> errors})> bulkDeployment({
     required DateTime workDate,
     required String reason,
-    required List<({
-      int employeeId,
-      String shiftScope,
-      String requestedStart,
-      String requestedEnd,
-      String? requestedAfternoonStart,
-      String? requestedAfternoonEnd,
-    })> items,
+    required List<
+      ({
+        int employeeId,
+        String shiftScope,
+        String requestedStart,
+        String requestedEnd,
+        String? requestedAfternoonStart,
+        String? requestedAfternoonEnd,
+      })
+    >
+    items,
   }) async {
     int successCount = 0;
     final errors = <String>[];
@@ -241,12 +240,18 @@ class AttendanceRepository {
     );
   }
 
-  Future<List<AttendanceDay>> dayRange(int employeeId, DateTime from, DateTime to) async {
+  Future<List<AttendanceDay>> dayRange(
+    int employeeId,
+    DateTime from,
+    DateTime to,
+  ) async {
     final response = await _client.get<List<dynamic>>(
       '/v1/attendance/employees/$employeeId',
       query: {'from': _fmt(from), 'to': _fmt(to)},
     );
-    return (response.data ?? []).map((e) => AttendanceDay.fromJson(e as Map<String, dynamic>)).toList();
+    return (response.data ?? [])
+        .map((e) => AttendanceDay.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<LeaveBalance> leaveBalance({int? year}) async {
@@ -258,18 +263,43 @@ class AttendanceRepository {
   }
 
   Future<List<AttendanceWorkRequest>> myRequests() async {
-    final response = await _client.get<List<dynamic>>('/v1/attendance/requests/mine');
-    return (response.data ?? []).map((e) => AttendanceWorkRequest.fromJson(e as Map<String, dynamic>)).toList();
+    final response = await _client.get<List<dynamic>>(
+      '/v1/attendance/requests/mine',
+    );
+    return (response.data ?? [])
+        .map((e) => AttendanceWorkRequest.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<List<AttendanceWorkRequest>> pendingRequests() async {
-    final response = await _client.get<List<dynamic>>('/v1/attendance/requests/pending');
-    return (response.data ?? []).map((e) => AttendanceWorkRequest.fromJson(e as Map<String, dynamic>)).toList();
+    final response = await _client.get<List<dynamic>>(
+      '/v1/attendance/requests/pending',
+    );
+    return (response.data ?? [])
+        .map((e) => AttendanceWorkRequest.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
-  Future<List<AttendanceWorkRequest>> reviewHistory() async {
-    final response = await _client.get<List<dynamic>>('/v1/attendance/requests/review-history');
-    return (response.data ?? []).map((e) => AttendanceWorkRequest.fromJson(e as Map<String, dynamic>)).toList();
+  /// Lịch sử duyệt trong khoảng ngày tạo đơn [from, to]. Không truyền thì
+  /// backend tự giới hạn tháng hiện tại.
+  Future<List<AttendanceWorkRequest>> reviewHistory({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    String ymd(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+    final response = await _client.get<List<dynamic>>(
+      '/v1/attendance/requests/review-history',
+      query: {
+        if (from != null) 'fromDate': ymd(from),
+        if (to != null) 'toDate': ymd(to),
+      },
+    );
+    return (response.data ?? [])
+        .map((e) => AttendanceWorkRequest.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   /// Lịch ca của một ngày (tự nhận mùa hè/đông, ca thông tầm, nuôi con nhỏ).

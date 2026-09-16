@@ -10,7 +10,9 @@ import com.minhan.hrm.repository.AttendanceRecordRepository;
 import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.SeminarProposalRequestRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
+import com.minhan.hrm.service.support.CreatedAtRange;
 import com.minhan.hrm.service.support.RequestEditSupport;
+import com.minhan.hrm.security.ApprovalAuthority;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -158,12 +160,43 @@ public class SeminarProposalService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listReviewHistory() {
+    public List<Map<String, Object>> listReviewHistory(LocalDate fromDate, LocalDate toDate) {
         UserAccount actor = ensureCanView();
         return proposalRepository.findReviewHistoryWithDetails().stream()
-                .filter(row -> employeeService.matchesHrReviewScope(actor, row.getEmployee()))
+                .filter(row -> CreatedAtRange.matches(row.getCreatedAt(), fromDate, toDate))
+                .filter(row -> touchedByActorStage(actor, row))
                 .map(this::toMap)
                 .toList();
+    }
+
+    /**
+     * Lịch sử của một người duyệt là những phiếu bước của họ đã xử lý — gồm cả
+     * phiếu HCNS đã duyệt mà đang chờ Giám đốc. Bản cũ loại mọi trạng thái
+     * PENDING_* nên duyệt xong chuyển bước là phiếu biến mất khỏi tab lịch sử.
+     */
+    private boolean touchedByActorStage(UserAccount actor, SeminarProposalRequest row) {
+        SeminarProposalStatus status = row.getStatus();
+        if (actor.getRole() == UserRole.ADMIN) {
+            return true;
+        }
+        if (!employeeService.matchesHrReviewScope(actor, row.getEmployee())) {
+            return false;
+        }
+        boolean hrTouched = row.getHrReviewedAt() != null || status != SeminarProposalStatus.PENDING_HR;
+        boolean directorTouched = row.getDirectorReviewedAt() != null
+                || status == SeminarProposalStatus.DIRECTOR_REJECTED
+                || status == SeminarProposalStatus.APPROVED
+                || status == SeminarProposalStatus.COMPLETED;
+        boolean isHr = actor.getRole() != null && actor.getRole().isHr2();
+        boolean isDirector = ApprovalAuthority.isDirectorApprover(actor);
+        if (isHr && hrTouched) {
+            return true;
+        }
+        if (isDirector && directorTouched) {
+            return true;
+        }
+        // Trưởng khoa/phòng, Trưởng phòng ĐD chỉ xem: thấy mọi phiếu đã qua xử lý trong phạm vi.
+        return !isHr && !isDirector;
     }
 
     @Transactional(readOnly = true)

@@ -1,10 +1,11 @@
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined';
 import { Box, Button, Chip, CircularProgress, Popover, Stack, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as notificationService from '../../services/notificationService';
 
@@ -20,40 +21,65 @@ export function NotificationPopover({ open, anchorEl, onClose, onCountsUpdated }
   const navigate = useNavigate();
   const [items, setItems] = useState<notificationService.AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [unreadTotal, setUnreadTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [markingAll, setMarkingAll] = useState(false);
+  // Đánh số mỗi lượt tải để kết quả của lượt cũ (đóng/mở nhanh) không đè lên lượt mới.
+  const requestSeq = useRef(0);
 
-  const refresh = useCallback(async () => {
+  const loadFirstPage = useCallback(async () => {
+    const seq = ++requestSeq.current;
     setLoading(true);
     try {
-      const data = await notificationService.fetchNotifications();
-      setItems(data);
+      const data = await notificationService.fetchNotificationPage(0);
+      if (seq !== requestSeq.current) return;
+      setItems(data.items);
+      setHasMore(data.hasMore);
+      setUnreadTotal(data.unread);
+      setPage(0);
     } catch {
+      if (seq !== requestSeq.current) return;
       setItems([]);
+      setHasMore(false);
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
     onCountsUpdated?.();
   }, [onCountsUpdated]);
 
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    const seq = requestSeq.current;
+    const next = page + 1;
+    setLoadingMore(true);
+    try {
+      const data = await notificationService.fetchNotificationPage(next);
+      if (seq !== requestSeq.current) return;
+      setItems((current) => {
+        // Trang sau có thể lặp thông báo vừa đổi trạng thái đọc — bỏ trùng theo id.
+        const seen = new Set(current.map((n) => n.id));
+        return [...current, ...data.items.filter((n) => !seen.has(n.id))];
+      });
+      setHasMore(data.hasMore);
+      setUnreadTotal(data.unread);
+      setPage(next);
+    } catch {
+      /* giữ danh sách hiện có */
+    } finally {
+      if (seq === requestSeq.current) setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, page]);
+
   useEffect(() => {
     if (!open) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const data = await notificationService.fetchNotifications();
-        if (!cancelled) setItems(data);
-      } catch {
-        if (!cancelled) setItems([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-      onCountsUpdated?.();
-    })();
+    void loadFirstPage();
     return () => {
-      cancelled = true;
+      // Đóng popover: vô hiệu lượt tải đang bay.
+      requestSeq.current += 1;
     };
-  }, [open, onCountsUpdated]);
+  }, [open, loadFirstPage]);
 
   async function handleActivate(n: notificationService.AppNotification) {
     const path = notificationService.resolveNotificationPath(n);
@@ -64,12 +90,14 @@ export function NotificationPopover({ open, anchorEl, onClose, onCountsUpdated }
         /* vẫn điều hướng */
       }
     }
+    setItems((current) => current.map((item) => (item.id === n.id ? { ...item, read: true } : item)));
+    setUnreadTotal((current) => (n.read ? current : Math.max(0, current - 1)));
     navigate(path);
     onClose();
-    await refresh();
+    onCountsUpdated?.();
   }
 
-  const unreadCount = items.filter((n) => !n.read).length;
+  const unreadCount = unreadTotal;
 
   async function handleMarkAllRead() {
     if (unreadCount === 0 || markingAll) return;
@@ -77,6 +105,7 @@ export function NotificationPopover({ open, anchorEl, onClose, onCountsUpdated }
     try {
       await notificationService.markAllRead();
       setItems((current) => current.map((notification) => ({ ...notification, read: true })));
+      setUnreadTotal(0);
       onCountsUpdated?.();
     } finally {
       setMarkingAll(false);
@@ -280,6 +309,21 @@ export function NotificationPopover({ open, anchorEl, onClose, onCountsUpdated }
                 </Box>
               );
             })}
+            {hasMore && (
+              <Box sx={{ px: 1.25, pt: 0.5, pb: 1 }}>
+                <Button
+                  fullWidth
+                  size="small"
+                  variant="text"
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore}
+                  startIcon={loadingMore ? <CircularProgress size={14} /> : <ExpandMoreIcon />}
+                  sx={{ borderRadius: 2, fontWeight: 700 }}
+                >
+                  {loadingMore ? 'Đang tải…' : 'Xem thông báo cũ hơn'}
+                </Button>
+              </Box>
+            )}
           </Stack>
         )}
       </Box>

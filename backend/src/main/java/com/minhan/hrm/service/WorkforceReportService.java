@@ -39,13 +39,14 @@ public class WorkforceReportService {
     private final EmployeeRepository employeeRepository;
     private final AttendanceRecordRepository attendanceRecordRepository;
     private final DepartmentRepository departmentRepository;
+    private final ContinuousShiftService continuousShiftService;
 
     @Transactional(readOnly = true)
     public Map<String, Object> hospitalReport() {
         List<Employee> employees = employeeRepository.findAllWithDepartment().stream()
                 .filter(e -> e.getStatus() != EmployeeStatus.TERMINATED)
                 .toList();
-        return buildReport("HOSPITAL", LocalDate.now(), employees, Map.of());
+        return buildReport("HOSPITAL", LocalDate.now(), employees, Map.of(), Set.of());
     }
 
     @Transactional(readOnly = true)
@@ -56,8 +57,63 @@ public class WorkforceReportService {
                 .toList();
         Map<Long, AttendanceRecord> byEmployee = new LinkedHashMap<>();
         records.forEach(r -> byEmployee.put(r.getEmployee().getId(), r));
-        List<Employee> employees = byEmployee.values().stream().map(AttendanceRecord::getEmployee).toList();
-        return buildReport("DAILY", date, employees, byEmployee);
+        List<Employee> present = byEmployee.values().stream().map(AttendanceRecord::getEmployee).toList();
+        Set<String> continuousKeys = continuousShiftService.dayKeysForEmployees(
+                byEmployee.keySet(), date, date);
+        Map<String, Object> report = buildReport("DAILY", date, present, byEmployee, continuousKeys);
+        attachAbsentLists(report, date, byEmployee.keySet());
+        return report;
+    }
+
+    /** Nhân viên còn hiệu lực nhưng không có chấm công đi làm trong ngày → nhóm theo khoa/phòng. */
+    private void attachAbsentLists(Map<String, Object> report, LocalDate date, Set<Long> presentIds) {
+        List<Employee> absentEmployees = employeeRepository.findAllWithDepartment().stream()
+                .filter(e -> e.getStatus() != EmployeeStatus.TERMINATED)
+                .filter(e -> e.getDepartment() != null)
+                .filter(e -> !presentIds.contains(e.getId()))
+                .sorted(Comparator
+                        .comparing((Employee e) -> e.getDepartment().getName(), VI_COLLATOR)
+                        .thenComparing(Employee::getFullName, VI_COLLATOR))
+                .toList();
+
+        List<Map<String, Object>> absentDetails = new ArrayList<>();
+        Map<Long, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
+        Map<Long, String> deptNames = new LinkedHashMap<>();
+
+        for (Employee employee : absentEmployees) {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("employeeId", employee.getId());
+            detail.put("employeeCode", employee.getEmployeeCode());
+            detail.put("fullName", employee.getFullName());
+            detail.put("departmentId", employee.getDepartment().getId());
+            detail.put("departmentName", employee.getDepartment().getName());
+            detail.put("positionTitle", employee.getPosition() != null ? employee.getPosition().getTitle() : null);
+            detail.put("employeeStatus", employee.getStatus().name());
+            detail.put("employmentType", employee.getEmploymentType() != null
+                    ? employee.getEmploymentType().name() : null);
+            absentDetails.add(detail);
+            Long deptId = employee.getDepartment().getId();
+            deptNames.putIfAbsent(deptId, employee.getDepartment().getName());
+            grouped.computeIfAbsent(deptId, id -> new ArrayList<>()).add(detail);
+        }
+
+        List<Map<String, Object>> absentByDepartment = new ArrayList<>();
+        for (Map.Entry<Long, List<Map<String, Object>>> e : grouped.entrySet()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("departmentId", e.getKey());
+            row.put("departmentName", deptNames.get(e.getKey()));
+            row.put("total", e.getValue().size());
+            row.put("employees", e.getValue());
+            absentByDepartment.add(row);
+        }
+        absentByDepartment.sort(Comparator.comparing(
+                r -> String.valueOf(r.get("departmentName")), VI_COLLATOR));
+
+        report.put("absentTotal", absentDetails.size());
+        report.put("absentDepartmentCount", absentByDepartment.size());
+        report.put("absentDetails", absentDetails);
+        report.put("absentByDepartment", absentByDepartment);
+        report.put("reportDate", date.toString());
     }
 
     public byte[] exportHospitalExcel() {
@@ -70,7 +126,8 @@ public class WorkforceReportService {
 
     private Map<String, Object> buildReport(
             String type, LocalDate date,
-            List<Employee> employees, Map<Long, AttendanceRecord> attendanceByEmployee) {
+            List<Employee> employees, Map<Long, AttendanceRecord> attendanceByEmployee,
+            Set<String> continuousDayKeys) {
         // Cột ma trận = chức vụ thực tế trên hồ sơ nhân viên (không gom nhóm mẫu Excel).
         List<Category> categories = categoriesFromPositions(employees);
         Map<Long, DepartmentAccumulator> departments = new LinkedHashMap<>();
@@ -95,6 +152,8 @@ public class WorkforceReportService {
             totals.computeIfPresent(category, (k, v) -> v + 1);
 
             AttendanceRecord record = attendanceByEmployee.get(employee.getId());
+            boolean continuous = continuousDayKeys.contains(
+                    ContinuousShiftService.dayKey(employee.getId(), date));
             Map<String, Object> detail = new LinkedHashMap<>();
             detail.put("employeeId", employee.getId());
             detail.put("employeeCode", employee.getEmployeeCode());
@@ -108,10 +167,12 @@ public class WorkforceReportService {
             detail.put("employmentType", employee.getEmploymentType() != null
                     ? employee.getEmploymentType().name() : null);
             detail.put("hireDate", employee.getHireDate() != null ? employee.getHireDate().toString() : null);
+            detail.put("shiftKind", continuous ? "CONTINUOUS" : "SPLIT");
+            detail.put("shiftKindLabel", continuous ? "Ca thông tầm" : "Ca sáng–chiều");
             if (record != null) {
                 detail.put("attendanceStatus", record.getStatus());
-                LocalTime reportIn = reportCheckIn(record);
-                LocalTime reportOut = reportCheckOut(record);
+                LocalTime reportIn = reportCheckIn(record, continuous);
+                LocalTime reportOut = reportCheckOut(record, continuous);
                 detail.put("checkIn", time(reportIn));
                 detail.put("checkOut", time(reportOut));
                 detail.put("morningCheckIn", time(record.getMorningCheckIn()));
@@ -211,47 +272,80 @@ public class WorkforceReportService {
     }
 
     private boolean isActuallyWorking(AttendanceRecord record) {
-        if (record.getEmployee() == null || record.getEmployee().getStatus() == EmployeeStatus.TERMINATED) return false;
-        // Báo cáo quân số đầu ngày: chỉ cần đã có giờ vào ca sáng là ghi nhận đi làm,
-        // không chờ đủ giờ ra hoặc đủ điều kiện cấp công.
-        if (record.getMorningCheckIn() != null) return true;
-        String status = record.getStatus() == null ? "" : record.getStatus();
-        if ("PRESENT".equals(status) || "PARTIAL".equals(status)) return true;
-        if ("SEMINAR".equals(status)) {
-            return record.getMorningCheckIn() != null || record.getMorningCheckOut() != null
-                    || record.getAfternoonCheckIn() != null || record.getAfternoonCheckOut() != null;
+        if (record.getEmployee() == null || record.getEmployee().getStatus() == EmployeeStatus.TERMINATED) {
+            return false;
         }
-        return false;
+        // Có bất kỳ giờ vào/ra đã gán theo ca (sáng/chiều hoặc thông tầm) → tính đi làm
+        return record.getMorningCheckIn() != null
+                || record.getMorningCheckOut() != null
+                || record.getAfternoonCheckIn() != null
+                || record.getAfternoonCheckOut() != null
+                || record.getCheckIn() != null
+                || record.getCheckOut() != null;
     }
 
     /**
-     * Báo cáo đi làm: giờ vào = check-in ca sáng (hoặc giờ vào ca thông tầm).
+     * Giờ vào theo ca đã chia trên hệ thống chấm công:
+     * - Ca thông tầm: day-in lưu ở morningCheckIn
+     * - Ca sáng–chiều: vào ca sáng; nếu chỉ làm chiều thì afternoonCheckIn
      */
-    private static LocalTime reportCheckIn(AttendanceRecord record) {
-        return firstNonNull(record.getMorningCheckIn(), record.getCheckIn());
+    private static LocalTime reportCheckIn(AttendanceRecord record, boolean continuous) {
+        if (continuous) {
+            return firstNonNull(record.getMorningCheckIn(), record.getCheckIn());
+        }
+        return firstNonNull(record.getMorningCheckIn(), record.getAfternoonCheckIn(), record.getCheckIn());
     }
 
     /**
-     * Báo cáo đi làm:
-     * - Ca thường: chỉ lấy check-out chiều (afternoonCheckOut). Không lấy morningCheckOut
-     *   vì nhân viên hay quẹt lại vân tay buổi sáng → bị hiểu nhầm là giờ ra.
-     * - Ca thông tầm: day-in/day-out cũng lưu ở morningCheckIn + afternoonCheckOut.
-     * Nếu chưa có giờ ra chiều (hoặc khoảng cách quá gần giờ vào) → null.
+     * Giờ ra theo ca đã chia:
+     * - Ca thông tầm: day-out lưu ở afternoonCheckOut
+     * - Ca sáng–chiều: ưu tiên ra chiều; chỉ lấy morningCheckOut khi cách giờ vào ≥ 2 giờ
+     *   (tránh nhầm quẹt lại vân tay buổi sáng thành giờ ra)
+     * Mọi trường hợp: giờ ra phải sau giờ vào ít nhất {@link #MIN_OUT_AFTER_IN_MINUTES} phút
+     * (tránh 06:54:00 / 06:54:30 đều hiện "06:54").
      */
-    private static LocalTime reportCheckOut(AttendanceRecord record) {
-        LocalTime inn = reportCheckIn(record);
-        LocalTime out = record.getAfternoonCheckOut();
-        if (out == null) {
-            // Không dùng morningCheckOut. Legacy checkOut chỉ khi đủ xa giờ vào.
-            out = record.getCheckOut();
+    private static LocalTime reportCheckOut(AttendanceRecord record, boolean continuous) {
+        LocalTime inn = reportCheckIn(record, continuous);
+        if (continuous) {
+            return firstValidOut(inn,
+                    record.getAfternoonCheckOut(),
+                    record.getCheckOut());
         }
-        if (out == null) return null;
-        if (inn != null) {
-            if (!out.isAfter(inn)) return null;
-            // Quẹt lại trong ~2 giờ sau giờ vào sáng → không phải giờ ra cuối ngày
-            if (java.time.Duration.between(inn, out).toMinutes() < 120) return null;
+        LocalTime afternoonOut = firstValidOut(inn, record.getAfternoonCheckOut());
+        if (afternoonOut != null) return afternoonOut;
+
+        // Ra ca sáng / legacy: thêm ngưỡng 2 giờ chống quẹt lại buổi sáng
+        LocalTime morningOut = record.getMorningCheckOut();
+        if (isValidOut(inn, morningOut) && minutesBetween(inn, morningOut) >= 120) {
+            return morningOut;
         }
-        return out;
+        LocalTime legacyOut = record.getCheckOut();
+        if (isValidOut(inn, legacyOut) && minutesBetween(inn, legacyOut) >= 120) {
+            return legacyOut;
+        }
+        return null;
+    }
+
+    /** Tối thiểu khoảng cách vào→ra khi hiển thị (phút). */
+    private static final long MIN_OUT_AFTER_IN_MINUTES = 2;
+
+    private static LocalTime firstValidOut(LocalTime inn, LocalTime... candidates) {
+        if (candidates == null) return null;
+        for (LocalTime out : candidates) {
+            if (isValidOut(inn, out)) return out;
+        }
+        return null;
+    }
+
+    private static boolean isValidOut(LocalTime inn, LocalTime out) {
+        if (out == null) return false;
+        if (inn == null) return true;
+        return minutesBetween(inn, out) >= MIN_OUT_AFTER_IN_MINUTES;
+    }
+
+    private static long minutesBetween(LocalTime inn, LocalTime out) {
+        if (inn == null || out == null) return Long.MAX_VALUE;
+        return java.time.Duration.between(inn, out).toMinutes();
     }
 
     private static LocalTime firstNonNull(LocalTime... values) {
@@ -273,17 +367,17 @@ public class WorkforceReportService {
             ExcelStyles styles = createExcelStyles(wb);
 
             XSSFSheet matrix = wb.createSheet(daily ? "Nhân lực đi làm" : "Nhân lực toàn viện");
-            matrix.setTabColor(color("087F8C"));
+            matrix.setTabColor(color("0D4F4A"));
             matrix.setDisplayGridlines(false);
             int lastCol = categories.size() + 1;
             String date = LocalDate.parse(String.valueOf(report.get("reportDate"))).format(VN_DATE);
             String reportTitle = daily ? "BÁO CÁO NHÂN LỰC ĐI LÀM HẰNG NGÀY  •  " + date : "BÁO CÁO NHÂN LỰC TOÀN VIỆN";
             mergeAndSet(matrix, 0, 0, 0, lastCol, reportTitle, styles.title());
-            matrix.getRow(0).setHeightInPoints(32);
+            matrix.getRow(0).setHeightInPoints(36);
             mergeAndSet(matrix, 1, 1, 0, lastCol,
                     "BỆNH VIỆN ĐA KHOA MINH AN  •  Ngày báo cáo: " + date
                             + "  •  Ngày xuất: " + LocalDate.now().format(VN_DATE), styles.subtitle());
-            matrix.getRow(1).setHeightInPoints(24);
+            matrix.getRow(1).setHeightInPoints(22);
 
             Map.Entry<String, Integer> top = totals.entrySet().stream()
                     .max(Map.Entry.comparingByValue()).orElse(Map.entry("", 0));
@@ -306,14 +400,19 @@ public class WorkforceReportService {
                 mergeAndSet(matrix, 2, 2, 0, lastCol, summary, styles.kpiLabel());
                 mergeAndSet(matrix, 3, 3, 0, lastCol, String.valueOf(kpiValues[3]), styles.kpiValue());
             }
-            matrix.getRow(2).setHeightInPoints(20);
-            matrix.getRow(3).setHeightInPoints(28);
+            matrix.getRow(2).setHeightInPoints(18);
+            matrix.getRow(3).setHeightInPoints(26);
+
+            // Hàng trống ngăn cách khối KPI và bảng
+            Row spacer = matrix.createRow(4);
+            spacer.setHeightInPoints(8);
+            for (int c = 0; c <= lastCol; c++) setCell(spacer, c, "", styles.spacer());
 
             Row header = matrix.createRow(5);
             setCell(header, 0, "KHOA / PHÒNG", styles.headerLeft());
             for (int i = 0; i < categories.size(); i++) setCell(header, i + 1, categories.get(i).get("label"), styles.header());
             setCell(header, lastCol, "TỔNG", styles.header());
-            header.setHeightInPoints(44);
+            header.setHeightInPoints(40);
 
             int rowIndex = 6;
             for (Map<String, Object> data : rows) {
@@ -329,27 +428,34 @@ public class WorkforceReportService {
                     setCell(row, i + 1, value, cellStyle);
                 }
                 setCell(row, lastCol, data.get("total"), even ? styles.rowTotalEven() : styles.rowTotalOdd());
-                row.setHeightInPoints(23);
+                row.setHeightInPoints(21);
             }
             Row total = matrix.createRow(rowIndex);
             setCell(total, 0, "TỔNG CỘNG", styles.total());
             for (int i = 0; i < categories.size(); i++) setCell(total, i + 1, totals.get(categories.get(i).get("key")), styles.total());
             setCell(total, lastCol, report.get("grandTotal"), styles.grandTotal());
-            total.setHeightInPoints(26);
+            total.setHeightInPoints(24);
             matrix.createFreezePane(1, 6);
             matrix.setAutoFilter(new CellRangeAddress(5, Math.max(5, rowIndex - 1), 0, lastCol));
-            matrix.setColumnWidth(0, 36 * 256);
-            for (int i = 1; i < lastCol; i++) matrix.setColumnWidth(i, 16 * 256);
-            matrix.setColumnWidth(lastCol, 11 * 256);
-            matrix.setZoom(85);
+            matrix.setColumnWidth(0, 38 * 256);
+            for (int i = 1; i < lastCol; i++) matrix.setColumnWidth(i, 15 * 256);
+            matrix.setColumnWidth(lastCol, 12 * 256);
+            matrix.setZoom(90);
             matrix.setRepeatingRows(new CellRangeAddress(0, 5, -1, -1));
             matrix.getPrintSetup().setLandscape(true);
             matrix.setFitToPage(true);
             matrix.getPrintSetup().setFitWidth((short) 1);
             matrix.getPrintSetup().setFitHeight((short) 0);
-            configurePrint(matrix, "Báo cáo nhân lực");
+            configurePrint(matrix, daily ? "Nhân lực đi làm hằng ngày" : "Nhân lực toàn viện");
 
             buildDetailSheet(wb, details, daily, date, styles);
+            if (daily) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> absentByDept =
+                        (List<Map<String, Object>>) report.getOrDefault("absentByDepartment", List.of());
+                buildAbsentSheet(wb, absentByDept, date, styles,
+                        ((Number) report.getOrDefault("absentTotal", 0)).intValue());
+            }
             wb.setActiveSheet(0);
             wb.write(out);
             return out.toByteArray();
@@ -361,20 +467,23 @@ public class WorkforceReportService {
     private static void buildDetailSheet(XSSFWorkbook wb, List<Map<String, Object>> details, boolean daily,
                                          String date, ExcelStyles styles) {
         XSSFSheet sheet = wb.createSheet("Chi tiết nhân viên");
-        sheet.setTabColor(color("D99B2B"));
+        sheet.setTabColor(color("8A6A2F"));
         sheet.setDisplayGridlines(false);
         List<String> headers = new ArrayList<>(List.of("STT", "Mã NV", "Họ và tên", "Khoa/Phòng", "Chức vụ", "Trạng thái NV"));
-        if (daily) headers.addAll(List.of("Giờ vào", "Giờ ra", "Công", "Phút muộn/sớm", "Trạng thái công"));
+        if (daily) headers.addAll(List.of("Ca", "Giờ vào", "Giờ ra", "Công", "Phút muộn/sớm", "Trạng thái công"));
         int lastCol = headers.size() - 1;
         mergeAndSet(sheet, 0, 0, 0, lastCol,
                 daily ? "CHI TIẾT NHÂN LỰC ĐI LÀM NGÀY " + date : "CHI TIẾT NHÂN LỰC TOÀN VIỆN", styles.title());
-        sheet.getRow(0).setHeightInPoints(30);
+        sheet.getRow(0).setHeightInPoints(34);
         mergeAndSet(sheet, 1, 1, 0, lastCol,
                 "BỆNH VIỆN ĐA KHOA MINH AN  •  Tổng số: " + details.size() + " nhân viên", styles.subtitle());
-        sheet.getRow(1).setHeightInPoints(23);
+        sheet.getRow(1).setHeightInPoints(20);
+        Row spacer = sheet.createRow(2);
+        spacer.setHeightInPoints(8);
+        for (int c = 0; c <= lastCol; c++) setCell(spacer, c, "", styles.spacer());
         Row header = sheet.createRow(3);
         for (int i = 0; i < headers.size(); i++) setCell(header, i, headers.get(i), i <= 4 ? styles.headerLeft() : styles.header());
-        header.setHeightInPoints(32);
+        header.setHeightInPoints(28);
         int r = 4;
         int sequence = 1;
         for (Map<String, Object> d : details) {
@@ -391,20 +500,21 @@ public class WorkforceReportService {
             setCell(row, c++, d.get("positionTitle"), left);
             setCell(row, c++, employeeStatusText(d.get("employeeStatus")), center);
             if (daily) {
-                setCell(row, c++, firstNonBlank(d.get("checkIn"), d.get("morningCheckIn")), center);
+                setCell(row, c++, d.get("shiftKindLabel"), center);
+                setCell(row, c++, d.get("checkIn"), center);
                 setCell(row, c++, d.get("checkOut"), center);
                 setCell(row, c++, d.get("workUnits"), even ? styles.decimalEven() : styles.decimalOdd());
                 setCell(row, c++, d.get("lateMinutes"), center);
                 setCell(row, c, attendanceStatusText(d.get("attendanceStatus")), attendanceStatusStyle(styles, d.get("attendanceStatus")));
             }
-            row.setHeightInPoints(22);
+            row.setHeightInPoints(20);
         }
         sheet.createFreezePane(0, 4);
         if (!details.isEmpty()) sheet.setAutoFilter(new CellRangeAddress(3, r - 1, 0, lastCol));
-        int[] widths = daily ? new int[]{7, 16, 28, 34, 23, 21, 17, 12, 12, 10, 16, 20}
-                : new int[]{7, 16, 28, 34, 23, 21, 17};
+        int[] widths = daily ? new int[]{7, 14, 28, 32, 22, 16, 16, 11, 11, 10, 14, 18}
+                : new int[]{7, 14, 28, 32, 22, 16};
         for (int i = 0; i < widths.length; i++) sheet.setColumnWidth(i, widths[i] * 256);
-        sheet.setZoom(90);
+        sheet.setZoom(95);
         sheet.setRepeatingRows(new CellRangeAddress(0, 3, -1, -1));
         sheet.getPrintSetup().setLandscape(true);
         sheet.setFitToPage(true);
@@ -413,52 +523,142 @@ public class WorkforceReportService {
         configurePrint(sheet, "Chi tiết nhân lực");
     }
 
+    @SuppressWarnings("unchecked")
+    private static void buildAbsentSheet(
+            XSSFWorkbook wb,
+            List<Map<String, Object>> absentByDepartment,
+            String date,
+            ExcelStyles styles,
+            int absentTotal) {
+        XSSFSheet sheet = wb.createSheet("Không đi làm");
+        sheet.setTabColor(color("9B1C1C"));
+        sheet.setDisplayGridlines(false);
+        String[] headers = {"STT", "Khoa/Phòng", "Mã NV", "Họ và tên", "Chức vụ", "Trạng thái NV"};
+        int lastCol = headers.length - 1;
+        mergeAndSet(sheet, 0, 0, 0, lastCol,
+                "DANH SÁCH KHÔNG ĐI LÀM NGÀY " + date, styles.absentTitle());
+        sheet.getRow(0).setHeightInPoints(34);
+        mergeAndSet(sheet, 1, 1, 0, lastCol,
+                "BỆNH VIỆN ĐA KHOA MINH AN  •  Tổng: " + absentTotal + " nhân viên · "
+                        + absentByDepartment.size() + " khoa/phòng", styles.absentSubtitle());
+        sheet.getRow(1).setHeightInPoints(20);
+        Row spacer = sheet.createRow(2);
+        spacer.setHeightInPoints(8);
+        for (int c = 0; c <= lastCol; c++) setCell(spacer, c, "", styles.spacer());
+        Row header = sheet.createRow(3);
+        for (int i = 0; i < headers.length; i++) {
+            setCell(header, i, headers[i], i <= 1 ? styles.absentHeaderLeft() : styles.absentHeader());
+        }
+        header.setHeightInPoints(28);
+        int r = 4;
+        int sequence = 1;
+        for (Map<String, Object> dept : absentByDepartment) {
+            List<Map<String, Object>> employees =
+                    (List<Map<String, Object>>) dept.getOrDefault("employees", List.of());
+            for (Map<String, Object> d : employees) {
+                Row row = sheet.createRow(r++);
+                boolean even = row.getRowNum() % 2 == 0;
+                CellStyle left = even ? styles.absentBodyEven() : styles.absentBodyOdd();
+                CellStyle center = even ? styles.absentCenterEven() : styles.absentCenterOdd();
+                CellStyle name = even ? styles.absentNameEven() : styles.absentNameOdd();
+                int c = 0;
+                setCell(row, c++, sequence++, center);
+                setCell(row, c++, d.get("departmentName"), left);
+                setCell(row, c++, d.get("employeeCode"), center);
+                setCell(row, c++, d.get("fullName"), name);
+                setCell(row, c++, d.get("positionTitle"), left);
+                setCell(row, c, employeeStatusText(d.get("employeeStatus")), center);
+                row.setHeightInPoints(20);
+            }
+        }
+        sheet.createFreezePane(0, 4);
+        if (sequence > 1) sheet.setAutoFilter(new CellRangeAddress(3, r - 1, 0, lastCol));
+        int[] widths = {7, 34, 14, 28, 22, 16};
+        for (int i = 0; i < widths.length; i++) sheet.setColumnWidth(i, widths[i] * 256);
+        sheet.setZoom(95);
+        sheet.setRepeatingRows(new CellRangeAddress(0, 3, -1, -1));
+        sheet.getPrintSetup().setLandscape(true);
+        sheet.setFitToPage(true);
+        sheet.getPrintSetup().setFitWidth((short) 1);
+        sheet.getPrintSetup().setFitHeight((short) 0);
+        configurePrint(sheet, "Danh sách không đi làm");
+    }
+
     private static ExcelStyles createExcelStyles(XSSFWorkbook wb) {
-        CellStyle bodyOdd = style(wb, "243B3A", "FFFFFF", false, 10, HorizontalAlignment.LEFT, BorderStyle.HAIR);
-        CellStyle bodyEven = style(wb, "243B3A", "F4F8F8", false, 10, HorizontalAlignment.LEFT, BorderStyle.HAIR);
-        CellStyle centerOdd = style(wb, "365B5A", "FFFFFF", false, 10, HorizontalAlignment.CENTER, BorderStyle.HAIR);
-        CellStyle centerEven = style(wb, "365B5A", "F4F8F8", false, 10, HorizontalAlignment.CENTER, BorderStyle.HAIR);
+        XSSFColor border = color("B7C9C6");
+        XSSFColor borderStrong = color("7FA09B");
+        XSSFColor absentBorder = color("E2B4B4");
+
+        CellStyle bodyOdd = style(wb, "1C2B2A", "FFFFFF", false, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, border);
+        CellStyle bodyEven = style(wb, "1C2B2A", "F3F7F6", false, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, border);
+        CellStyle centerOdd = style(wb, "334847", "FFFFFF", false, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, border);
+        CellStyle centerEven = style(wb, "334847", "F3F7F6", false, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, border);
         CellStyle decimalOdd = cloneWithFormat(wb, centerOdd, "0.00");
         CellStyle decimalEven = cloneWithFormat(wb, centerEven, "0.00");
+
+        CellStyle absentBodyOdd = style(wb, "7F1D1D", "FFF8F8", false, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, absentBorder);
+        CellStyle absentBodyEven = style(wb, "7F1D1D", "FCEBEB", false, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, absentBorder);
+        CellStyle absentCenterOdd = style(wb, "7F1D1D", "FFF8F8", false, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, absentBorder);
+        CellStyle absentCenterEven = style(wb, "7F1D1D", "FCEBEB", false, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, absentBorder);
+
         return new ExcelStyles(
-                style(wb, "FFFFFF", "006865", true, 16, HorizontalAlignment.CENTER, BorderStyle.NONE),
-                style(wb, "244846", "DDEDEB", false, 10, HorizontalAlignment.LEFT, BorderStyle.NONE),
-                style(wb, "52706E", "EFF7F6", true, 9, HorizontalAlignment.CENTER, BorderStyle.NONE),
-                style(wb, "006865", "EFF7F6", true, 14, HorizontalAlignment.CENTER, BorderStyle.NONE),
-                style(wb, "FFFFFF", "087F8C", true, 10, HorizontalAlignment.CENTER, BorderStyle.THIN),
-                style(wb, "FFFFFF", "087F8C", true, 10, HorizontalAlignment.LEFT, BorderStyle.THIN),
+                style(wb, "FFFFFF", "0D4F4A", true, 18, HorizontalAlignment.CENTER, BorderStyle.NONE, null),
+                style(wb, "1F3F3C", "E7EFEE", false, 11, HorizontalAlignment.CENTER, BorderStyle.NONE, null),
+                style(wb, "4A6562", "F4F8F7", true, 9, HorizontalAlignment.CENTER, BorderStyle.NONE, null),
+                style(wb, "0D4F4A", "F4F8F7", true, 14, HorizontalAlignment.CENTER, BorderStyle.NONE, null),
+                style(wb, "FFFFFF", "FFFFFF", false, 8, HorizontalAlignment.CENTER, BorderStyle.NONE, null),
+                style(wb, "FFFFFF", "1A6B63", true, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, borderStrong),
+                style(wb, "FFFFFF", "1A6B63", true, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, borderStrong),
                 bodyOdd, bodyEven, centerOdd, centerEven,
-                style(wb, "123B3A", "FFFFFF", true, 10, HorizontalAlignment.LEFT, BorderStyle.HAIR),
-                style(wb, "123B3A", "F4F8F8", true, 10, HorizontalAlignment.LEFT, BorderStyle.HAIR),
-                style(wb, "006865", "E6F3F1", true, 10, HorizontalAlignment.CENTER, BorderStyle.HAIR),
-                style(wb, "006865", "DCEFED", true, 10, HorizontalAlignment.CENTER, BorderStyle.HAIR),
-                style(wb, "006865", "EDF7F5", true, 10, HorizontalAlignment.CENTER, BorderStyle.HAIR),
-                style(wb, "006865", "E3F1EF", true, 10, HorizontalAlignment.CENTER, BorderStyle.HAIR),
-                style(wb, "FFFFFF", "006865", true, 10, HorizontalAlignment.CENTER, BorderStyle.THIN),
-                style(wb, "FFFFFF", "004B49", true, 11, HorizontalAlignment.CENTER, BorderStyle.THIN),
-                style(wb, "123B3A", "FFFFFF", true, 10, HorizontalAlignment.LEFT, BorderStyle.HAIR),
-                style(wb, "123B3A", "F4F8F8", true, 10, HorizontalAlignment.LEFT, BorderStyle.HAIR),
+                style(wb, "0D4F4A", "FFFFFF", true, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, border),
+                style(wb, "0D4F4A", "F3F7F6", true, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, border),
+                style(wb, "0D4F4A", "E4F0EE", true, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, border),
+                style(wb, "0D4F4A", "D7E9E6", true, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, border),
+                style(wb, "0D4F4A", "ECF4F3", true, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, border),
+                style(wb, "0D4F4A", "E0EEEC", true, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, border),
+                style(wb, "FFFFFF", "0D4F4A", true, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, borderStrong),
+                style(wb, "FFFFFF", "083B37", true, 12, HorizontalAlignment.CENTER, BorderStyle.THIN, borderStrong),
+                style(wb, "0D4F4A", "FFFFFF", true, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, border),
+                style(wb, "0D4F4A", "F3F7F6", true, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, border),
                 decimalOdd, decimalEven,
-                style(wb, "166534", "DCFCE7", true, 10, HorizontalAlignment.CENTER, BorderStyle.THIN),
-                style(wb, "92400E", "FEF3C7", true, 10, HorizontalAlignment.CENTER, BorderStyle.THIN),
-                style(wb, "075985", "E0F2FE", true, 10, HorizontalAlignment.CENTER, BorderStyle.THIN));
+                style(wb, "166534", "DCFCE7", true, 10, HorizontalAlignment.CENTER, BorderStyle.THIN, border),
+                style(wb, "92400E", "FEF3C7", true, 10, HorizontalAlignment.CENTER, BorderStyle.THIN, border),
+                style(wb, "075985", "E0F2FE", true, 10, HorizontalAlignment.CENTER, BorderStyle.THIN, border),
+                style(wb, "FFFFFF", "9B1C1C", true, 18, HorizontalAlignment.CENTER, BorderStyle.NONE, null),
+                style(wb, "7F1D1D", "F8E8E8", false, 11, HorizontalAlignment.CENTER, BorderStyle.NONE, null),
+                style(wb, "FFFFFF", "B91C1C", true, 11, HorizontalAlignment.CENTER, BorderStyle.THIN, color("9B1C1C")),
+                style(wb, "FFFFFF", "B91C1C", true, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, color("9B1C1C")),
+                absentBodyOdd, absentBodyEven, absentCenterOdd, absentCenterEven,
+                style(wb, "9B1C1C", "FFF8F8", true, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, absentBorder),
+                style(wb, "9B1C1C", "FCEBEB", true, 11, HorizontalAlignment.LEFT, BorderStyle.THIN, absentBorder));
     }
 
     private static CellStyle style(XSSFWorkbook wb, String fontColor, String fillColor, boolean bold,
-                                   int size, HorizontalAlignment alignment, BorderStyle border) {
-        XSSFCellStyle style = wb.createCellStyle();
+                                   int size, HorizontalAlignment alignment, BorderStyle border,
+                                   XSSFColor borderColor) {
+        XSSFCellStyle cellStyle = wb.createCellStyle();
         XSSFFont font = wb.createFont();
-        font.setFontName("Arial"); font.setFontHeightInPoints((short) size); font.setBold(bold);
+        font.setFontName("Times New Roman");
+        font.setFontHeightInPoints((short) size);
+        font.setBold(bold);
         font.setColor(color(fontColor));
-        style.setFont(font);
-        style.setFillForegroundColor(color(fillColor));
-        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        style.setAlignment(alignment); style.setVerticalAlignment(VerticalAlignment.CENTER); style.setWrapText(true);
-        style.setBorderBottom(border); style.setBorderTop(border); style.setBorderLeft(border); style.setBorderRight(border);
-        short borderColor = IndexedColors.GREY_25_PERCENT.getIndex();
-        style.setBottomBorderColor(borderColor); style.setTopBorderColor(borderColor);
-        style.setLeftBorderColor(borderColor); style.setRightBorderColor(borderColor);
-        return style;
+        cellStyle.setFont(font);
+        cellStyle.setFillForegroundColor(color(fillColor));
+        cellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        cellStyle.setAlignment(alignment);
+        cellStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+        cellStyle.setWrapText(true);
+        cellStyle.setBorderBottom(border);
+        cellStyle.setBorderTop(border);
+        cellStyle.setBorderLeft(border);
+        cellStyle.setBorderRight(border);
+        if (border != BorderStyle.NONE && borderColor != null) {
+            cellStyle.setBottomBorderColor(borderColor);
+            cellStyle.setTopBorderColor(borderColor);
+            cellStyle.setLeftBorderColor(borderColor);
+            cellStyle.setRightBorderColor(borderColor);
+        }
+        return cellStyle;
     }
 
     private static CellStyle cloneWithFormat(XSSFWorkbook wb, CellStyle base, String format) {
@@ -485,13 +685,14 @@ public class WorkforceReportService {
     }
 
     private static void configurePrint(Sheet sheet, String footerTitle) {
-        sheet.setMargin(Sheet.LeftMargin, 0.3);
-        sheet.setMargin(Sheet.RightMargin, 0.3);
-        sheet.setMargin(Sheet.TopMargin, 0.45);
-        sheet.setMargin(Sheet.BottomMargin, 0.45);
-        sheet.getFooter().setLeft("Bệnh viện Đa khoa Minh An");
-        sheet.getFooter().setCenter(footerTitle);
-        sheet.getFooter().setRight("Trang &P / &N");
+        sheet.setMargin(Sheet.LeftMargin, 0.4);
+        sheet.setMargin(Sheet.RightMargin, 0.4);
+        sheet.setMargin(Sheet.TopMargin, 0.5);
+        sheet.setMargin(Sheet.BottomMargin, 0.5);
+        HeaderFooter footer = sheet.getFooter();
+        footer.setLeft("&\"Times New Roman\"&9Bệnh viện Đa khoa Minh An");
+        footer.setCenter("&\"Times New Roman\"&9" + footerTitle);
+        footer.setRight("&\"Times New Roman\"&9Trang &P / &N");
     }
 
     private static Object employeeStatusText(Object value) {
@@ -550,7 +751,7 @@ public class WorkforceReportService {
     private record Category(String key, String label) {}
     private record DepartmentAccumulator(Long id, String name, Map<String, Integer> counts) {}
     private record ExcelStyles(
-            CellStyle title, CellStyle subtitle, CellStyle kpiLabel, CellStyle kpiValue,
+            CellStyle title, CellStyle subtitle, CellStyle kpiLabel, CellStyle kpiValue, CellStyle spacer,
             CellStyle header, CellStyle headerLeft,
             CellStyle bodyOdd, CellStyle bodyEven, CellStyle centerOdd, CellStyle centerEven,
             CellStyle departmentOdd, CellStyle departmentEven,
@@ -559,5 +760,10 @@ public class WorkforceReportService {
             CellStyle total, CellStyle grandTotal,
             CellStyle nameOdd, CellStyle nameEven,
             CellStyle decimalOdd, CellStyle decimalEven,
-            CellStyle statusGreen, CellStyle statusAmber, CellStyle statusBlue) {}
+            CellStyle statusGreen, CellStyle statusAmber, CellStyle statusBlue,
+            CellStyle absentTitle, CellStyle absentSubtitle,
+            CellStyle absentHeader, CellStyle absentHeaderLeft,
+            CellStyle absentBodyOdd, CellStyle absentBodyEven,
+            CellStyle absentCenterOdd, CellStyle absentCenterEven,
+            CellStyle absentNameOdd, CellStyle absentNameEven) {}
 }

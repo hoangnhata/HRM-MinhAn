@@ -48,6 +48,14 @@ minhan:
     auth:
       # Một lần nếu admin cũ từ ERP không đăng nhập được: true → đặt lại Admin@123 rồi tắt lại
       reset-admin-password: ${RESET_ADMIN_PASSWORD:false}
+    demo-seed:
+      # Seed dữ liệu ảo Module A + QTKT/GDSK. Bật tạm: DEMO_SEED=true
+      enabled: ${DEMO_SEED:false}
+      # Xóa dữ liệu ảo lúc startup. Khi DEMO_SEED=false nên bật DEMO_SEED_CLEANUP=true một lần
+      cleanup: ${DEMO_SEED_CLEANUP:false}
+    manual-leave-seed:
+      # Bổ sung phép 8/2026 theo mã NV (idempotent). Bật 1 lần: MANUAL_LEAVE_SEED=true rồi tắt
+      enabled: ${MANUAL_LEAVE_SEED:false}
     salary-access:
       password: ${SALARY_ACCESS_PASSWORD:luongMA@123}
       expiration-ms: ${SALARY_ACCESS_EXPIRATION_MS:1800000}
@@ -81,7 +89,7 @@ minhan:
       password: ${DB_PASSWORD:345321@Vn}
       table: dbo.CheckInOut
       lookback-days: ${CHAMCONG_LOOKBACK_DAYS:7}
-      auto-lookback-days: ${CHAMCONG_AUTO_LOOKBACK_DAYS:2}
+      auto-lookback-days: ${CHAMCONG_AUTO_LOOKBACK_DAYS:7}
       sync-cron: ${CHAMCONG_SYNC_CRON:0 * * * * *}
     sso:
       enabled: ${SSO_ENABLED:false}

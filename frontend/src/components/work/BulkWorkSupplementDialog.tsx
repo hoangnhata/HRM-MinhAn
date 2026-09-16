@@ -27,7 +27,8 @@ import { DatePickerField, TimePickerField, dateTimeFieldSx } from '../ui/DateTim
 import { FormSection, InfoBanner, SelectableChip, WorkRequestDialogShell } from './WorkRequestFormUi';
 import * as att from '../../services/attendanceService';
 import * as employeeService from '../../services/employeeService';
-import { scheduleForDate } from '../../utils/shiftSchedule';
+import { todayLocalIso } from '../../utils/dateFormat';
+import { scheduleForDate, type ShiftScheduleInfo } from '../../utils/shiftSchedule';
 
 type Props = {
   open: boolean;
@@ -57,7 +58,7 @@ function normalizeSearch(value: string) {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalIso();
 }
 
 function allowedDutyTypesForEmployee(
@@ -117,10 +118,14 @@ export function BulkWorkSupplementDialog({
 
   const [updateKind, setUpdateKind] = useState('MORNING_SUPPLEMENT');
   const [reason, setReason] = useState('');
+  const [schedule, setSchedule] = useState<ShiftScheduleInfo>(() => scheduleForDate(initialWorkDate || todayIso()));
+  const [schedulePreviewName, setSchedulePreviewName] = useState<string | null>(null);
   const [morningStart, setMorningStart] = useState('07:00');
   const [morningEnd, setMorningEnd] = useState('12:00');
   const [afternoonStart, setAfternoonStart] = useState('14:00');
   const [afternoonEnd, setAfternoonEnd] = useState('17:00');
+  /** false = mỗi NV theo lịch ca riêng (mặc định); true = dùng khung giờ form cho tất cả */
+  const [useSharedTimes, setUseSharedTimes] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -168,11 +173,14 @@ export function BulkWorkSupplementDialog({
     setDutyRoleByEmp({});
     setUpdateKind('MORNING_SUPPLEMENT');
     setReason('');
+    setUseSharedTimes(false);
+    setSchedulePreviewName(null);
     setWorkDate(initialWorkDate || todayIso());
     setDepartmentId(hospitalWide || initialDepartmentId === '' ? '' : Number(initialDepartmentId));
     setEmployeeSearch('');
     setSelectedIds(new Set());
     const sch = scheduleForDate(initialWorkDate || todayIso());
+    setSchedule(sch);
     setMorningStart(sch.morningStart);
     setMorningEnd(sch.morningEnd);
     setAfternoonStart(sch.afternoonStart);
@@ -230,13 +238,47 @@ export function BulkWorkSupplementDialog({
   }, [open, hospitalWide, departmentId]);
 
   useEffect(() => {
-    if (!open) return;
-    const sch = scheduleForDate(workDate);
-    setMorningStart(sch.morningStart);
-    setMorningEnd(sch.morningEnd);
-    setAfternoonStart(sch.afternoonStart);
-    setAfternoonEnd(sch.afternoonEnd);
-  }, [workDate, updateKind, open]);
+    if (!open || mode !== 'QUANG_TRUNG') return;
+    const ids = Array.from(selectedIds);
+    let cancelled = false;
+    const fallback = scheduleForDate(workDate);
+
+    if (ids.length === 1) {
+      const emp = employees.find((e) => e.id === ids[0]);
+      att
+        .fetchShiftSchedule(workDate, ids[0])
+        .then((sch) => {
+          if (cancelled) return;
+          setSchedule(sch);
+          setSchedulePreviewName(emp?.fullName ?? null);
+          setMorningStart(sch.morningStart);
+          setMorningEnd(sch.morningEnd);
+          setAfternoonStart(sch.afternoonStart);
+          setAfternoonEnd(sch.afternoonEnd);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setSchedule(fallback);
+          setSchedulePreviewName(emp?.fullName ?? null);
+          setMorningStart(fallback.morningStart);
+          setMorningEnd(fallback.morningEnd);
+          setAfternoonStart(fallback.afternoonStart);
+          setAfternoonEnd(fallback.afternoonEnd);
+        });
+    } else {
+      setSchedule(fallback);
+      setSchedulePreviewName(null);
+      if (!useSharedTimes) {
+        setMorningStart(fallback.morningStart);
+        setMorningEnd(fallback.morningEnd);
+        setAfternoonStart(fallback.afternoonStart);
+        setAfternoonEnd(fallback.afternoonEnd);
+      }
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [open, mode, workDate, updateKind, selectedIds, employees, useSharedTimes]);
 
   function toggleId(id: number) {
     setSelectedIds((prev) => {
@@ -357,14 +399,17 @@ export function BulkWorkSupplementDialog({
           workDate,
           updateKind: updateKind as att.QuangTrungSupplementBody['updateKind'],
           reason: reason.trim(),
-          requestedStart: updateKind === 'AFTERNOON_SUPPLEMENT' ? afternoonStart : morningStart,
-          requestedEnd: updateKind === 'AFTERNOON_SUPPLEMENT' ? afternoonEnd : morningEnd,
         };
-        if (isFullDay) {
-          payload.requestedStart = morningStart;
-          payload.requestedEnd = morningEnd;
-          payload.requestedAfternoonStart = afternoonStart;
-          payload.requestedAfternoonEnd = afternoonEnd;
+        // Mặc định: backend lấy khung giờ ca từng NV. Chỉ gửi giờ khi bật «dùng chung».
+        if (useSharedTimes) {
+          payload.requestedStart = updateKind === 'AFTERNOON_SUPPLEMENT' ? afternoonStart : morningStart;
+          payload.requestedEnd = updateKind === 'AFTERNOON_SUPPLEMENT' ? afternoonEnd : morningEnd;
+          if (isFullDay) {
+            payload.requestedStart = morningStart;
+            payload.requestedEnd = morningEnd;
+            payload.requestedAfternoonStart = afternoonStart;
+            payload.requestedAfternoonEnd = afternoonEnd;
+          }
         }
         res = await att.bulkApplyQuangTrungSupplement(payload);
       }
@@ -377,12 +422,17 @@ export function BulkWorkSupplementDialog({
     }
   }
 
-  const sch = scheduleForDate(workDate);
+  const sch = schedule;
   const scheduleHint = isFullDay
     ? `${sch.seasonLabel}: ${sch.morningStart}–${sch.morningEnd} · ${sch.afternoonStart}–${sch.afternoonEnd}`
     : updateKind === 'AFTERNOON_SUPPLEMENT'
       ? `Ca chiều: ${sch.afternoonStart} – ${sch.afternoonEnd}`
       : `Ca sáng: ${sch.morningStart} – ${sch.morningEnd}`;
+  const qtScheduleSubtitle = useSharedTimes
+    ? 'Đang dùng cùng khung giờ cho mọi NV đã chọn.'
+    : selectedIds.size === 1 && schedulePreviewName
+      ? `Xem trước lịch ca của ${schedulePreviewName}.`
+      : 'Mỗi NV dùng khung giờ ca riêng khi lưu (không dùng 7h mặc định chung).';
 
   return (
     <WorkRequestDialogShell
@@ -396,7 +446,7 @@ export function BulkWorkSupplementDialog({
       description={
         mode === 'DUTY'
           ? 'Tick nhân viên và chọn loại ca trực riêng từng người (có thể gán nhanh cùng loại rồi chỉnh lại).'
-          : 'Chọn khoa/phòng và nhân viên — áp dụng cùng ngày / cùng giờ QT một lần lưu.'
+          : 'Chọn khoa/phòng và nhân viên — cùng ngày QT; mỗi người theo khung giờ ca của mình.'
       }
       formId="bulk-work-supplement-form"
       submitLabel={loading ? 'Đang lưu…' : `Lưu cho ${submitCount} nhân viên`}
@@ -702,68 +752,91 @@ export function BulkWorkSupplementDialog({
               ))}
             </Stack>
           </FormSection>
-          <FormSection title="Khung giờ công" subtitle="Áp dụng chung cho mọi NV đã chọn.">
-            <Box
-              sx={{
-                p: 2,
-                borderRadius: 2.5,
-                bgcolor: alpha(accent, 0.05),
-                border: `1px dashed ${alpha(accent, 0.25)}`,
-              }}
-            >
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
-                <LocationOnOutlinedIcon sx={{ fontSize: 18, color: accent }} />
-                <Typography variant="body2" color="text.secondary">
-                  {scheduleHint}
-                </Typography>
-              </Stack>
-              {isFullDay ? (
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={6}>
-                    <ShiftTimes
-                      title="Ca sáng"
-                      icon={<WbSunnyOutlinedIcon sx={{ fontSize: 18, color: accent }} />}
-                      accent={accent}
-                      start={morningStart}
-                      end={morningEnd}
-                      onStartChange={setMorningStart}
-                      onEndChange={setMorningEnd}
-                    />
-                  </Grid>
-                  <Grid item xs={12} md={6}>
+          <FormSection title="Khung giờ công" subtitle={qtScheduleSubtitle}>
+            <Stack spacing={1.5}>
+              <SelectableChip
+                selected={useSharedTimes}
+                label={useSharedTimes ? 'Đang dùng khung giờ chung (override)' : 'Theo lịch ca từng người (khuyến nghị)'}
+                onClick={() => setUseSharedTimes((v) => !v)}
+              />
+              {!useSharedTimes && (
+                <InfoBanner>
+                  Khi lưu, hệ thống lấy <strong>giờ vào/ra theo lịch ca từng NV</strong> đã chọn — không áp 7h00–12h00
+                  chung cho mọi người.
+                  {selectedIds.size === 1 && schedulePreviewName ? (
+                    <>
+                      {' '}
+                      Đang xem trước: <strong>{schedulePreviewName}</strong> — {scheduleHint}.
+                    </>
+                  ) : null}
+                </InfoBanner>
+              )}
+              {(useSharedTimes || selectedIds.size === 1) && (
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 2.5,
+                    bgcolor: alpha(accent, 0.05),
+                    border: `1px dashed ${alpha(accent, 0.25)}`,
+                    opacity: useSharedTimes ? 1 : 0.85,
+                  }}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                    <LocationOnOutlinedIcon sx={{ fontSize: 18, color: accent }} />
+                    <Typography variant="body2" color="text.secondary">
+                      {scheduleHint}
+                      {!useSharedTimes ? ' (chỉ xem trước — lưu vẫn theo lịch ca NV)' : ''}
+                    </Typography>
+                  </Stack>
+                  {isFullDay ? (
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} md={6}>
+                        <ShiftTimes
+                          title="Ca sáng"
+                          icon={<WbSunnyOutlinedIcon sx={{ fontSize: 18, color: accent }} />}
+                          accent={accent}
+                          start={morningStart}
+                          end={morningEnd}
+                          onStartChange={useSharedTimes ? setMorningStart : () => undefined}
+                          onEndChange={useSharedTimes ? setMorningEnd : () => undefined}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <ShiftTimes
+                          title="Ca chiều"
+                          icon={<WbTwilightIcon sx={{ fontSize: 18, color: accent }} />}
+                          accent={accent}
+                          start={afternoonStart}
+                          end={afternoonEnd}
+                          onStartChange={useSharedTimes ? setAfternoonStart : () => undefined}
+                          onEndChange={useSharedTimes ? setAfternoonEnd : () => undefined}
+                        />
+                      </Grid>
+                    </Grid>
+                  ) : updateKind === 'AFTERNOON_SUPPLEMENT' ? (
                     <ShiftTimes
                       title="Ca chiều"
                       icon={<WbTwilightIcon sx={{ fontSize: 18, color: accent }} />}
                       accent={accent}
                       start={afternoonStart}
                       end={afternoonEnd}
-                      onStartChange={setAfternoonStart}
-                      onEndChange={setAfternoonEnd}
+                      onStartChange={useSharedTimes ? setAfternoonStart : () => undefined}
+                      onEndChange={useSharedTimes ? setAfternoonEnd : () => undefined}
                     />
-                  </Grid>
-                </Grid>
-              ) : updateKind === 'AFTERNOON_SUPPLEMENT' ? (
-                <ShiftTimes
-                  title="Ca chiều"
-                  icon={<WbTwilightIcon sx={{ fontSize: 18, color: accent }} />}
-                  accent={accent}
-                  start={afternoonStart}
-                  end={afternoonEnd}
-                  onStartChange={setAfternoonStart}
-                  onEndChange={setAfternoonEnd}
-                />
-              ) : (
-                <ShiftTimes
-                  title="Ca sáng"
-                  icon={<WbSunnyOutlinedIcon sx={{ fontSize: 18, color: accent }} />}
-                  accent={accent}
-                  start={morningStart}
-                  end={morningEnd}
-                  onStartChange={setMorningStart}
-                  onEndChange={setMorningEnd}
-                />
+                  ) : (
+                    <ShiftTimes
+                      title="Ca sáng"
+                      icon={<WbSunnyOutlinedIcon sx={{ fontSize: 18, color: accent }} />}
+                      accent={accent}
+                      start={morningStart}
+                      end={morningEnd}
+                      onStartChange={useSharedTimes ? setMorningStart : () => undefined}
+                      onEndChange={useSharedTimes ? setMorningEnd : () => undefined}
+                    />
+                  )}
+                </Box>
               )}
-            </Box>
+            </Stack>
           </FormSection>
           <FormSection title="Lý do" subtitle="Tuỳ chọn">
             <TextField

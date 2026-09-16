@@ -13,24 +13,39 @@ class NotificationState {
     this.unreadCount = 0,
     this.loading = false,
     this.error,
+    this.page = 0,
+    this.hasMore = false,
+    this.loadingMore = false,
   });
 
+  /// Các trang đã tải, nối tiếp nhau (chưa đọc trước, mới nhất trước).
   final List<AppNotification> items;
   final int unreadCount;
   final bool loading;
   final String? error;
+
+  /// Trang cuối đã tải; `hasMore` cho biết còn trang sau để kéo thêm.
+  final int page;
+  final bool hasMore;
+  final bool loadingMore;
 
   NotificationState copyWith({
     List<AppNotification>? items,
     int? unreadCount,
     bool? loading,
     String? error,
+    int? page,
+    bool? hasMore,
+    bool? loadingMore,
   }) {
     return NotificationState(
       items: items ?? this.items,
       unreadCount: unreadCount ?? this.unreadCount,
       loading: loading ?? this.loading,
       error: error,
+      page: page ?? this.page,
+      hasMore: hasMore ?? this.hasMore,
+      loadingMore: loadingMore ?? this.loadingMore,
     );
   }
 }
@@ -63,15 +78,46 @@ class NotificationController extends StateNotifier<NotificationState> {
     unawaited(AppIconBadge.sync(unread));
   }
 
+  /// Tải lại từ trang đầu. Số chưa đọc lấy từ server, không đếm trên danh
+  /// sách đã tải vì danh sách giờ chỉ là một phần.
   Future<void> refresh() async {
     state = state.copyWith(loading: true, error: null);
     try {
-      final items = await _repository.fetchMine();
-      final unread = items.where((n) => !n.read).length;
-      state = state.copyWith(items: items, loading: false);
-      _applyUnread(unread);
+      final first = await _repository.fetchPage(0);
+      state = state.copyWith(
+        items: first.items,
+        loading: false,
+        page: 0,
+        hasMore: first.hasMore,
+        loadingMore: false,
+      );
+      _applyUnread(first.unread);
     } catch (e) {
       state = state.copyWith(loading: false, error: 'Không tải được thông báo');
+    }
+  }
+
+  /// Tải trang kế tiếp, nối vào cuối danh sách.
+  Future<void> loadMore() async {
+    if (state.loadingMore || !state.hasMore) return;
+    final next = state.page + 1;
+    state = state.copyWith(loadingMore: true);
+    try {
+      final result = await _repository.fetchPage(next);
+      // Tin vừa đổi trạng thái đọc có thể trôi sang trang sau — bỏ trùng theo id.
+      final seen = state.items.map((n) => n.id).toSet();
+      state = state.copyWith(
+        items: [
+          ...state.items,
+          ...result.items.where((n) => !seen.contains(n.id)),
+        ],
+        page: next,
+        hasMore: result.hasMore,
+        loadingMore: false,
+      );
+      _applyUnread(result.unread);
+    } catch (_) {
+      state = state.copyWith(loadingMore: false);
     }
   }
 
@@ -83,11 +129,15 @@ class NotificationController extends StateNotifier<NotificationState> {
       final count = await _repository.fetchUnreadCount();
       final previous = state.unreadCount;
       if (count != previous) {
-        // Có thay đổi so với web → tải lại danh sách đầy đủ.
-        final items = await _repository.fetchMine();
-        final unread = items.where((n) => !n.read).length;
-        state = state.copyWith(items: items);
-        _applyUnread(unread);
+        // Có tin mới hoặc web vừa đọc bớt → tải lại trang đầu, không kéo cả bảng.
+        final first = await _repository.fetchPage(0);
+        state = state.copyWith(
+          items: first.items,
+          page: 0,
+          hasMore: first.hasMore,
+          loadingMore: false,
+        );
+        _applyUnread(first.unread);
       } else {
         _applyUnread(count);
       }
@@ -144,9 +194,10 @@ class NotificationController extends StateNotifier<NotificationState> {
 
 final notificationControllerProvider =
     StateNotifierProvider<NotificationController, NotificationState>((ref) {
-  ref.watch(sessionEpochProvider);
-  final controller =
-      NotificationController(ref.watch(notificationRepositoryProvider));
-  ref.onDispose(controller.disposePolling);
-  return controller;
-});
+      ref.watch(sessionEpochProvider);
+      final controller = NotificationController(
+        ref.watch(notificationRepositoryProvider),
+      );
+      ref.onDispose(controller.disposePolling);
+      return controller;
+    });

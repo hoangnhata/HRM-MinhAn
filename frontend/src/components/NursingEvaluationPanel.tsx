@@ -29,6 +29,7 @@ import * as ne from '../services/nursingEvaluationService';
 import { extractApiErrorMessage, ensureHasSignature } from '../services/approvalSignatureService';
 import { MonthPickerField } from './ui/DateTimeFields';
 import { RequestFlowSteps } from './work/WorkRequestFormUi';
+import { isNursingBlockTitle } from '../utils/nursingBlock';
 import {
   applyRequestListFilters,
   EMPTY_REQUEST_FILTERS,
@@ -280,6 +281,12 @@ export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataM
     [roster, employeeId],
   );
 
+  /** Phòng KHTH / loại trừ: bỏ bước Trưởng phòng ĐD (trưởng khoa/phòng tự quản). */
+  const nursingHeadScope = isNursingBlockTitle(
+    selectedEmp?.positionTitle,
+    selectedEmp?.departmentName,
+  );
+
   const selectedStatus = employeeId !== '' ? periodStatus.get(Number(employeeId)) : undefined;
 
   const previewTotal = useMemo(() => {
@@ -355,7 +362,9 @@ export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataM
       });
       setMsg(
         submitForReview
-          ? 'Đã gửi Trưởng phòng ĐD duyệt (kèm chữ ký).'
+          ? nursingHeadScope
+            ? 'Đã gửi Trưởng phòng ĐD duyệt (kèm chữ ký).'
+            : 'Đã gửi HCNS duyệt (kèm chữ ký).'
           : 'Đã lưu nháp.',
       );
       onDataMutated?.();
@@ -382,12 +391,20 @@ export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataM
     <Box>
       <RequestFlowSteps
         accent={accent}
-        steps={[
-          { label: 'Lập + chấm', hint: 'Trưởng khoa / ĐDT' },
-          { label: 'Trưởng phòng ĐD', hint: 'Xem + ký duyệt' },
-          { label: 'HCNS duyệt', hint: 'Ký duyệt' },
-          { label: 'Giám đốc', hint: 'Ký duyệt cuối' },
-        ]}
+        steps={
+          nursingHeadScope
+            ? [
+                { label: 'Lập + chấm', hint: 'Trưởng khoa / ĐDT' },
+                { label: 'Trưởng phòng ĐD', hint: 'Xem + ký duyệt' },
+                { label: 'HCNS duyệt', hint: 'Ký duyệt' },
+                { label: 'Giám đốc', hint: 'Ký duyệt cuối' },
+              ]
+            : [
+                { label: 'Lập + chấm', hint: 'Trưởng khoa / phòng' },
+                { label: 'HCNS duyệt', hint: 'Ký duyệt' },
+                { label: 'Giám đốc', hint: 'Ký duyệt cuối' },
+              ]
+        }
       />
 
       <Box
@@ -477,13 +494,39 @@ export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataM
           <Box
             sx={{
               mb: 2,
-              maxHeight: 220,
-              overflowY: 'auto',
               borderRadius: 2.5,
               border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
               bgcolor: alpha(theme.palette.primary.main, 0.02),
+              overflow: 'hidden',
             }}
           >
+            <Box
+              sx={{
+                maxHeight: 220,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                scrollbarGutter: 'stable',
+                scrollbarWidth: 'thin',
+                scrollbarColor: `${alpha(accent, 0.45)} ${alpha(accent, 0.06)}`,
+                '&::-webkit-scrollbar': { width: 8 },
+                '&::-webkit-scrollbar-track': {
+                  marginBlock: 6,
+                  background: alpha(accent, 0.05),
+                  borderRadius: 99,
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  backgroundColor: alpha(accent, 0.4),
+                  borderRadius: 99,
+                  border: '2px solid transparent',
+                  backgroundClip: 'padding-box',
+                  '&:hover': {
+                    backgroundColor: alpha(accent, 0.55),
+                    border: '2px solid transparent',
+                    backgroundClip: 'padding-box',
+                  },
+                },
+              }}
+            >
             {filteredRoster.length === 0 ? (
               <Stack alignItems="center" spacing={1} sx={{ py: 3, px: 2 }}>
                 <PersonSearchOutlinedIcon color="disabled" />
@@ -503,6 +546,7 @@ export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataM
                     onClick={() => setEmployeeId(e.id)}
                     sx={{
                       px: 1.75,
+                      pr: 2.25,
                       py: 1.1,
                       cursor: 'pointer',
                       display: 'flex',
@@ -534,6 +578,7 @@ export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataM
                 );
               })
             )}
+            </Box>
           </Box>
         )}
 
@@ -972,13 +1017,13 @@ export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataM
                     '&:hover': { bgcolor: accent, filter: 'brightness(0.94)' },
                   }}
                 >
-                  Gửi Trưởng phòng ĐD duyệt
+                  {nursingHeadScope ? 'Gửi Trưởng phòng ĐD duyệt' : 'Gửi HCNS duyệt'}
                 </Button>
               </Stack>
             )}
             {!canScore && (
               <Alert severity="info" sx={{ borderRadius: 2 }}>
-                Bạn chỉ xem được phiếu trong khối; Trưởng khoa / ĐDT khoa lập, chấm và gửi Trưởng phòng ĐD duyệt.
+                Bạn chỉ xem được phiếu trong khối; Trưởng khoa / ĐDT khoa lập và chấm điểm, rồi gửi duyệt theo quy trình.
               </Alert>
             )}
           </>

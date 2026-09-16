@@ -17,6 +17,12 @@ public class AccountMeResponse {
     boolean directorApprovalEnabled;
     /** true = được xem menu/API báo cáo nhân lực (cấp bởi Admin). */
     boolean reportViewEnabled;
+    /** true = được xuất Excel báo cáo công (cấp bởi Admin). */
+    boolean attendanceExcelExportEnabled;
+    /** true = xem danh sách/chi tiết NV toàn viện, không gồm lương (cấp bởi Admin). */
+    boolean hospitalWideEmployeeViewEnabled;
+    /** true = xem báo cáo Trình độ chuyên môn (cấp bởi Admin). */
+    boolean professionalQualificationReportEnabled;
     /** true = trưởng khoa chỉ quản lý bộ phận (workUnitDetail) của mình. */
     boolean workUnitScoped;
     boolean mustChangePassword;

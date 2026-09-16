@@ -1,6 +1,10 @@
 /**
- * Khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa (đồng bộ backend NursingBlockClassifier).
- * Dùng để hiển thị bước duyệt Trưởng phòng Điều dưỡng trên form lập đơn.
+ * Khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa – Y sĩ
+ * + Dược sĩ chỉ khoa YHCT; Nhân viên khoa YHCT hoặc Khoa khám bệnh
+ * (đồng bộ backend NursingBlockClassifier).
+ *
+ * Không gồm nhân sự thuộc phòng loại trừ khỏi Trưởng phòng ĐD:
+ * Kế hoạch tổng hợp, Kinh doanh/Phát triển, Phòng Điều dưỡng.
  */
 
 function normalize(positionTitle?: string | null): string {
@@ -9,16 +13,47 @@ function normalize(positionTitle?: string | null): string {
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
     .toLowerCase()
-    .replace(/đ/g, 'd');
+    .replace(/đ/g, 'd')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
+/** Không gồm Dược sĩ / Nhân viên — gắn khoa đặc thù. */
 const BLOCK =
-  /dieu\s*duong|\bdd\b|ho\s*sinh|ky\s*thuat\s*vien|\bktv\b|y\s*ta|\bnurse\b|thu\s*ky\s*y\s*khoa|thu\s*ky\s*ykhoa|medical\s*secretar|midwife|technici/;
+  /dieu\s*duong|\bdd\b|ho\s*sinh|ky\s*thuat\s*vien|\bktv\b|y\s*ta|\bnurse\b|thu\s*ky\s*y\s*khoa|thu\s*ky\s*ykhoa|medical\s*secretar|midwife|technici|\by\s*s[iy]\b|assistant\s*physician|physician\s*assistant/;
 
-/** True nếu chức danh thuộc khối ĐD–KTV–HS–Thư ký y khoa. */
-export function isNursingBlockTitle(positionTitle?: string | null): boolean {
-  const norm = normalize(positionTitle);
-  return Boolean(norm && BLOCK.test(norm));
+const PHARMACIST = /duoc\s*si|\bduocsy\b|pharmacist/;
+const STAFF = /\bnhan\s*vien\b/;
+const TRADITIONAL_MEDICINE_DEPT = /y\s*hoc\s*co\s*truyen|\byhct\b/;
+const OUTPATIENT_DEPT = /khoa\s*kham\s*benh|^kham\s*benh$/;
+/** Đồng bộ EXCLUDED_NURSING_HEAD_DEPT + Phòng Điều dưỡng trên backend. */
+const EXCLUDED_NURSING_HEAD_DEPT =
+  /ke\s*hoach\s*tong\s*hop|kinh\s*doanh|phat\s*trien|^phong\s+dieu\s+duong$/;
+
+function isExcludedNursingHeadDepartment(departmentName?: string | null): boolean {
+  const dept = normalize(departmentName);
+  return Boolean(dept && EXCLUDED_NURSING_HEAD_DEPT.test(dept));
+}
+
+/**
+ * True nếu thuộc phạm vi Trưởng phòng ĐD (chức danh khối + không thuộc phòng loại trừ;
+ * «Dược sĩ» chỉ YHCT; «Nhân viên» YHCT hoặc Khoa khám bệnh).
+ */
+export function isNursingBlockTitle(
+  positionTitle?: string | null,
+  departmentName?: string | null,
+): boolean {
+  if (isExcludedNursingHeadDepartment(departmentName)) {
+    return false;
+  }
+  const title = normalize(positionTitle);
+  if (!title) return false;
+  if (BLOCK.test(title)) return true;
+  const dept = normalize(departmentName);
+  if (STAFF.test(title) && (TRADITIONAL_MEDICINE_DEPT.test(dept) || OUTPATIENT_DEPT.test(dept))) {
+    return true;
+  }
+  return PHARMACIST.test(title) && TRADITIONAL_MEDICINE_DEPT.test(dept);
 }
 
 export type FlowStep = { label: string; hint: string };
@@ -36,6 +71,7 @@ export function workRequestDetailFlow(request: {
   requestType: string;
   status: string;
   positionTitle?: string | null;
+  departmentName?: string | null;
   employeeName?: string | null;
   flowSubmitterName?: string | null;
   flowHeadName?: string | null;
@@ -58,7 +94,7 @@ export function workRequestDetailFlow(request: {
   const director =
     flowPerson(request.directorReviewerName, request.flowDirectorName) || 'Duyệt cuối';
 
-  const nursingBlock = isNursingBlockTitle(request.positionTitle);
+  const nursingBlock = isNursingBlockTitle(request.positionTitle, request.departmentName);
   let steps: FlowStep[];
   if (request.requestType === 'DEPLOYMENT') {
     steps = nursingBlock
@@ -115,8 +151,11 @@ function workRequestFlowActiveIndex(
 }
 
 /** Quy trình điều động: khối ĐD thêm bước Trưởng phòng Điều dưỡng. */
-export function deploymentFlowSteps(positionTitle?: string | null): FlowStep[] {
-  if (isNursingBlockTitle(positionTitle)) {
+export function deploymentFlowSteps(
+  positionTitle?: string | null,
+  departmentName?: string | null,
+): FlowStep[] {
+  if (isNursingBlockTitle(positionTitle, departmentName)) {
     return [
       { label: 'Lập đơn', hint: 'Trưởng khoa / ĐD trưởng khoa' },
       { label: 'Trưởng phòng ĐD', hint: 'Trưởng phòng Điều dưỡng' },
@@ -132,8 +171,11 @@ export function deploymentFlowSteps(positionTitle?: string | null): FlowStep[] {
 }
 
 /** Quy trình lên chính thức. */
-export function probationFlowSteps(positionTitle?: string | null): FlowStep[] {
-  if (isNursingBlockTitle(positionTitle)) {
+export function probationFlowSteps(
+  positionTitle?: string | null,
+  departmentName?: string | null,
+): FlowStep[] {
+  if (isNursingBlockTitle(positionTitle, departmentName)) {
     return [
       { label: 'Lập đơn', hint: 'Trưởng khoa / ĐD trưởng khoa' },
       { label: 'Trưởng phòng ĐD', hint: 'Trưởng phòng Điều dưỡng' },
@@ -149,8 +191,11 @@ export function probationFlowSteps(positionTitle?: string | null): FlowStep[] {
 }
 
 /** Quy trình trực chính (trưởng khoa lập → bỏ qua bước chờ trưởng khoa). */
-export function mainDutyFlowSteps(positionTitle?: string | null): FlowStep[] {
-  if (isNursingBlockTitle(positionTitle)) {
+export function mainDutyFlowSteps(
+  positionTitle?: string | null,
+  departmentName?: string | null,
+): FlowStep[] {
+  if (isNursingBlockTitle(positionTitle, departmentName)) {
     return [
       { label: 'Lập đơn', hint: 'Trưởng khoa / ĐD trưởng khoa' },
       { label: 'Trưởng phòng ĐD', hint: 'Trưởng phòng Điều dưỡng' },

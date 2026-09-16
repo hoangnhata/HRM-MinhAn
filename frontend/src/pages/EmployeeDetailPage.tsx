@@ -134,13 +134,19 @@ export default function EmployeeDetailPage() {
     emp.status === 'INTERN' ||
     (emp.employeeCode?.toUpperCase().startsWith('TV-') ?? false);
   const isSelf = user?.employeeId != null && user.employeeId === emp.id;
+  const canSeeSalaryBlock =
+    user?.role === 'ADMIN' ||
+    user?.role === 'HR' ||
+    (isSelf && user?.canViewSalary !== false);
   const trialOnlyView = isTrialEmployee && !isSelf;
   const attendanceCode =
     typeof profile.attendanceCode === 'string' && profile.attendanceCode.trim() !== ''
       ? profile.attendanceCode.trim()
       : null;
   const salaryFromNotes =
-    typeof profile.workforceNotes === 'string' && profile.workforceNotes.includes('Mức lương:')
+    canSeeSalaryBlock &&
+    typeof profile.workforceNotes === 'string' &&
+    profile.workforceNotes.includes('Mức lương:')
       ? profile.workforceNotes.split('Mức lương:').pop()?.split('|')[0]?.trim()
       : null;
   const noteOnly =
@@ -199,7 +205,7 @@ export default function EmployeeDetailPage() {
                 <DetailRow label="Bộ phận" value={profile.workUnitDetail as string | undefined} />
                 <DetailRow label="Số điện thoại" value={emp.phone} />
                 <DetailRow label="Mã chấm công" value={attendanceCode} />
-                <DetailRow label="Mức lương" value={salaryFromNotes} />
+                {canSeeSalaryBlock ? <DetailRow label="Mức lương" value={salaryFromNotes} /> : null}
                 <DetailRow
                   label="Từ ngày"
                   value={emp.hireDate ?? (profile.probationStartDate as string | undefined)}
@@ -282,9 +288,11 @@ export default function EmployeeDetailPage() {
           </Card>
         </Grid>
 
-        <Grid item xs={12} md={6}>
-          <EmployeeSalarySummaryCard employeeId={emp.id} />
-        </Grid>
+        {canSeeSalaryBlock ? (
+          <Grid item xs={12} md={6}>
+            <EmployeeSalarySummaryCard employeeId={emp.id} />
+          </Grid>
+        ) : null}
 
         {emp.workforceProfile && Object.keys(emp.workforceProfile).length > 0 && (
           <>

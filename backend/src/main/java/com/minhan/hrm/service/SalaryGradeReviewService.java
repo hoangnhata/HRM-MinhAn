@@ -82,12 +82,17 @@ public class SalaryGradeReviewService {
 
         ComputedSalaryGradeDto current = calculator.computeForProfileAtDate(emp, profile, effectiveDate.minusDays(1));
         ComputedSalaryGradeDto next = calculator.computeForProfileAtDate(emp, profile, effectiveDate);
-        if (manualReviewDate && next.getGradeLevel() <= current.getGradeLevel()) {
-            next = expectedNextGrade(profile, current, effectiveDate);
+        // Chỉ liệt kê khi bậc theo thang/thâm niên thật sự tăng.
+        // Không ép +1 bậc từ nextReviewDate (hay = mốc +1 năm) khi vẫn cùng khoảng 0–2, 2–4…
+        if (next.getGradeLevel() <= current.getGradeLevel()) {
+            return null;
         }
         BigDecimal currentSalary = salaryValue(current, profile);
         BigDecimal nextSalary = salaryValue(next, profile);
         BigDecimal increase = nextSalary.subtract(currentSalary).max(BigDecimal.ZERO);
+        if (increase.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
         BigDecimal percent = currentSalary.compareTo(BigDecimal.ZERO) > 0
                 ? increase.multiply(BigDecimal.valueOf(100)).divide(currentSalary, 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
@@ -132,19 +137,6 @@ public class SalaryGradeReviewService {
         return null;
     }
 
-    private ComputedSalaryGradeDto expectedNextGrade(
-            EmployeeSalaryProfile profile, ComputedSalaryGradeDto current, LocalDate effectiveDate) {
-        if (profile.getSalaryCategory() == SalaryCategory.EMPLOYEE && profile.getEmployeeBlock() != null) {
-            SalaryScaleType type = profile.getEmployeeBlock() == EmployeeSalaryBlock.DIRECT
-                    ? SalaryScaleType.EMPLOYEE_DIRECT : SalaryScaleType.EMPLOYEE_INDIRECT;
-            return calculator.findEmployeeGrade(
-                    type, calculator.resolveQualification(profile), Math.min(10, current.getGradeLevel() + 1));
-        }
-        return calculator.computeDoctorGrade(
-                profile.getDoctorQualificationCode(),
-                calculator.resolveSeniorityYears(profile.getEmployee(), profile, effectiveDate.plusYears(2)));
-    }
-
     private static BigDecimal salaryValue(ComputedSalaryGradeDto grade, EmployeeSalaryProfile profile) {
         BigDecimal scale = grade.getScaleSalary() != null ? grade.getScaleSalary() : BigDecimal.ZERO;
         if (scale.compareTo(BigDecimal.ZERO) > 0) return scale;
@@ -163,10 +155,14 @@ public class SalaryGradeReviewService {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("Nâng bậc " + month + "-" + year);
             sheet.createFreezePane(0, 3);
+            final String fontName = "Times New Roman";
             CellStyle title = workbook.createCellStyle();
             Font titleFont = workbook.createFont();
-            titleFont.setBold(true); titleFont.setFontHeightInPoints((short) 15);
-            title.setFont(titleFont); title.setAlignment(HorizontalAlignment.CENTER);
+            titleFont.setFontName(fontName);
+            titleFont.setBold(true);
+            titleFont.setFontHeightInPoints((short) 15);
+            title.setFont(titleFont);
+            title.setAlignment(HorizontalAlignment.CENTER);
             Row titleRow = sheet.createRow(0);
             Cell titleCell = titleRow.createCell(0);
             titleCell.setCellValue("DANH SÁCH NHÂN VIÊN NÂNG BẬC LƯƠNG THÁNG " + month + "/" + year);
@@ -182,39 +178,86 @@ public class SalaryGradeReviewService {
             header.setAlignment(HorizontalAlignment.CENTER);
             header.setVerticalAlignment(VerticalAlignment.CENTER);
             header.setWrapText(true);
-            Font headerFont = workbook.createFont(); headerFont.setBold(true); headerFont.setColor(IndexedColors.WHITE.getIndex());
+            Font headerFont = workbook.createFont();
+            headerFont.setFontName(fontName);
+            headerFont.setBold(true);
+            headerFont.setColor(IndexedColors.WHITE.getIndex());
             header.setFont(headerFont);
             Row headerRow = sheet.createRow(2);
-            for (int i = 0; i < headers.length; i++) { Cell c = headerRow.createCell(i); c.setCellValue(headers[i]); c.setCellStyle(header); }
+            for (int i = 0; i < headers.length; i++) {
+                Cell c = headerRow.createCell(i);
+                c.setCellValue(headers[i]);
+                c.setCellStyle(header);
+            }
 
-            CellStyle money = workbook.createCellStyle(); money.setDataFormat(workbook.createDataFormat().getFormat("#,##0\" đ\""));
-            CellStyle date = workbook.createCellStyle(); date.setDataFormat(workbook.createDataFormat().getFormat("dd/mm/yyyy"));
+            Font bodyFont = workbook.createFont();
+            bodyFont.setFontName(fontName);
+            bodyFont.setFontHeightInPoints((short) 11);
+            CellStyle text = workbook.createCellStyle();
+            text.setFont(bodyFont);
+            text.setVerticalAlignment(VerticalAlignment.CENTER);
+            CellStyle money = workbook.createCellStyle();
+            money.cloneStyleFrom(text);
+            money.setDataFormat(workbook.createDataFormat().getFormat("#,##0\" đ\""));
+            CellStyle date = workbook.createCellStyle();
+            date.cloneStyleFrom(text);
+            date.setDataFormat(workbook.createDataFormat().getFormat("dd/mm/yyyy"));
+            CellStyle center = workbook.createCellStyle();
+            center.cloneStyleFrom(text);
+            center.setAlignment(HorizontalAlignment.CENTER);
             int index = 3;
             for (Map<String, Object> data : rows) {
-                Row row = sheet.createRow(index++); int c = 0;
-                row.createCell(c++).setCellValue(index - 3);
-                row.createCell(c++).setCellValue(String.valueOf(data.get("employeeCode")));
-                row.createCell(c++).setCellValue(String.valueOf(data.get("fullName")));
-                row.createCell(c++).setCellValue(String.valueOf(data.get("department")));
-                row.createCell(c++).setCellValue(String.valueOf(data.get("position")));
-                row.createCell(c++).setCellValue(categoryLabel(String.valueOf(data.get("salaryCategory")), String.valueOf(data.get("employeeBlock"))));
-                row.createCell(c++).setCellValue(String.valueOf(data.get("qualification")));
-                Cell dc = row.createCell(c++); dc.setCellValue((LocalDate) data.get("effectiveDate")); dc.setCellStyle(date);
-                row.createCell(c++).setCellValue(((BigDecimal) data.get("seniorityYears")).doubleValue());
-                row.createCell(c++).setCellValue(String.valueOf(data.get("currentGrade")));
-                row.createCell(c++).setCellValue(String.valueOf(data.get("nextGrade")));
-                Cell m1 = row.createCell(c++); m1.setCellValue(((BigDecimal) data.get("currentSalary")).doubleValue()); m1.setCellStyle(money);
-                Cell m2 = row.createCell(c++); m2.setCellValue(((BigDecimal) data.get("nextSalary")).doubleValue()); m2.setCellStyle(money);
-                Cell m3 = row.createCell(c++); m3.setCellValue(((BigDecimal) data.get("increaseAmount")).doubleValue()); m3.setCellStyle(money);
-                row.createCell(c++).setCellValue(((BigDecimal) data.get("increasePercent")).doubleValue() / 100d);
-                row.createCell(c++).setCellValue(statusLabel(String.valueOf(data.get("timingStatus"))));
-                row.createCell(c).setCellValue("MANUAL_REVIEW_DATE".equals(data.get("reviewSource")) ? "Ngày xét lương hồ sơ" : "Thâm niên/thang lương");
+                Row row = sheet.createRow(index++);
+                int c = 0;
+                Cell stt = row.createCell(c++);
+                stt.setCellValue(index - 3);
+                stt.setCellStyle(center);
+                setText(row, c++, String.valueOf(data.get("employeeCode")), center);
+                setText(row, c++, String.valueOf(data.get("fullName")), text);
+                setText(row, c++, String.valueOf(data.get("department")), text);
+                setText(row, c++, String.valueOf(data.get("position")), text);
+                setText(row, c++, categoryLabel(
+                        String.valueOf(data.get("salaryCategory")),
+                        String.valueOf(data.get("employeeBlock"))), text);
+                setText(row, c++, String.valueOf(data.get("qualification")), text);
+                Cell dc = row.createCell(c++);
+                dc.setCellValue((LocalDate) data.get("effectiveDate"));
+                dc.setCellStyle(date);
+                Cell seniority = row.createCell(c++);
+                seniority.setCellValue(((BigDecimal) data.get("seniorityYears")).doubleValue());
+                seniority.setCellStyle(center);
+                setText(row, c++, String.valueOf(data.get("currentGrade")), center);
+                setText(row, c++, String.valueOf(data.get("nextGrade")), center);
+                Cell m1 = row.createCell(c++);
+                m1.setCellValue(((BigDecimal) data.get("currentSalary")).doubleValue());
+                m1.setCellStyle(money);
+                Cell m2 = row.createCell(c++);
+                m2.setCellValue(((BigDecimal) data.get("nextSalary")).doubleValue());
+                m2.setCellStyle(money);
+                Cell m3 = row.createCell(c++);
+                m3.setCellValue(((BigDecimal) data.get("increaseAmount")).doubleValue());
+                m3.setCellStyle(money);
+                Cell pct = row.createCell(c++);
+                pct.setCellValue(((BigDecimal) data.get("increasePercent")).doubleValue() / 100d);
+                pct.setCellStyle(center);
+                setText(row, c++, statusLabel(String.valueOf(data.get("timingStatus"))), text);
+                setText(row, c,
+                        "MANUAL_REVIEW_DATE".equals(data.get("reviewSource"))
+                                ? "Ngày xét lương hồ sơ"
+                                : "Thâm niên/thang lương",
+                        text);
             }
             for (int i = 0; i < headers.length; i++) { sheet.autoSizeColumn(i); sheet.setColumnWidth(i, Math.min(sheet.getColumnWidth(i) + 700, 16000)); }
             workbook.write(out); return out.toByteArray();
         } catch (Exception e) {
             throw new IllegalStateException("Không tạo được file nâng bậc lương", e);
         }
+    }
+
+    private static void setText(Row row, int col, String value, CellStyle style) {
+        Cell cell = row.createCell(col);
+        cell.setCellValue(value != null ? value : "");
+        cell.setCellStyle(style);
     }
 
     private static String categoryLabel(String category, String block) {

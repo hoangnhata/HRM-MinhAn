@@ -67,8 +67,13 @@ export async function fetchPendingTransfers() {
   return data;
 }
 
-export async function fetchTransferHistory() {
-  const { data } = await api.get<DepartmentTransfer[]>('/v1/department-transfers/history');
+export async function fetchTransferHistory(opts?: { fromDate?: string; toDate?: string }) {
+  const { data } = await api.get<DepartmentTransfer[]>('/v1/department-transfers/history', {
+    params: {
+      fromDate: opts?.fromDate || undefined,
+      toDate: opts?.toDate || undefined,
+    },
+  });
   return data;
 }
 

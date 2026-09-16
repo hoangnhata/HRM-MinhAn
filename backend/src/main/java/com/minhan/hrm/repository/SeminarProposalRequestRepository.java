@@ -40,7 +40,9 @@ public interface SeminarProposalRequestRepository extends JpaRepository<SeminarP
             LEFT JOIN FETCH e.position
             LEFT JOIN FETCH r.hrReviewer
             LEFT JOIN FETCH r.directorReviewer
-            WHERE r.status NOT IN (
+            WHERE r.hrReviewedAt IS NOT NULL
+               OR r.directorReviewedAt IS NOT NULL
+               OR r.status NOT IN (
                 com.minhan.hrm.entity.SeminarProposalStatus.PENDING_HR,
                 com.minhan.hrm.entity.SeminarProposalStatus.PENDING_DIRECTOR
             )

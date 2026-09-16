@@ -11,6 +11,7 @@ import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface TrainingProposalRequestRepository extends JpaRepository<TrainingProposalRequest, Long> {
 
@@ -39,7 +40,9 @@ public interface TrainingProposalRequestRepository extends JpaRepository<Trainin
             LEFT JOIN FETCH e.position
             LEFT JOIN FETCH r.hrReviewer
             LEFT JOIN FETCH r.directorReviewer
-            WHERE r.status NOT IN (
+            WHERE r.hrReviewedAt IS NOT NULL
+               OR r.directorReviewedAt IS NOT NULL
+               OR r.status NOT IN (
                 com.minhan.hrm.entity.TrainingProposalStatus.PENDING_HR,
                 com.minhan.hrm.entity.TrainingProposalStatus.PENDING_DIRECTOR
             )
@@ -67,4 +70,20 @@ public interface TrainingProposalRequestRepository extends JpaRepository<Trainin
             WHERE r.status = com.minhan.hrm.entity.TrainingProposalStatus.APPROVED
             """)
     List<TrainingProposalRequest> findApprovedWithEmployee();
+
+    @Query("""
+            SELECT r FROM TrainingProposalRequest r
+            WHERE r.employee.id = :employeeId
+              AND r.status IN :statuses
+              AND r.startDate IS NOT NULL
+              AND r.endDate IS NOT NULL
+              AND r.startDate <= :to
+              AND r.endDate >= :from
+            ORDER BY r.startDate ASC, r.id ASC
+            """)
+    List<TrainingProposalRequest> findOverlappingForEmployee(
+            @Param("employeeId") Long employeeId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("statuses") Set<TrainingProposalStatus> statuses);
 }

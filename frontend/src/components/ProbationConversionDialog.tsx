@@ -183,7 +183,7 @@ function isClinicalPosition(positionTitle?: string) {
   const title = normalizePosition(positionTitle);
   const doctor = /\b(bac\s*si|bs|doctor)\b/.test(title);
   const nurse =
-    /dieu\s*duong|\bdd\b|ho\s*sinh|ky\s*thuat\s*vien|\bktv\b|y\s*ta|nurse/.test(title);
+    /dieu\s*duong|\bdd\b|ho\s*sinh|ky\s*thuat\s*vien|\bktv\b|y\s*ta|nurse|\by\s*s[iy]\b/.test(title);
   return doctor || nurse;
 }
 
@@ -335,7 +335,7 @@ export function ProbationConversionDialog({ open, onClose, onSubmitted, editConv
   const [positions, setPositions] = useState<employeeService.PositionOption[]>([]);
   const [workUnits, setWorkUnits] = useState<departmentService.WorkUnitRow[]>([]);
 
-  const nursingFlow = isNursingBlockTitle(employee?.positionTitle);
+  const nursingFlow = isNursingBlockTitle(employee?.positionTitle, employee?.departmentName);
 
   function setOfficialField<K extends keyof OfficialFormState>(key: K, value: OfficialFormState[K]) {
     setOfficial((prev) => ({ ...prev, [key]: value }));
@@ -720,7 +720,7 @@ export function ProbationConversionDialog({ open, onClose, onSubmitted, editConv
         </Box>
       ) : (
         <>
-          <RequestFlowSteps accent={ACCENT} steps={probationFlowSteps(employee?.positionTitle)} />
+          <RequestFlowSteps accent={ACCENT} steps={probationFlowSteps(employee?.positionTitle, employee?.departmentName)} />
 
           <InfoBanner>
             {nursingFlow ? (

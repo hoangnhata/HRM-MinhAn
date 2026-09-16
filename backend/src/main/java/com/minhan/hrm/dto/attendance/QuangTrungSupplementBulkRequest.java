@@ -23,12 +23,12 @@ public class QuangTrungSupplementBulkRequest {
 
     private String reason;
 
-    @NotNull
+    /**
+     * Tuỳ chọn — nếu null, từng NV dùng khung giờ ca của mình.
+     * Nếu có đủ giờ, dùng chung (override) cho mọi NV.
+     */
     private LocalTime requestedStart;
-
-    @NotNull
     private LocalTime requestedEnd;
-
     private LocalTime requestedAfternoonStart;
     private LocalTime requestedAfternoonEnd;
 }

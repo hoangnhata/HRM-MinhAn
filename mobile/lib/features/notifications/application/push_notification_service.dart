@@ -79,7 +79,8 @@ class PushNotificationCoordinator {
     if (Platform.isAndroid) {
       await _local
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
+            AndroidFlutterLocalNotificationsPlugin
+          >()
           ?.createNotificationChannel(
             const AndroidNotificationChannel(
               'hrm_push',
@@ -93,7 +94,8 @@ class PushNotificationCoordinator {
     if (Platform.isIOS) {
       await _local
           .resolvePlatformSpecificImplementation<
-              IOSFlutterLocalNotificationsPlugin>()
+            IOSFlutterLocalNotificationsPlugin
+          >()
           ?.requestPermissions(alert: true, badge: true, sound: true);
     }
 
@@ -123,8 +125,9 @@ class PushNotificationCoordinator {
     }
 
     _onMessageSub = FirebaseMessaging.onMessage.listen(_showForeground);
-    _onOpenedSub =
-        FirebaseMessaging.onMessageOpenedApp.listen(_handleRemoteOpen);
+    _onOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen(
+      _handleRemoteOpen,
+    );
 
     final initial = await messaging.getInitialMessage();
     if (initial != null) {
@@ -142,7 +145,9 @@ class PushNotificationCoordinator {
       if (Platform.isIOS) {
         final apns = await FirebaseMessaging.instance.getAPNSToken();
         if (apns == null || apns.isEmpty) {
-          debugPrint('FCM: chưa có APNs token — thử lại sau khi cấp quyền thông báo');
+          debugPrint(
+            'FCM: chưa có APNs token — thử lại sau khi cấp quyền thông báo',
+          );
           return;
         }
       }
@@ -150,8 +155,9 @@ class PushNotificationCoordinator {
       if (token == null || token.isEmpty) return;
       await _registerToken(token);
       await _tokenRefreshSub?.cancel();
-      _tokenRefreshSub =
-          FirebaseMessaging.instance.onTokenRefresh.listen(_registerToken);
+      _tokenRefreshSub = FirebaseMessaging.instance.onTokenRefresh.listen(
+        _registerToken,
+      );
     } catch (e) {
       debugPrint('FCM: không lấy/đăng ký được token: $e');
     }
@@ -174,22 +180,21 @@ class PushNotificationCoordinator {
     _currentToken = token;
     final platform = Platform.isIOS ? 'IOS' : 'ANDROID';
     try {
-      await _ref.read(deviceTokenRepositoryProvider).register(
-            token: token,
-            platform: platform,
-          );
+      await _ref
+          .read(deviceTokenRepositoryProvider)
+          .register(token: token, platform: platform);
     } catch (e) {
       debugPrint('FCM: đăng ký token backend thất bại: $e');
     }
   }
 
   Future<void> _showForeground(RemoteMessage message) async {
-    final title = message.notification?.title ??
+    final title =
+        message.notification?.title ??
         message.data['title']?.toString() ??
         'Thông báo';
-    final body = message.notification?.body ??
-        message.data['body']?.toString() ??
-        '';
+    final body =
+        message.notification?.body ?? message.data['body']?.toString() ?? '';
     final badgeFromPush = int.tryParse(message.data['badge']?.toString() ?? '');
     await _local.show(
       id: message.hashCode,
@@ -199,16 +204,13 @@ class PushNotificationCoordinator {
         android: AndroidNotificationDetails(
           'hrm_push',
           'Thông báo HRM',
-          channelDescription:
-              'Thông báo đơn từ và duyệt của Bệnh viện Minh An',
+          channelDescription: 'Thông báo đơn từ và duyệt của Bệnh viện Minh An',
           importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
           number: badgeFromPush,
         ),
-        iOS: DarwinNotificationDetails(
-          badgeNumber: badgeFromPush,
-        ),
+        iOS: DarwinNotificationDetails(badgeNumber: badgeFromPush),
       ),
       payload: _encodePayload(message.data),
     );
@@ -233,8 +235,10 @@ class PushNotificationCoordinator {
 
   static String _encodePayload(Map<String, dynamic> data) {
     return data.entries
-        .map((e) =>
-            '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value?.toString() ?? '')}')
+        .map(
+          (e) =>
+              '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value?.toString() ?? '')}',
+        )
         .join('&');
   }
 
@@ -244,8 +248,9 @@ class PushNotificationCoordinator {
       if (part.isEmpty) continue;
       final i = part.indexOf('=');
       if (i <= 0) continue;
-      out[Uri.decodeComponent(part.substring(0, i))] =
-          Uri.decodeComponent(part.substring(i + 1));
+      out[Uri.decodeComponent(part.substring(0, i))] = Uri.decodeComponent(
+        part.substring(i + 1),
+      );
     }
     return out;
   }
@@ -259,7 +264,7 @@ class PushNotificationCoordinator {
 
 final pushNotificationCoordinatorProvider =
     Provider<PushNotificationCoordinator>((ref) {
-  final coordinator = PushNotificationCoordinator(ref);
-  ref.onDispose(coordinator.dispose);
-  return coordinator;
-});
+      final coordinator = PushNotificationCoordinator(ref);
+      ref.onDispose(coordinator.dispose);
+      return coordinator;
+    });

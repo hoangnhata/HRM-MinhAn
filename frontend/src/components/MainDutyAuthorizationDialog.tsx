@@ -104,7 +104,10 @@ export function MainDutyAuthorizationDialog({ open, onClose, onSubmitted, editAu
   const [err, setErr] = useState<string | null>(null);
 
   const formLabel = guessFormLabel(employee?.positionTitle || profile?.positionTitle);
-  const nursingFlow = isNursingBlockTitle(employee?.positionTitle || profile?.positionTitle);
+  const nursingFlow = isNursingBlockTitle(
+    employee?.positionTitle || profile?.positionTitle,
+    employee?.departmentName || profile?.departmentName,
+  );
 
   useEffect(() => {
     if (!open || !employee) return;
@@ -227,7 +230,10 @@ export function MainDutyAuthorizationDialog({ open, onClose, onSubmitted, editAu
     >
       <RequestFlowSteps
         accent={ACCENT}
-        steps={mainDutyFlowSteps(employee?.positionTitle || profile?.positionTitle)}
+        steps={mainDutyFlowSteps(
+          employee?.positionTitle || profile?.positionTitle,
+          employee?.departmentName || profile?.departmentName,
+        )}
       />
 
       <InfoBanner>

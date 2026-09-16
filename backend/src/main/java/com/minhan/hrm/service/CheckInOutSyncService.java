@@ -103,7 +103,9 @@ public class CheckInOutSyncService {
 
     private List<CheckInOutImportService.PunchRow> fetchPunches(LocalDate fromDate) {
         String table = resolveTableName();
-        String sql = "SELECT UserEnrollNumber, TimeStr FROM " + table + " WHERE TimeDate >= ? ORDER BY TimeStr";
+        // Lọc theo ngày thực tế của TimeStr — tránh bỏ sót khi cột TimeDate lệch (hay gặp cuối tháng).
+        String sql = "SELECT UserEnrollNumber, TimeStr FROM " + table
+                + " WHERE CAST(TimeStr AS DATE) >= ? ORDER BY TimeStr";
 
         try {
             return chamcongJdbc.query(

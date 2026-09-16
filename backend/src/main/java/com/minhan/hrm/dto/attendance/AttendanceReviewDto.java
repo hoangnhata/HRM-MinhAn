@@ -16,6 +16,11 @@ public class AttendanceReviewDto {
     /** HR / Giám đốc: true = không trừ tiền (quên chấm hoặc phạt muộn/sớm) */
     private Boolean waiveForgotFine;
 
+    /**
+     * Giải trình — Giám đốc: true = miễn phạt muộn/sớm và giữ nguyên giờ chấm gốc (không áp giờ giải trình).
+     */
+    private Boolean keepOriginalPunchTimes;
+
     /** Trưởng phòng ĐD / HCNS được hiệu chỉnh khung giờ trước khi duyệt đơn điều động. */
     private LocalTime requestedStart;
     private LocalTime requestedEnd;

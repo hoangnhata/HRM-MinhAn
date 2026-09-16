@@ -169,6 +169,7 @@ export function AttendanceDayDetailDialog({
   const parsed = parseLocalDate(workDate);
   const sch = daySchedule ?? scheduleProp ?? scheduleForDate(workDate);
   const continuous = continuousShift ?? Boolean(sch.continuousShift);
+  const twoPunch = Boolean(sch.twoPunchAttendance) && !continuous;
   const dateLabel = parsed
     ? parsed.toLocaleDateString("vi-VN", {
         weekday: "long",
@@ -185,8 +186,9 @@ export function AttendanceDayDetailDialog({
         workDate,
         continuous,
         sch,
+        twoPunch,
       ),
-    [row, workDate, continuous, sch],
+    [row, workDate, continuous, sch, twoPunch],
   );
 
   useEffect(() => {
@@ -602,13 +604,15 @@ export function AttendanceDayDetailDialog({
                 value={
                   lateExempt ? (
                     "—"
-                  ) : dayPenalty.display === "Kiểm điểm" ? (
+                  ) : dayPenalty.display.includes('Kiểm điểm') ? (
                     <Typography
                       component="span"
                       color="error.main"
                       fontWeight={600}
                     >
-                      Cần tự kiểm điểm
+                      {dayPenalty.display.startsWith('Kiểm điểm')
+                        ? 'Cần tự kiểm điểm'
+                        : dayPenalty.display}
                     </Typography>
                   ) : (
                     dayPenalty.display

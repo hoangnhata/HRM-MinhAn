@@ -15,7 +15,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
 import {
@@ -26,6 +26,7 @@ import * as pcs from '../services/probationConversionService';
 import { ProbationConversionDetailDialog } from './ProbationConversionDetailDialog';
 import {
   applyRequestListFilters,
+  currentMonthRequestFilters,
   EMPTY_REQUEST_FILTERS,
   RequestListFilters,
   type RequestListFilterState,
@@ -44,6 +45,7 @@ export function ProbationConversionPendingPanel({ onChanged }: { onChanged?: () 
   const [pendingHr, setPendingHr] = useState<pcs.ProbationConversion[]>([]);
   const [pendingDirector, setPendingDirector] = useState<pcs.ProbationConversion[]>([]);
   const [history, setHistory] = useState<pcs.ProbationConversion[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [mine, setMine] = useState<pcs.ProbationConversion[]>([]);
   const [subTab, setSubTab] = useState(0);
   const [listLoading, setListLoading] = useState(true);
@@ -57,8 +59,28 @@ export function ProbationConversionPendingPanel({ onChanged }: { onChanged?: () 
   } | null>(null);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const historyReq = useRef(0);
 
-  const reload = useCallback(() => {
+  const isAdmin = user?.role === 'ADMIN';
+  const isApprover = isNursingHead || isHrOrAdmin || isDirectorOrAdmin;
+  const isCreatorOnly = isHeadDepartmentRole(user?.role);
+  const canLoadHistory = isNursingHead || isHrOrAdmin || isDirectorOrAdmin;
+
+  const tabKeys = useMemo(() => {
+    const keys: string[] = [];
+    if (isApprover) {
+      keys.push('pending', 'history');
+    }
+    if (isCreatorOnly) {
+      keys.push('mine');
+    }
+    return keys;
+  }, [isApprover, isCreatorOnly]);
+
+  const activeKey = tabKeys[Math.min(subTab, Math.max(tabKeys.length - 1, 0))];
+  const historyActive = activeKey === 'history';
+
+  const reloadPending = useCallback(() => {
     setListLoading(true);
     const tasks: Promise<void>[] = [];
     if (isNursingHead) {
@@ -83,14 +105,6 @@ export function ProbationConversionPendingPanel({ onChanged }: { onChanged?: () 
           .catch(() => setPendingDirector([])),
       );
     }
-    if (isNursingHead || isHrOrAdmin || isDirectorOrAdmin) {
-      tasks.push(
-        pcs
-          .fetchConversionHistory()
-          .then(setHistory)
-          .catch(() => setHistory([])),
-      );
-    }
     if (isHead) {
       tasks.push(
         pcs
@@ -105,13 +119,66 @@ export function ProbationConversionPendingPanel({ onChanged }: { onChanged?: () 
       .finally(() => setListLoading(false));
   }, [isHrOrAdmin, isDirectorOrAdmin, isHead, isNursingHead]);
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  const reloadHistory = useCallback(
+    (nextFilters: RequestListFilterState) => {
+      if (!canLoadHistory) return;
+      const reqId = ++historyReq.current;
+      setListLoading(true);
+      pcs
+        .fetchConversionHistory({
+          fromDate: nextFilters.dateFrom || undefined,
+          toDate: nextFilters.dateTo || undefined,
+        })
+        .then((rows) => {
+          if (historyReq.current !== reqId) return;
+          setHistory(rows);
+          setHistoryLoaded(true);
+        })
+        .catch(() => {
+          if (historyReq.current !== reqId) return;
+          setHistory([]);
+          setHistoryLoaded(true);
+        })
+        .finally(() => {
+          if (historyReq.current === reqId) setListLoading(false);
+        });
+    },
+    [canLoadHistory],
+  );
 
-  const isAdmin = user?.role === 'ADMIN';
-  const isApprover = isNursingHead || isHrOrAdmin || isDirectorOrAdmin;
-  const isCreatorOnly = isHeadDepartmentRole(user?.role);
+  useEffect(() => {
+    reloadPending();
+  }, [reloadPending]);
+
+  useEffect(() => {
+    if (historyActive) {
+      const month = currentMonthRequestFilters();
+      setFilters(month);
+      reloadHistory(month);
+    } else {
+      setFilters(EMPTY_REQUEST_FILTERS);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyActive, canLoadHistory]);
+
+  const onFiltersChange = useCallback(
+    (next: RequestListFilterState) => {
+      const dateChanged =
+        next.dateFrom !== filters.dateFrom || next.dateTo !== filters.dateTo;
+      setFilters(next);
+      if (historyActive && dateChanged) {
+        reloadHistory(next);
+      }
+    },
+    [filters.dateFrom, filters.dateTo, historyActive, reloadHistory],
+  );
+
+  const reload = useCallback(() => {
+    reloadPending();
+    if (historyActive) {
+      reloadHistory(filters);
+    }
+  }, [reloadPending, historyActive, reloadHistory, filters]);
 
   const pendingForMe = useMemo(() => {
     const byId = new Map<number, pcs.ProbationConversion>();
@@ -161,25 +228,28 @@ export function ProbationConversionPendingPanel({ onChanged }: { onChanged?: () 
         count: pendingForMe.length,
         list: pendingForMe,
       });
-      tabs.push({ key: 'history', label: 'Lịch sử', count: history.length, list: history });
+      tabs.push({
+        key: 'history',
+        label: historyLoaded ? `Lịch sử (${history.length})` : 'Lịch sử',
+        count: history.length,
+        list: history,
+      });
     }
     if (isCreatorOnly) {
       tabs.push({ key: 'mine', label: 'Đơn tôi lập', count: mine.length, list: mine });
     }
     return tabs;
-  }, [isApprover, isCreatorOnly, pendingForMe, history, mine]);
+  }, [isApprover, isCreatorOnly, pendingForMe, history, historyLoaded, mine]);
 
   useEffect(() => {
     if (subTab >= tabDefs.length) setSubTab(0);
   }, [tabDefs.length, subTab]);
 
-  useEffect(() => {
-    setFilters(EMPTY_REQUEST_FILTERS);
-  }, [subTab]);
-
   const active = tabDefs[subTab];
   const list = active?.list ?? [];
   const canActOnTab = active?.key === 'pending' || active?.key === 'history';
+  const filterReset = historyActive ? currentMonthRequestFilters() : EMPTY_REQUEST_FILTERS;
+  const clearLabel = historyActive ? 'Về tháng này' : 'Xóa lọc';
 
   const filtered = useMemo(
     () =>
@@ -382,7 +452,7 @@ export function ProbationConversionPendingPanel({ onChanged }: { onChanged?: () 
                   )
                 }
                 iconPosition="start"
-                label={t.key === 'history' ? `Lịch sử (${t.count ?? 0})` : t.label}
+                label={t.label}
               />
             ))}
           </Tabs>
@@ -393,15 +463,24 @@ export function ProbationConversionPendingPanel({ onChanged }: { onChanged?: () 
         rows={rows}
         loading={listLoading}
         emptyTitle="Không có đơn"
-        emptyHint="Khi có đề nghị chuyển chính thức, đơn sẽ xuất hiện tại đây."
+        emptyHint={
+          historyActive
+            ? 'Mặc định xem đơn trong tháng hiện tại. Đổi khoảng ngày để xem thêm.'
+            : 'Khi có đề nghị chuyển chính thức, đơn sẽ xuất hiện tại đây.'
+        }
         actionBusyId={actionBusyId}
         bulkBusy={bulkBusy}
         toolbar={
           <RequestListFilters
             value={filters}
-            onChange={setFilters}
+            onChange={onFiltersChange}
             statusOptions={statusOptions}
             resultCount={filtered.length}
+            resetFilters={filterReset}
+            clearLabel={clearLabel}
+            title={
+              historyActive ? 'Bộ lọc lịch sử (mặc định tháng này)' : 'Bộ lọc đơn'
+            }
           />
         }
         onView={(row) => setDetailId(Number(row.id))}

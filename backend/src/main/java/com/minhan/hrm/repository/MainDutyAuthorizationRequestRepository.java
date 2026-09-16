@@ -40,7 +40,11 @@ public interface MainDutyAuthorizationRequestRepository extends JpaRepository<Ma
             LEFT JOIN FETCH r.nursingHeadReviewer
             LEFT JOIN FETCH r.hrReviewer
             LEFT JOIN FETCH r.directorReviewer
-            WHERE r.status NOT IN (
+            WHERE r.headReviewedAt IS NOT NULL
+               OR r.nursingHeadReviewedAt IS NOT NULL
+               OR r.hrReviewedAt IS NOT NULL
+               OR r.directorReviewedAt IS NOT NULL
+               OR r.status NOT IN (
                 com.minhan.hrm.entity.MainDutyAuthorizationStatus.PENDING_HEAD,
                 com.minhan.hrm.entity.MainDutyAuthorizationStatus.PENDING_NURSING_HEAD,
                 com.minhan.hrm.entity.MainDutyAuthorizationStatus.PENDING_HR,

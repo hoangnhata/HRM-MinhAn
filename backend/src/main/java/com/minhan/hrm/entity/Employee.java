@@ -68,7 +68,7 @@ public class Employee {
     @Builder.Default
     private EmploymentType employmentType = EmploymentType.FULL_TIME;
 
-    /** Làm thông tầm: không nghỉ trưa, chỉ cần giờ vào/ra đầu ngày và cuối ngày. */
+    /** Phân quyền công: ca sáng/chiều bình thường; chỉ cần vào sáng + ra chiều để đủ công. */
     @Column(name = "continuous_shift", nullable = false)
     @Builder.Default
     private boolean continuousShift = false;

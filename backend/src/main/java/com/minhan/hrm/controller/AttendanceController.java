@@ -16,10 +16,14 @@ import com.minhan.hrm.dto.attendance.HolidayWorkDaysUpdateRequest;
 import com.minhan.hrm.dto.attendance.EmployeeContinuousShiftRequest;
 import com.minhan.hrm.dto.attendance.ContinuousShiftTypeRequest;
 import com.minhan.hrm.entity.AttendanceShiftSeason;
+import com.minhan.hrm.entity.AttendanceUpdateKind;
+import com.minhan.hrm.attendance.AttendanceShiftSchedule;
 import com.minhan.hrm.service.ForgotPenaltyConfigService;
 import com.minhan.hrm.service.HolidayWorkDayService;
 import com.minhan.hrm.service.LatePenaltyConfigService;
 import com.minhan.hrm.service.AttendanceReportExcelService;
+import com.minhan.hrm.service.DeploymentRequestExcelService;
+import com.minhan.hrm.service.LowAttendanceReportExcelService;
 import com.minhan.hrm.service.AttendanceService;
 import com.minhan.hrm.service.AttendanceShiftScheduleService;
 import com.minhan.hrm.service.AttendanceSummaryService;
@@ -59,6 +63,8 @@ public class AttendanceController {
     private final AttendanceService attendanceService;
     private final AttendanceSummaryService summaryService;
     private final AttendanceReportExcelService reportExcelService;
+    private final LowAttendanceReportExcelService lowAttendanceReportExcelService;
+    private final DeploymentRequestExcelService deploymentRequestExcelService;
     private final AttendanceWorkRequestService workRequestService;
     private final AttendanceShiftScheduleService shiftScheduleService;
     private final ContinuousShiftTypeService continuousShiftTypeService;
@@ -216,7 +222,7 @@ public class AttendanceController {
                 body.getDates(),
                 body.getDays()));
         try {
-            int recalculated = attendanceService.recalculateEmployeeMonth(
+            int recalculated = attendanceService.recalculateEmployeeMonthInternal(
                     employeeId, body.getYear(), body.getMonth());
             result.put("recalculated", recalculated);
         } catch (Exception e) {
@@ -238,7 +244,7 @@ public class AttendanceController {
         Map<String, Object> result = new LinkedHashMap<>(shiftScheduleService.setEmployeeYoungChild(
                 employeeId, effectiveDate, body.getYoungChild()));
         try {
-            int recalculated = attendanceService.recalculateEmployeeMonth(
+            int recalculated = attendanceService.recalculateEmployeeMonthInternal(
                     employeeId, effectiveDate.getYear(), effectiveDate.getMonthValue());
             result.put("recalculated", recalculated);
         } catch (Exception e) {
@@ -285,14 +291,34 @@ public class AttendanceController {
     }
 
     @GetMapping("/report/excel")
-    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING')")
-    @Operation(summary = "Xuất báo cáo công theo tháng: ADMIN/HR theo bộ lọc, Trưởng khoa/ĐDT chỉ khoa mình, Trưởng phòng ĐD chỉ khối ĐD")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT','HEAD_NURSING','ATTENDANCE_EXCEL_EXPORT')")
+    @Operation(summary = "Xuất báo cáo công theo tháng: ADMIN/HR theo bộ lọc; Trưởng khoa/ĐDT chỉ khoa mình; tài khoản được cấp «Xuất Excel công» có thể xuất toàn viện (departmentId bỏ trống)")
     public ResponseEntity<byte[]> exportMonthlyReport(
             @RequestParam int year,
             @RequestParam int month,
             @RequestParam(required = false) Long departmentId) {
         byte[] body = reportExcelService.buildMonthlyReport(year, month, departmentId);
         String filename = String.format("bao-cao-cong-%d-%02d.xlsx", year, month);
+        ContentDisposition cd = ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(body);
+    }
+
+    @GetMapping("/report/low-attendance/excel")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HR2','HEAD_DEPARTMENT','HEAD_NURSING','ATTENDANCE_EXCEL_EXPORT')")
+    @Operation(summary = "Xuất danh sách nhân viên công thấp trong tháng (nhóm theo khoa): ADMIN/HR/HCNS2 theo bộ lọc, Trưởng khoa chỉ khoa mình, Trưởng phòng ĐD chỉ khối ĐD")
+    public ResponseEntity<byte[]> exportLowAttendanceReport(
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(required = false) Long departmentId,
+            @RequestParam(required = false) java.math.BigDecimal threshold) {
+        byte[] body = lowAttendanceReportExcelService.buildReport(year, month, departmentId, threshold);
+        String filename = String.format("cong-thap-trong-thang-%d-%02d.xlsx", year, month);
         ContentDisposition cd = ContentDisposition.attachment()
                 .filename(filename, StandardCharsets.UTF_8)
                 .build();
@@ -329,7 +355,7 @@ public class AttendanceController {
     }
 
     @PostMapping("/employees/{employeeId}/recalculate")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_DEPARTMENT')")
     @Operation(summary = "Tính lại bảng công một nhân viên theo tháng")
     public Map<String, Object> recalculateEmployee(
             @PathVariable Long employeeId,
@@ -365,8 +391,33 @@ public class AttendanceController {
     }
 
     @GetMapping("/requests/review-history")
-    public List<Map<String, Object>> reviewHistoryRequests() {
-        return workRequestService.reviewHistoryForReviewer();
+    public List<Map<String, Object>> reviewHistoryRequests(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
+        return workRequestService.reviewHistoryForReviewer(fromDate, toDate);
+    }
+
+    @GetMapping("/requests/deployments/excel")
+    @PreAuthorize("hasAnyRole('ADMIN','HR2','HEAD_HR')")
+    @Operation(summary = "Xuất Excel danh sách đơn điều động theo ngày điều động (HCNS2 / Trưởng HCNS / Admin)")
+    public ResponseEntity<byte[]> exportDeploymentsExcel(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
+        byte[] body = deploymentRequestExcelService.buildReport(fromDate, toDate);
+        LocalDate from = fromDate != null ? fromDate : LocalDate.now().withDayOfMonth(1);
+        LocalDate to = toDate != null ? toDate : from.withDayOfMonth(from.lengthOfMonth());
+        String filename = String.format(
+                "danh-sach-dieu-dong-%s-%s.xlsx",
+                from.toString(),
+                to.toString());
+        ContentDisposition cd = ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(body);
     }
 
     @PostMapping("/requests/{id}/head-review")
@@ -530,14 +581,9 @@ public class AttendanceController {
     @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
     @Operation(summary = "Trưởng phòng/Admin bổ sung công Quang Trung hàng loạt")
     public Map<String, Object> bulkQuangTrungSupplement(@Valid @RequestBody QuangTrungSupplementBulkRequest body) {
-        QuangTrungSupplementRequest one = new QuangTrungSupplementRequest();
-        one.setWorkDate(body.getWorkDate());
-        one.setUpdateKind(body.getUpdateKind());
-        one.setReason(body.getReason());
-        one.setRequestedStart(body.getRequestedStart());
-        one.setRequestedEnd(body.getRequestedEnd());
-        one.setRequestedAfternoonStart(body.getRequestedAfternoonStart());
-        one.setRequestedAfternoonEnd(body.getRequestedAfternoonEnd());
+        boolean sharedOverride = body.getRequestedStart() != null && body.getRequestedEnd() != null
+                && (body.getUpdateKind() != AttendanceUpdateKind.FULL_DAY_SUPPLEMENT
+                || (body.getRequestedAfternoonStart() != null && body.getRequestedAfternoonEnd() != null));
 
         List<Map<String, Object>> results = new ArrayList<>();
         int success = 0;
@@ -546,6 +592,19 @@ public class AttendanceController {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("employeeId", employeeId);
             try {
+                QuangTrungSupplementRequest one = new QuangTrungSupplementRequest();
+                one.setWorkDate(body.getWorkDate());
+                one.setUpdateKind(body.getUpdateKind());
+                one.setReason(body.getReason());
+                if (sharedOverride) {
+                    one.setRequestedStart(body.getRequestedStart());
+                    one.setRequestedEnd(body.getRequestedEnd());
+                    one.setRequestedAfternoonStart(body.getRequestedAfternoonStart());
+                    one.setRequestedAfternoonEnd(body.getRequestedAfternoonEnd());
+                } else {
+                    var sch = shiftScheduleService.forEmployee(employeeId, body.getWorkDate());
+                    fillQuangTrungTimesFromSchedule(one, body.getUpdateKind(), sch);
+                }
                 Map<String, Object> saved = attendanceService.applyQuangTrungSupplement(employeeId, one);
                 Object name = saved.get("employeeName");
                 if (name == null) {
@@ -568,6 +627,28 @@ public class AttendanceController {
         out.put("failureCount", failure);
         out.put("results", results);
         return out;
+    }
+
+    private static void fillQuangTrungTimesFromSchedule(
+            QuangTrungSupplementRequest one,
+            AttendanceUpdateKind kind,
+            AttendanceShiftSchedule sch) {
+        switch (kind) {
+            case AFTERNOON_SUPPLEMENT -> {
+                one.setRequestedStart(sch.afternoonStart());
+                one.setRequestedEnd(sch.afternoonEnd());
+            }
+            case FULL_DAY_SUPPLEMENT -> {
+                one.setRequestedStart(sch.morningStart());
+                one.setRequestedEnd(sch.morningEnd());
+                one.setRequestedAfternoonStart(sch.afternoonStart());
+                one.setRequestedAfternoonEnd(sch.afternoonEnd());
+            }
+            default -> {
+                one.setRequestedStart(sch.morningStart());
+                one.setRequestedEnd(sch.morningEnd());
+            }
+        }
     }
 
     @GetMapping("/employees/{employeeId}/quang-trung-supplement")

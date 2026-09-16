@@ -9,6 +9,7 @@ import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.NotificationRepository;
 import com.minhan.hrm.repository.ShiftConfigChangeRequestRepository;
+import com.minhan.hrm.service.support.CreatedAtRange;
 import com.minhan.hrm.service.support.RequestEditSupport;
 import com.minhan.hrm.repository.UserAccountRepository;
 import lombok.RequiredArgsConstructor;
@@ -166,9 +167,10 @@ public class ShiftConfigChangeRequestService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listHistory() {
+    public List<Map<String, Object>> listHistory(LocalDate fromDate, LocalDate toDate) {
         UserAccount actor = ensureCanViewAsHr();
         return requestRepository.findHistoryWithDetails().stream()
+                .filter(row -> CreatedAtRange.matches(row.getCreatedAt(), fromDate, toDate))
                 .filter(row -> employeeService.matchesHrReviewScope(actor, row.getEmployee()))
                 .map(this::toMap)
                 .toList();
@@ -324,7 +326,7 @@ public class ShiftConfigChangeRequestService {
                     || (season == ShiftConfigChangeSeason.SUMMER && summer)
                     || (season == ShiftConfigChangeSeason.WINTER && !summer);
             if (match) {
-                total += attendanceService.recalculateEmployeeMonth(
+                total += attendanceService.recalculateEmployeeMonthInternal(
                         employeeId, cursor.getYear(), cursor.getMonthValue());
             }
             cursor = cursor.plusMonths(1);

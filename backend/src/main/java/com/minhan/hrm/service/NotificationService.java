@@ -33,6 +33,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import com.minhan.hrm.dto.notification.NotificationPageDto;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
@@ -44,22 +52,81 @@ public class NotificationService {
     private final UserAccountRepository userAccountRepository;
     private final ObjectProvider<PushNotificationService> pushNotificationService;
 
+    /** Cỡ trang tối đa — chặn client xin cả bảng như trước. */
+    public static final int MAX_PAGE_SIZE = 100;
+    public static final int DEFAULT_PAGE_SIZE = 20;
+
+    private static final Sort UNREAD_FIRST_NEWEST = Sort.by(
+            Sort.Order.asc("opened"), Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+
+    /**
+     * Bản tương thích cho client cũ: vẫn trả danh sách phẳng nhưng chỉ trang đầu.
+     * Trước đây trả toàn bộ lịch sử thông báo — tài khoản duyệt nhiều đơn có
+     * hàng nghìn dòng, mỗi dòng lại thêm truy vấn, nên bấm chuông là treo.
+     */
     @Transactional(readOnly = true)
-    public List<NotificationDto> listMine() {
+    public List<NotificationDto> listMine(int limit) {
+        return listPage(0, limit).getItems();
+    }
+
+    @Transactional(readOnly = true)
+    public NotificationPageDto listPage(int page, int size) {
         UserAccount u = employeeService.currentUser();
-        return notificationRepository.findByUserOrderByCreatedAtDesc(u).stream()
+        int safeSize = Math.max(1, Math.min(size <= 0 ? DEFAULT_PAGE_SIZE : size, MAX_PAGE_SIZE));
+        Page<Notification> result = notificationRepository.findByUser(
+                u, PageRequest.of(Math.max(0, page), safeSize, UNREAD_FIRST_NEWEST));
+        List<Notification> visible = result.getContent().stream()
                 .filter(n -> isVisibleNotification(u, n))
-                .map(this::toDto)
                 .toList();
+        Set<Long> deploymentIds = deploymentRequestIds(visible);
+        return NotificationPageDto.builder()
+                .items(visible.stream()
+                        .map(n -> toDto(n, deploymentIds.contains(n.getRelatedRequestId())))
+                        .toList())
+                .page(result.getNumber())
+                .size(safeSize)
+                .hasMore(result.hasNext())
+                .total(result.getTotalElements())
+                .unread(countUnread())
+                .build();
     }
 
     @Transactional(readOnly = true)
     public long countUnread() {
         UserAccount u = employeeService.currentUser();
-        return notificationRepository.findByUserOrderByCreatedAtDesc(u).stream()
-                .filter(n -> !n.isOpened())
+        if (u.getRole() != UserRole.HEAD_NURSING) {
+            return notificationRepository.countByUserAndOpenedFalse(u);
+        }
+        // Trưởng phòng ĐD có lọc phạm vi trong bộ nhớ — chỉ tải phần chưa đọc, không tải cả bảng.
+        return notificationRepository.findByUserAndOpenedFalse(u).stream()
                 .filter(n -> isVisibleNotification(u, n))
                 .count();
+    }
+
+    /**
+     * Xác định thông báo công nào là điều động bằng một truy vấn IN cho cả
+     * trang, thay vì findById từng dòng.
+     */
+    private Set<Long> deploymentRequestIds(List<Notification> rows) {
+        List<Long> ids = rows.stream()
+                .filter(n -> n.getCategory() == NotificationCategory.ATTENDANCE)
+                .map(Notification::getRelatedRequestId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Set.of();
+        }
+        return attendanceWorkRequestRepository.findAllById(ids).stream()
+                .filter(r -> r.getRequestType() == AttendanceRequestType.DEPLOYMENT)
+                .map(r -> r.getId())
+                .collect(Collectors.toSet());
+    }
+
+    /** Xoá thông báo đã đọc tạo trước mốc [before]; trả số dòng đã xoá. */
+    @Transactional
+    public int purgeOpenedBefore(Instant before) {
+        return notificationRepository.deleteOpenedBefore(before);
     }
 
     /**
@@ -91,11 +158,8 @@ public class NotificationService {
     @Transactional
     public void markAllRead() {
         UserAccount user = employeeService.currentUser();
-        List<Notification> unread = notificationRepository.findByUserOrderByCreatedAtDesc(user).stream()
-                .filter(notification -> !notification.isOpened())
-                .toList();
-        unread.forEach(notification -> notification.setOpened(true));
-        notificationRepository.saveAll(unread);
+        // Một câu UPDATE thay vì tải cả bảng rồi save từng dòng.
+        notificationRepository.markAllOpened(user);
     }
 
     @Transactional
@@ -1371,7 +1435,10 @@ public class NotificationService {
     }
 
     private NotificationDto toDto(Notification n) {
-        boolean deployment = isDeploymentNotification(n);
+        return toDto(n, isDeploymentNotification(n));
+    }
+
+    private NotificationDto toDto(Notification n, boolean deployment) {
         return NotificationDto.builder()
                 .id(n.getId())
                 .category(n.getCategory())

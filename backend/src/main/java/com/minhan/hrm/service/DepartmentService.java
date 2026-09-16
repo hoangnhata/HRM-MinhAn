@@ -47,7 +47,7 @@ public class DepartmentService {
             return departmentRepository.findAll(Sort.by("name"));
         }
         if (caller != null && caller.getRole() == UserRole.HEAD_NURSING) {
-            return departmentsWithNursingBlockStaff();
+            return listNursingHeadScopeDepartments();
         }
         Long scopedDept = employeeService.resolveHeadDepartmentScope(caller);
         if (scopedDept != null) {
@@ -58,7 +58,23 @@ public class DepartmentService {
         return departmentRepository.findAll(Sort.by("name"));
     }
 
-    /** Khoa/phòng có nhân sự khối ĐD–KTV–HS–Thư ký (phạm vi lọc của Trưởng phòng Điều dưỡng). */
+    /** Khoa/phòng có nhân sự khối ĐD–KTV–HS–Thư ký (toàn viện, dùng cho ADMIN). */
+    @Transactional(readOnly = true)
+    public List<Department> listNursingBlockDepartments() {
+        return departmentsWithNursingBlockStaff();
+    }
+
+    /**
+     * Khoa/phòng khối lâm sàng trong phạm vi Trưởng phòng Điều dưỡng
+     * (loại Phòng KHTH, Kinh doanh & Phát triển, Phòng Điều dưỡng).
+     */
+    @Transactional(readOnly = true)
+    public List<Department> listNursingHeadScopeDepartments() {
+        return departmentsWithNursingBlockStaff().stream()
+                .filter(d -> !NursingBlockClassifier.isExcludedFromNursingHeadScopeDepartment(d))
+                .toList();
+    }
+
     private List<Department> departmentsWithNursingBlockStaff() {
         Set<Long> ids = new LinkedHashSet<>();
         for (Employee e : employeeRepository.findAll(Sort.by("fullName"))) {

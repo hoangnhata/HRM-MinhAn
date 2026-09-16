@@ -62,8 +62,19 @@ export async function fetchPendingShiftConfigChangeRequests() {
   return data;
 }
 
-export async function fetchShiftConfigChangeRequestHistory() {
-  const { data } = await api.get<ShiftConfigChangeRequest[]>('/v1/shift-config-change-requests/history');
+export async function fetchShiftConfigChangeRequestHistory(opts?: {
+  fromDate?: string;
+  toDate?: string;
+}) {
+  const { data } = await api.get<ShiftConfigChangeRequest[]>(
+    '/v1/shift-config-change-requests/history',
+    {
+      params: {
+        fromDate: opts?.fromDate || undefined,
+        toDate: opts?.toDate || undefined,
+      },
+    },
+  );
   return data;
 }
 

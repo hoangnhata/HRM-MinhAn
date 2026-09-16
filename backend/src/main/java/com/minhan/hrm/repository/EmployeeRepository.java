@@ -10,8 +10,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSpecificationExecutor<Employee> {
 
@@ -61,6 +63,12 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long>, JpaSp
     List<Employee> findByStatus(EmployeeStatus status, Sort sort);
 
     List<Employee> findByDepartment_IdAndStatus(Long departmentId, EmployeeStatus status, Sort sort);
+
+    @Query("""
+            SELECT e.id FROM Employee e
+            WHERE e.continuousShift = true AND e.id IN :ids
+            """)
+    Set<Long> findContinuousShiftEmployeeIds(@Param("ids") Collection<Long> ids);
 
     long countByStatus(EmployeeStatus status);
 

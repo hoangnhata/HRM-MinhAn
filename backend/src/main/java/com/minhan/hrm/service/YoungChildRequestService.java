@@ -9,6 +9,7 @@ import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.NotificationRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
 import com.minhan.hrm.repository.YoungChildRequestRepository;
+import com.minhan.hrm.service.support.CreatedAtRange;
 import com.minhan.hrm.service.support.RequestEditSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -156,9 +157,10 @@ public class YoungChildRequestService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listHistory() {
+    public List<Map<String, Object>> listHistory(LocalDate fromDate, LocalDate toDate) {
         UserAccount actor = ensureCanViewAsHr();
         return requestRepository.findHistoryWithDetails().stream()
+                .filter(row -> CreatedAtRange.matches(row.getCreatedAt(), fromDate, toDate))
                 .filter(row -> employeeService.matchesHrReviewScope(actor, row.getEmployee()))
                 .map(this::toMap)
                 .toList();
@@ -237,7 +239,7 @@ public class YoungChildRequestService {
             YearMonth cursor = YearMonth.from(row.getStartDate());
             YearMonth last = YearMonth.from(row.getEndDate());
             while (!cursor.isAfter(last)) {
-                recalculated += attendanceService.recalculateEmployeeMonth(
+                recalculated += attendanceService.recalculateEmployeeMonthInternal(
                         row.getEmployee().getId(), cursor.getYear(), cursor.getMonthValue());
                 cursor = cursor.plusMonths(1);
             }
@@ -261,7 +263,7 @@ public class YoungChildRequestService {
             YearMonth cursor = YearMonth.from(row.getStartDate());
             YearMonth last = YearMonth.from(row.getEndDate());
             while (!cursor.isAfter(last)) {
-                attendanceService.recalculateEmployeeMonth(
+                attendanceService.recalculateEmployeeMonthInternal(
                         row.getEmployee().getId(), cursor.getYear(), cursor.getMonthValue());
                 cursor = cursor.plusMonths(1);
             }
@@ -291,7 +293,7 @@ public class YoungChildRequestService {
                 YearMonth cursor = YearMonth.from(row.getStartDate());
                 YearMonth last = YearMonth.from(row.getEndDate());
                 while (!cursor.isAfter(last)) {
-                    attendanceService.recalculateEmployeeMonth(
+                    attendanceService.recalculateEmployeeMonthInternal(
                             row.getEmployee().getId(), cursor.getYear(), cursor.getMonthValue());
                     cursor = cursor.plusMonths(1);
                 }
@@ -321,7 +323,7 @@ public class YoungChildRequestService {
                 YearMonth cursor = YearMonth.from(row.getStartDate());
                 YearMonth last = YearMonth.from(row.getEndDate());
                 while (!cursor.isAfter(last)) {
-                    attendanceService.recalculateEmployeeMonth(
+                    attendanceService.recalculateEmployeeMonthInternal(
                             row.getEmployee().getId(), cursor.getYear(), cursor.getMonthValue());
                     cursor = cursor.plusMonths(1);
                 }

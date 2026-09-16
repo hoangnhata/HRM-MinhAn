@@ -1,6 +1,7 @@
 import CloseIcon from '@mui/icons-material/Close';
 import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
 import ChildCareOutlinedIcon from '@mui/icons-material/ChildCareOutlined';
+import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import KeyboardArrowLeftRoundedIcon from '@mui/icons-material/KeyboardArrowLeftRounded';
 import KeyboardArrowRightRoundedIcon from '@mui/icons-material/KeyboardArrowRightRounded';
 import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
@@ -35,7 +36,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import * as attSvc from '../../services/attendanceService';
 import type { DepartmentOption } from '../../services/employeeService';
 import { formatAttendanceNotesPlain } from '../../utils/attendanceNotes';
-import { formatWorkUnits } from '../../utils/shiftSchedule';
+import {
+  displayHoursFromUnits,
+  formatWorkedHours,
+  formatWorkUnits,
+  scheduleForDate,
+} from '../../utils/shiftSchedule';
 
 type Props = {
   open: boolean;
@@ -49,9 +55,9 @@ type Props = {
 };
 
 const EMP_W = 272;
-const SUM_W = 440;
+const SUM_W = 488;
 const DAY_W = 132;
-const ROW_H = 184;
+const ROW_H = 248;
 const HEADER_H = 52;
 
 function rowShell(bg: string) {
@@ -128,6 +134,28 @@ function buildDays(year: number, month: number, n: number): DayCol[] {
   });
 }
 
+function dayDisplayHours(day: attSvc.AttendanceMatrixDay): number {
+  const sch = scheduleForDate(day.workDate);
+  const dayHours =
+    sch.effectiveDayHours ?? ((sch.morningHours ?? 0) + (sch.afternoonHours ?? 0) || 8);
+  const morningH = displayHoursFromUnits(
+    Number(day.morningWorkUnits) || 0,
+    sch.morningUnits,
+    sch.morningHours,
+    dayHours,
+    { hasPunch: Boolean(day.morningCheckIn || day.morningCheckOut) },
+  );
+  const afternoonH = displayHoursFromUnits(
+    Number(day.afternoonWorkUnits) || 0,
+    sch.afternoonUnits,
+    sch.afternoonHours,
+    dayHours,
+    { hasPunch: Boolean(day.afternoonCheckIn || day.afternoonCheckOut) },
+  );
+  const overtime = Number(day.overtimeWorkUnits) || 0;
+  return Math.round((morningH + afternoonH + overtime * dayHours) * 10) / 10;
+}
+
 function computeStats(row: attSvc.AttendanceMatrixRow, daysInMonth: number) {
   const attendanceUnits = Number(row.attendanceWorkUnits ?? 0);
   const dutyUnits = Number(row.dutyWorkUnitsTotal ?? 0);
@@ -136,12 +164,22 @@ function computeStats(row: attSvc.AttendanceMatrixRow, daysInMonth: number) {
   let lateCount = 0;
   let quangTrungDays = 0;
   let quangTrungUnits = 0;
+  let quangTrungHours = 0;
+  let seminarDays = 0;
+  let seminarUnits = 0;
+  let seminarHours = 0;
   for (const d of row.days ?? []) {
     if (isLeave(d.status)) leaveDays += 1;
     if ((Number(d.lateMinutes) || 0) > 0 && !d.lateMinutesExempt) lateCount += 1;
     if (d.quangTrung) {
       quangTrungDays += 1;
       quangTrungUnits += Number(d.totalWorkUnits ?? 0);
+      quangTrungHours += dayDisplayHours(d);
+    }
+    if (attSvc.isSeminarDay(d)) {
+      seminarDays += 1;
+      seminarUnits += Number(d.totalWorkUnits ?? 0);
+      seminarHours += dayDisplayHours(d);
     }
   }
   const thieu = Math.max(0, Math.round((daysInMonth - leaveDays - attendanceUnits) * 100) / 100);
@@ -157,9 +195,15 @@ function computeStats(row: attSvc.AttendanceMatrixRow, daysInMonth: number) {
     dutyBonus: Number(row.dutyBonusTotal ?? 0),
     dutyPostPay: Number(row.dutyPostPayTotal ?? 0),
     quangTrungDays,
-    quangTrungUnits,
+    quangTrungUnits: Math.round(quangTrungUnits * 100) / 100,
+    quangTrungHours: Math.round(quangTrungHours * 10) / 10,
     quangTrungAllowance: Number(row.quangTrungAllowance ?? 0),
     quangTrungAllowanceRate: Number(row.quangTrungAllowanceRate ?? 0),
+    seminarDays,
+    seminarUnits: Math.round(seminarUnits * 100) / 100,
+    seminarHours: Math.round(seminarHours * 10) / 10,
+    seminarSupportTotal: Number(row.seminarSupportTotal ?? 0),
+    seminarSupportCount: Number(row.seminarSupportCount ?? 0),
   };
 }
 
@@ -291,9 +335,11 @@ const DayCell = memo(function DayCell({
   const dutyUnits = Number(duty?.workUnits) || 0;
   const dutyName = dutyDisplayName(duty);
   const quangTrung = day?.quangTrung === true;
+  const seminar = attSvc.isSeminarDay(day);
+  const seminarHours = day && seminar ? dayDisplayHours(day) : 0;
   const late = (Number(day?.lateMinutes) || 0) > 0 && !day?.lateMinutesExempt;
 
-  if (!leave && !am && !pm && !duty && !quangTrung && attendanceUnits <= 0) {
+  if (!leave && !am && !pm && !duty && !quangTrung && !seminar && attendanceUnits <= 0) {
     return (
       <Typography variant="caption" sx={{ color: 'text.disabled', fontWeight: 500 }}>
         —
@@ -306,6 +352,10 @@ const DayCell = memo(function DayCell({
     pm ? `Chiều ${pm}` : null,
     leave ? `Trạng thái: Nghỉ` : null,
     attendanceUnits > 0 ? `Công chấm: ${formatWorkUnits(attendanceUnits)}` : null,
+    seminar
+      ? `Hội thảo: ${formatWorkUnits(attendanceUnits)} công · ${formatWorkedHours(seminarHours)}`
+      : null,
+    seminar && day?.note ? `Ghi chú HT:\n${formatAttendanceNotesPlain(day.note)}` : null,
     quangTrung ? `Công Quang Trung: ${formatWorkUnits(attendanceUnits)}` : null,
     quangTrung && day?.note ? `Ghi chú QT:\n${formatAttendanceNotesPlain(day.note)}` : null,
     duty ? `Ca trực: ${dutyName.full}` : null,
@@ -333,6 +383,14 @@ const DayCell = memo(function DayCell({
         )}
         {!leave && am && <TimeBadge text={am} tone="am" />}
         {!leave && pm && <TimeBadge text={pm} tone="pm" />}
+        {seminar && (
+          <DaySupplement
+            icon={<GroupsOutlinedIcon />}
+            title="Hội thảo"
+            value={`${formatWorkUnits(attendanceUnits)} công · ${formatWorkedHours(seminarHours)}`}
+            color="#0369a1"
+          />
+        )}
         {quangTrung && (
           <DaySupplement
             icon={<LocationOnOutlinedIcon />}
@@ -357,7 +415,7 @@ const DayCell = memo(function DayCell({
             </Typography>
           </Stack>
         )}
-        {!leave && !am && !pm && !quangTrung && attendanceUnits > 0 && (
+        {!leave && !am && !pm && !quangTrung && !seminar && attendanceUnits > 0 && (
           <Typography variant="caption" sx={{ fontSize: 12.5, fontWeight: 700, color: 'primary.main', fontVariantNumeric: 'tabular-nums' }}>
             {formatWorkUnits(attendanceUnits)} công
           </Typography>
@@ -471,6 +529,73 @@ const SumCell = memo(function SumCell({
   const primary = theme.palette.primary.main;
   const bg = rowBg(zebra);
   const stats = useMemo(() => computeStats(row, daysInMonth), [row, daysInMonth]);
+
+  const unitMetrics: {
+    label: string;
+    value: string;
+    hint: string;
+    tone: string;
+    accent: string;
+  }[] = [
+    {
+      label: 'Chấm công',
+      value: `${formatWorkUnits(stats.attendanceUnits)} công`,
+      hint: 'Chưa gồm công trực',
+      tone: primary,
+      accent: alpha(primary, 0.1),
+    },
+    {
+      label: 'Công trực',
+      value: `${formatWorkUnits(stats.dutyUnits)} công`,
+      hint: stats.dutyCount > 0 ? `${stats.dutyCount} ca trực` : 'Không có ca trực',
+      tone: '#9a6700',
+      accent: alpha('#9a6700', 0.1),
+    },
+    {
+      label: 'Quang Trung',
+      value:
+        stats.quangTrungDays > 0
+          ? `${formatWorkUnits(stats.quangTrungUnits)} công · ${formatWorkedHours(stats.quangTrungHours)}`
+          : `${formatWorkUnits(0)} công`,
+      hint:
+        stats.quangTrungDays > 0
+          ? `${stats.quangTrungDays} ngày · nằm trong chấm công`
+          : 'Không phát sinh',
+      tone: theme.palette.info.dark,
+      accent: alpha(theme.palette.info.main, 0.1),
+    },
+    {
+      label: 'Hội thảo',
+      value:
+        stats.seminarDays > 0
+          ? `${formatWorkUnits(stats.seminarUnits)} công · ${formatWorkedHours(stats.seminarHours)}`
+          : `${formatWorkUnits(0)} công`,
+      hint:
+        stats.seminarDays > 0
+          ? `${stats.seminarDays} ngày · nằm trong chấm công`
+          : 'Không phát sinh',
+      tone: '#0369a1',
+      accent: alpha('#0ea5e9', 0.12),
+    },
+  ];
+
+  const moneyMetrics = [
+    stats.dutyBonus > 0 ? { label: 'Thưởng trực', value: attSvc.formatMoney(stats.dutyBonus) } : null,
+    stats.dutyPostPay > 0 ? { label: 'Tiền sau trực', value: attSvc.formatMoney(stats.dutyPostPay) } : null,
+    stats.quangTrungAllowance > 0
+      ? {
+          label: 'Phụ cấp QT',
+          value: `${attSvc.formatMoney(stats.quangTrungAllowance)} · ${stats.quangTrungDays} ngày`,
+        }
+      : null,
+    stats.seminarSupportTotal > 0
+      ? {
+          label: 'Hỗ trợ HT',
+          value: `${attSvc.formatMoney(stats.seminarSupportTotal)} · ${stats.seminarSupportCount} phiếu`,
+        }
+      : null,
+  ].filter((item): item is { label: string; value: string } => item != null);
+
   const statusMetrics = [
     stats.leaveDays > 0
       ? { label: 'Nghỉ', value: `${stats.leaveDays} ngày`, color: theme.palette.warning.dark }
@@ -479,60 +604,44 @@ const SumCell = memo(function SumCell({
       ? { label: 'Thiếu', value: `${formatWorkUnits(stats.thieu)} công`, color: theme.palette.error.main }
       : null,
     stats.lateMinutes > 0
-      ? { label: 'Đi muộn', value: `${stats.lateCount} lần · ${stats.lateMinutes} phút`, color: theme.palette.error.main }
-      : { label: 'Giờ công', value: 'Không phát sinh đi muộn', color: theme.palette.success.dark },
-  ].filter((item): item is { label: string; value: string; color: string } => item != null);
-  const moneyMetrics = [
-    stats.dutyBonus > 0 ? { label: 'Thưởng trực', value: attSvc.formatMoney(stats.dutyBonus) } : null,
-    stats.dutyPostPay > 0 ? { label: 'Tiền sau trực', value: attSvc.formatMoney(stats.dutyPostPay) } : null,
-    stats.quangTrungAllowance > 0
       ? {
-          label: 'Phụ cấp Quang Trung',
-          value: `${attSvc.formatMoney(stats.quangTrungAllowance)} (${stats.quangTrungDays} ngày × ${attSvc.formatMoney(stats.quangTrungAllowanceRate)})`,
+          label: 'Đi muộn',
+          value: `${stats.lateCount} lần · ${stats.lateMinutes} phút`,
+          color: theme.palette.error.main,
         }
-      : null,
-  ].filter((item): item is { label: string; value: string } => item != null);
-  const unitMetrics = [
-    {
-      label: 'Chấm công',
-      value: `${formatWorkUnits(stats.attendanceUnits)} công`,
-      hint: 'Chưa gồm công trực',
-      tone: primary,
-    },
-    {
-      label: 'Công trực',
-      value: `${formatWorkUnits(stats.dutyUnits)} công`,
-      hint: `${stats.dutyCount} ca trực`,
-      tone: theme.palette.secondary.dark,
-    },
-    {
-      label: 'Quang Trung',
-      value: `${formatWorkUnits(stats.quangTrungUnits)} công`,
-      hint: `${stats.quangTrungDays} ngày · đã nằm trong chấm`,
-      tone: theme.palette.info.dark,
-    },
-  ];
+      : { label: 'Giờ công', value: 'Không đi muộn', color: theme.palette.success.dark },
+  ].filter((item): item is { label: string; value: string; color: string } => item != null);
 
   return (
     <Box
       sx={{
         ...rowShell(bg),
         width: SUM_W,
-        px: 1.75,
-        py: 1,
+        px: 1.5,
+        py: 1.1,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
-        gap: 0.75,
-        '&:hover': { bgcolor: alpha(primary, 0.05) },
+        gap: 0.85,
+        '&:hover': { bgcolor: alpha(primary, 0.04) },
       }}
     >
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-        <Stack direction="row" alignItems="baseline" spacing={0.6}>
-          <Typography variant="h6" fontWeight={850} color="primary.main" sx={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1.1, fontSize: '1.35rem' }}>
+        <Stack direction="row" alignItems="baseline" spacing={0.55} sx={{ minWidth: 0 }}>
+          <Typography
+            component="span"
+            sx={{
+              fontWeight: 850,
+              color: primary,
+              fontVariantNumeric: 'tabular-nums',
+              lineHeight: 1,
+              fontSize: '1.4rem',
+              letterSpacing: '-0.03em',
+            }}
+          >
             {formatWorkUnits(stats.totalUnits)}
           </Typography>
-          <Typography variant="body2" color="text.secondary" fontWeight={700}>
+          <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ fontSize: 11.5 }}>
             tổng công
           </Typography>
         </Stack>
@@ -541,67 +650,137 @@ const SumCell = memo(function SumCell({
           variant="outlined"
           color="primary"
           onClick={() => onDetail(row.employeeId, row.departmentId)}
-          endIcon={<OpenInNewOutlinedIcon sx={{ fontSize: 14 }} />}
-          sx={{ minWidth: 0, px: 1, py: 0.35, borderRadius: 999, fontSize: 11.5, fontWeight: 750, textTransform: 'none', flexShrink: 0, borderColor: alpha(primary, 0.22), bgcolor: alpha(primary, 0.025) }}
+          endIcon={<OpenInNewOutlinedIcon sx={{ fontSize: 13 }} />}
+          sx={{
+            minWidth: 0,
+            px: 1,
+            py: 0.3,
+            borderRadius: 999,
+            fontSize: 11,
+            fontWeight: 750,
+            textTransform: 'none',
+            flexShrink: 0,
+            borderColor: alpha(primary, 0.22),
+            bgcolor: alpha(primary, 0.03),
+          }}
         >
-          Xem chi tiết
+          Chi tiết
         </Button>
       </Stack>
+
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          borderRadius: 2,
-          bgcolor: alpha(primary, 0.025),
-          border: `1px solid ${alpha(primary, 0.1)}`,
-          overflow: 'hidden',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: 0.65,
         }}
       >
-        {unitMetrics.map((metric, index) => (
+        {unitMetrics.map((metric) => (
           <Box
             key={metric.label}
+            title={`${metric.label}: ${metric.value} — ${metric.hint}`}
             sx={{
               minWidth: 0,
               px: 1,
-              py: 0.75,
-              borderLeft: index === 0 ? 'none' : `1px solid ${alpha(primary, 0.1)}`,
+              py: 0.7,
+              borderRadius: 1.75,
+              bgcolor: metric.accent,
+              border: `1px solid ${alpha(metric.tone, 0.14)}`,
             }}
           >
-            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: 10.25, fontWeight: 650, lineHeight: 1.15 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                color: alpha(metric.tone, 0.85),
+                fontSize: 10,
+                fontWeight: 750,
+                letterSpacing: '0.02em',
+                textTransform: 'uppercase',
+                lineHeight: 1.15,
+              }}
+            >
               {metric.label}
             </Typography>
-            <Typography variant="body2" sx={{ display: 'block', color: metric.tone, fontWeight: 850, fontSize: 13, lineHeight: 1.4, fontVariantNumeric: 'tabular-nums' }}>
+            <Typography
+              sx={{
+                display: 'block',
+                color: metric.tone,
+                fontWeight: 850,
+                fontSize: 12.75,
+                lineHeight: 1.35,
+                mt: 0.2,
+                fontVariantNumeric: 'tabular-nums',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
               {metric.value}
             </Typography>
-            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: 9.5, lineHeight: 1.2 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                color: 'text.secondary',
+                fontSize: 9.75,
+                lineHeight: 1.2,
+                mt: 0.15,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
               {metric.hint}
             </Typography>
           </Box>
         ))}
       </Box>
+
       {moneyMetrics.length > 0 && (
-        <Stack
-          direction="row"
-          spacing={1.25}
-          flexWrap="wrap"
-          useFlexGap
-          sx={{ px: 0.9, py: 0.6, borderRadius: 1.5, bgcolor: alpha(theme.palette.grey[500], 0.045) }}
-        >
+        <Stack direction="row" spacing={0.55} flexWrap="wrap" useFlexGap>
           {moneyMetrics.map((metric) => (
-            <Typography key={metric.label} variant="caption" color="text.secondary" sx={{ fontSize: 10.25, lineHeight: 1.25 }}>
-              {metric.label}: <Box component="span" sx={{ color: 'text.primary', fontWeight: 750 }}>{metric.value}</Box>
-            </Typography>
+            <Box
+              key={metric.label}
+              sx={{
+                px: 0.85,
+                py: 0.35,
+                borderRadius: 999,
+                bgcolor: alpha(theme.palette.grey[700], 0.05),
+                border: `1px solid ${alpha(theme.palette.divider, 0.7)}`,
+              }}
+            >
+              <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary', lineHeight: 1.2 }}>
+                {metric.label}{' '}
+                <Box component="span" sx={{ color: 'text.primary', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                  {metric.value}
+                </Box>
+              </Typography>
+            </Box>
           ))}
         </Stack>
       )}
-      <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap>
+
+      <Stack direction="row" spacing={0.55} flexWrap="wrap" useFlexGap>
         {statusMetrics.map((metric) => (
-          <Stack key={metric.label} direction="row" spacing={0.45} alignItems="center">
+          <Box
+            key={metric.label}
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.45,
+              px: 0.75,
+              py: 0.28,
+              borderRadius: 999,
+              bgcolor: alpha(metric.color, 0.08),
+              border: `1px solid ${alpha(metric.color, 0.18)}`,
+            }}
+          >
             <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: metric.color, flexShrink: 0 }} />
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10.5, lineHeight: 1.2 }}>
-              {metric.label} <Box component="span" sx={{ color: metric.color, fontWeight: 750 }}>{metric.value}</Box>
+            <Typography variant="caption" sx={{ fontSize: 10, color: metric.color, fontWeight: 750, lineHeight: 1.2 }}>
+              {metric.label} {metric.value}
             </Typography>
-          </Stack>
+          </Box>
         ))}
       </Stack>
     </Box>
@@ -1153,6 +1332,7 @@ export function DepartmentAttendanceMatrixDialog({
                   <LegendDot color={theme.palette.warning.main} label="Nghỉ" />
                   <LegendDot color={theme.palette.secondary.dark} label="Công trực" />
                   <LegendDot color={theme.palette.info.dark} label="Quang Trung" />
+                  <LegendDot color={theme.palette.info.main} label="Hội thảo" />
                   <LegendDot color={primary} label="Hôm nay" outline />
                 </Stack>
               )}

@@ -12,6 +12,12 @@ export type AccountMe = {
   directorApprovalEnabled?: boolean;
   /** true = được xem báo cáo nhân lực (cấp bởi Admin). */
   reportViewEnabled?: boolean;
+  /** true = được xuất Excel báo cáo công (cấp bởi Admin). */
+  attendanceExcelExportEnabled?: boolean;
+  /** true = xem hồ sơ NV toàn viện, không gồm lương (cấp bởi Admin). */
+  hospitalWideEmployeeViewEnabled?: boolean;
+  /** true = xem báo cáo Trình độ chuyên môn (cấp bởi Admin). */
+  professionalQualificationReportEnabled?: boolean;
   /** true = trưởng khoa chỉ quản lý bộ phận (workUnitDetail) của mình. */
   workUnitScoped?: boolean;
   mustChangePassword?: boolean;

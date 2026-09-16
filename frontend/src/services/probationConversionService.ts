@@ -181,8 +181,13 @@ export async function fetchPendingDirectorConversions() {
   return data;
 }
 
-export async function fetchConversionHistory() {
-  const { data } = await api.get<ProbationConversion[]>('/v1/probation-conversions/history');
+export async function fetchConversionHistory(opts?: { fromDate?: string; toDate?: string }) {
+  const { data } = await api.get<ProbationConversion[]>('/v1/probation-conversions/history', {
+    params: {
+      fromDate: opts?.fromDate || undefined,
+      toDate: opts?.toDate || undefined,
+    },
+  });
   return data;
 }
 

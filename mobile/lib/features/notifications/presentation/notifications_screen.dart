@@ -172,6 +172,21 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                       ),
                     ),
                   ),
+                if (state.hasMore && state.items.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.page,
+                        6,
+                        AppSpacing.page,
+                        0,
+                      ),
+                      child: _LoadMoreButton(
+                        loading: state.loadingMore,
+                        onTap: controller.loadMore,
+                      ),
+                    ),
+                  ),
                 const SliverToBoxAdapter(
                   child: SizedBox(height: AppSpacing.xxl),
                 ),
@@ -179,6 +194,60 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Tải trang thông báo kế tiếp — danh sách chỉ kéo 20 tin mỗi lần.
+class _LoadMoreButton extends StatelessWidget {
+  const _LoadMoreButton({required this.loading, required this.onTap});
+
+  final bool loading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: AppRadius.brMd,
+      child: InkWell(
+        onTap: loading ? null : onTap,
+        borderRadius: AppRadius.brMd,
+        child: Container(
+          height: 44,
+          decoration: BoxDecoration(
+            borderRadius: AppRadius.brMd,
+            border: Border.all(color: AppColors.borderSoft),
+          ),
+          child: Center(
+            child: loading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.expand_more_rounded,
+                        size: 18,
+                        color: AppColors.primaryDark,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Xem thông báo cũ hơn',
+                        style: AppTypography.style(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primaryDark,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
       ),
     );
   }
@@ -246,10 +315,7 @@ class _NotificationsHeader extends StatelessWidget {
         selectedIndex: unreadOnly ? 1 : 0,
         onChanged: (i) => onToggleFilter(i == 1),
         items: [
-          const BrandSegmentItem(
-            label: 'Tất cả',
-            icon: Icons.inbox_rounded,
-          ),
+          const BrandSegmentItem(label: 'Tất cả', icon: Icons.inbox_rounded),
           BrandSegmentItem(
             label: 'Chưa đọc',
             icon: Icons.mark_email_unread_rounded,
@@ -260,6 +326,7 @@ class _NotificationsHeader extends StatelessWidget {
     );
   }
 }
+
 class _NotificationCard extends ConsumerWidget {
   const _NotificationCard({required this.item, required this.index});
 
@@ -314,8 +381,9 @@ class _NotificationCard extends ConsumerWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
-                          fontWeight:
-                              unread ? FontWeight.w800 : FontWeight.w700,
+                          fontWeight: unread
+                              ? FontWeight.w800
+                              : FontWeight.w700,
                           fontSize: 14.5,
                           height: 1.25,
                           letterSpacing: -0.2,

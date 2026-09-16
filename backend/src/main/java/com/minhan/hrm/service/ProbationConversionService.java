@@ -8,7 +8,9 @@ import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.EmployeeRepository;
 import com.minhan.hrm.repository.ProbationConversionRequestRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
+import com.minhan.hrm.service.support.CreatedAtRange;
 import com.minhan.hrm.service.support.RequestEditSupport;
+import com.minhan.hrm.security.ApprovalAuthority;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -92,7 +94,7 @@ public class ProbationConversionService {
         ProbationEvaluationHelper.ScoreResult score =
                 evaluationHelper.validateAndScore(formType, req.getScores());
 
-        boolean nursingBlock = NursingBlockClassifier.matches(emp);
+        boolean nursingBlock = NursingBlockClassifier.matchesNursingHeadScope(emp);
         ProbationConversionRequest row = ProbationConversionRequest.builder()
                 .employee(emp)
                 .officialDate(req.getOfficialDate())
@@ -171,7 +173,7 @@ public class ProbationConversionService {
         UserAccount actor = ensureNursingHeadOrAdmin();
         return conversionRepository.findPendingWithDetails(ProbationConversionStatus.PENDING_NURSING_HEAD).stream()
                 .filter(row -> actor.getRole() == UserRole.ADMIN
-                        || NursingBlockClassifier.matches(row.getEmployee()))
+                        || NursingBlockClassifier.matchesNursingHeadScope(row.getEmployee()))
                 .map(this::toMap)
                 .toList();
     }
@@ -195,21 +197,55 @@ public class ProbationConversionService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listReviewHistory() {
+    public List<Map<String, Object>> listReviewHistory(LocalDate fromDate, LocalDate toDate) {
         UserAccount actor = ensureCanViewHistory();
         return conversionRepository.findReviewHistoryWithDetails().stream()
-                .filter(row -> {
-                    if (actor.getRole() == UserRole.HEAD_NURSING) {
-                        if (!employeeService.matchesNursingBlockScope(actor, row.getEmployee())) {
-                            return false;
-                        }
-                        return row.getNursingHeadReviewedAt() != null
-                                || row.getStatus() == ProbationConversionStatus.NURSING_HEAD_REJECTED;
-                    }
-                    return employeeService.matchesHrReviewScope(actor, row.getEmployee());
-                })
+                .filter(row -> CreatedAtRange.matches(row.getCreatedAt(), fromDate, toDate))
+                .filter(row -> touchedByActorStage(actor, row))
                 .map(this::toMap)
                 .toList();
+    }
+
+    /**
+     * Lịch sử của một người duyệt là những đơn bước của họ đã xử lý — gồm cả
+     * đơn họ đã duyệt mà đang chờ bước sau. Bản cũ loại mọi trạng thái PENDING_*
+     * nên HCNS duyệt xong chuyển Giám đốc là đơn biến mất khỏi tab lịch sử.
+     */
+    private boolean touchedByActorStage(UserAccount actor, ProbationConversionRequest row) {
+        ProbationConversionStatus status = row.getStatus();
+        if (actor.getRole() == UserRole.ADMIN) {
+            return true;
+        }
+        if (actor.getRole() == UserRole.HEAD_NURSING) {
+            return employeeService.matchesNursingBlockScope(actor, row.getEmployee())
+                    && (row.getNursingHeadReviewedAt() != null
+                            || status == ProbationConversionStatus.NURSING_HEAD_REJECTED);
+        }
+        if (!employeeService.matchesHrReviewScope(actor, row.getEmployee())) {
+            return false;
+        }
+        boolean hrTouched = row.getHrReviewedAt() != null
+                || status == ProbationConversionStatus.HR_REJECTED
+                || status == ProbationConversionStatus.HR_EXTEND_PROBATION
+                || status == ProbationConversionStatus.HR_STOP_COOPERATION
+                || status == ProbationConversionStatus.PENDING_DIRECTOR
+                || status == ProbationConversionStatus.DIRECTOR_REJECTED
+                || status == ProbationConversionStatus.APPROVED
+                || status == ProbationConversionStatus.APPLIED;
+        boolean directorTouched = row.getDirectorReviewedAt() != null
+                || status == ProbationConversionStatus.DIRECTOR_REJECTED
+                || status == ProbationConversionStatus.APPROVED
+                || status == ProbationConversionStatus.APPLIED;
+        boolean isHr = actor.getRole() != null && actor.getRole().isHr2();
+        boolean isDirector = ApprovalAuthority.isDirectorApprover(actor);
+        if (isHr && hrTouched) {
+            return true;
+        }
+        if (isDirector && directorTouched) {
+            return true;
+        }
+        // Vai trò chỉ xem (không duyệt): thấy mọi đơn đã qua xử lý trong phạm vi.
+        return !isHr && !isDirector;
     }
 
     @Transactional(readOnly = true)
@@ -259,7 +295,7 @@ public class ProbationConversionService {
         }
         ProbationConversionStatus previousStatus = row.getStatus();
         if (nursingHead.getRole() == UserRole.HEAD_NURSING
-                && !NursingBlockClassifier.matches(row.getEmployee())) {
+                && !NursingBlockClassifier.matchesNursingHeadScope(row.getEmployee())) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "Chỉ duyệt đơn chuyển chính thức của khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa");
         }

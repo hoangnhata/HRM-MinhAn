@@ -163,7 +163,6 @@ export default function EmployeesPage() {
     positionTitle?: string;
   } | null>(null);
   const [trainingViewId, setTrainingViewId] = useState<number | null>(null);
-  const [trainingViewLoading, setTrainingViewLoading] = useState(false);
   const [seminarTarget, setSeminarTarget] = useState<{
     id: number;
     fullName: string;
@@ -469,7 +468,7 @@ export default function EmployeesPage() {
         onSubmitted={() => {
           setSnackbar({
             open: true,
-            message: isNursingBlockTitle(confirmTarget?.positionTitle)
+            message: isNursingBlockTitle(confirmTarget?.positionTitle, confirmTarget?.departmentName)
               ? 'Đã gửi đơn đề nghị ký HĐLĐ chính thức — chờ Trưởng phòng Điều dưỡng duyệt.'
               : 'Đã gửi đơn đề nghị ký HĐLĐ chính thức — chờ HCNS xử lý.',
           });
@@ -523,7 +522,7 @@ export default function EmployeesPage() {
         onSubmitted={() => {
           setSnackbar({
             open: true,
-            message: isNursingBlockTitle(mainDutyTarget?.positionTitle)
+            message: isNursingBlockTitle(mainDutyTarget?.positionTitle, mainDutyTarget?.departmentName)
               ? 'Đã gửi đơn trực chính — chờ Trưởng phòng Điều dưỡng duyệt.'
               : 'Đã gửi đơn trực chính — chờ Giám đốc duyệt.',
           });
@@ -547,7 +546,7 @@ export default function EmployeesPage() {
         title={categoryMeta.title}
         description={
           isNursingHead
-            ? 'Chỉ xem nhân sự khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa (toàn viện). Không thêm/sửa hồ sơ.'
+            ? 'Chỉ xem nhân sự khối Điều dưỡng – KTV – Hộ sinh – Thư ký y khoa; Dược sĩ khoa YHCT; Nhân viên khoa YHCT / Khoa khám bệnh. Không thêm/sửa hồ sơ.'
             : isTrialTab && canCreateConversion && !isHrOrAdmin
               ? 'Lập đơn đề nghị chuyển nhân viên thử việc / thực tập lên chính thức. Khối ĐD–KTV–HS–Thư ký: Trưởng phòng ĐD → HCNS → Giám đốc; còn lại: HCNS → Giám đốc.'
               : categoryMeta.description
@@ -858,7 +857,7 @@ export default function EmployeesPage() {
                       <Tooltip
                         title={
                           r.onTraining
-                            ? 'Xem phiếu đào tạo đang diễn ra'
+                            ? 'Thêm đề xuất đào tạo (không trùng ngày với phiếu khác)'
                             : 'Đề xuất đi đào tạo, bồi dưỡng'
                         }
                       >
@@ -866,46 +865,15 @@ export default function EmployeesPage() {
                           <IconButton
                             size="small"
                             color="info"
-                            aria-label={r.onTraining ? 'Xem đào tạo' : 'Đề xuất đào tạo'}
-                            disabled={trainingViewLoading}
-                            onClick={async () => {
-                              if (r.onTraining) {
-                                setTrainingViewLoading(true);
-                                try {
-                                  const list = await tps.fetchTrainingProposalsByEmployee(r.id);
-                                  const active =
-                                    list.find((p) => p.status === 'APPROVED') ||
-                                    list.find(
-                                      (p) =>
-                                        p.status === 'PENDING_HR' ||
-                                        p.status === 'PENDING_DIRECTOR',
-                                    ) ||
-                                    list[0];
-                                  if (!active) {
-                                    setSnackbar({
-                                      open: true,
-                                      message: 'Không tìm thấy phiếu đào tạo của nhân viên này.',
-                                    });
-                                    return;
-                                  }
-                                  setTrainingViewId(active.id);
-                                } catch {
-                                  setSnackbar({
-                                    open: true,
-                                    message: 'Không tải được phiếu đào tạo.',
-                                  });
-                                } finally {
-                                  setTrainingViewLoading(false);
-                                }
-                                return;
-                              }
+                            aria-label="Đề xuất đào tạo"
+                            onClick={() =>
                               setTrainingTarget({
                                 id: r.id,
                                 fullName: r.fullName,
                                 departmentName: r.departmentName,
                                 positionTitle: r.positionTitle,
-                              });
-                            }}
+                              })
+                            }
                           >
                             <SchoolOutlinedIcon fontSize="small" />
                           </IconButton>
