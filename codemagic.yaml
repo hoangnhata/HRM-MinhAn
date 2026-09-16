@@ -43,9 +43,24 @@ workflows:
       - name: Build IPA
         script: |
           cd mobile
+          # Phiên bản lấy từ pubspec.yaml (dòng "version: 1.0.5+6"): tên bản = 1.0.5,
+          # số build = 6. Không ghim cứng --build-name nữa, mỗi lần tăng version trong
+          # pubspec là Codemagic tự theo.
+          VERSION_LINE=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
+          BUILD_NAME=${VERSION_LINE%%+*}
+          PUBSPEC_BUILD=${VERSION_LINE##*+}
+          # Số build mới nhất trên TestFlight. Tuỳ chọn đúng là --platform; bản cũ dùng
+          # --type không tồn tại nên lệnh lỗi, rơi về 0 và tải lên với build 1 trùng bản
+          # trước. Chỉ lấy dòng toàn chữ số để thông báo lỗi của CLI không lọt vào phép tính.
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" --platform IOS 2>/dev/null | grep -Eo '^[0-9]+$' | tail -1)
+          LATEST=${LATEST:-0}
+          NEXT=$((LATEST + 1))
+          # Lấy số lớn hơn giữa pubspec và TestFlight+1 để luôn tăng, kể cả khi quên bump.
+          if [ "$PUBSPEC_BUILD" -gt "$NEXT" ]; then BUILD_NUMBER=$PUBSPEC_BUILD; else BUILD_NUMBER=$NEXT; fi
+          echo "Build name $BUILD_NAME, build number $BUILD_NUMBER (pubspec $PUBSPEC_BUILD, TestFlight latest $LATEST)"
           flutter build ipa --release \
-            --build-name=1.0.4 \
-            --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" --type IOS 2>/dev/null || echo 0) + 1)) \
+            --build-name="$BUILD_NAME" \
+            --build-number="$BUILD_NUMBER" \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - mobile/build/ios/ipa/*.ipa
