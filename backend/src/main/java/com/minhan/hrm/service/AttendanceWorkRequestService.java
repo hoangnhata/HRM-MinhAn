@@ -85,6 +85,21 @@ public class AttendanceWorkRequestService {
             UserRole.ADMIN, UserRole.HR2, UserRole.HEAD_HR);
     private static final EnumSet<UserRole> HR_MANAGER_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.HR);
     private static final EnumSet<UserRole> DIRECTOR_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.DIRECTOR);
+    /** Nghỉ chế độ (kết hôn / người thân mất) tối đa 3 ngày theo Điều 115 BLLĐ 2019. */
+    public static final int PERSONAL_LEAVE_MAX_DAYS = 3;
+
+    /** Các loại đơn theo khoảng ngày, khoá cả ngày làm việc. */
+    private static boolean isRangedLeaveType(AttendanceRequestType type) {
+        return type == AttendanceRequestType.LEAVE
+                || type == AttendanceRequestType.UNPAID_LEAVE
+                || type == AttendanceRequestType.PERSONAL_LEAVE
+                || type == AttendanceRequestType.BUSINESS_TRIP;
+    }
+
+    /** Chính thức hưởng lương cơ bản; thử việc, thực tập nghỉ không lương. */
+    static boolean isPersonalLeavePaid(Employee emp) {
+        return emp != null && emp.getStatus() == EmployeeStatus.ACTIVE;
+    }
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     /** Mốc "không giới hạn" cho cận trên lịch sử — MySQL không nhận tham số Instant null. */
     private static final Instant HISTORY_OPEN_END = Instant.parse("2100-01-01T00:00:00Z");
@@ -122,9 +137,7 @@ public class AttendanceWorkRequestService {
                 : employeeService.requireLinkedEmployee();
         validateSubmit(dto, emp, null);
         AttendanceShiftScope scope = dto.getShiftScope();
-        if (dto.getRequestType() == AttendanceRequestType.LEAVE
-                || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
-                || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
+        if (isRangedLeaveType(dto.getRequestType())) {
             scope = AttendanceShiftScope.FULL_DAY;
         }
         boolean continuousDay = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
@@ -138,9 +151,7 @@ public class AttendanceWorkRequestService {
                 updateKind = AttendanceUpdateKind.FULL_DAY_SUPPLEMENT;
             }
         }
-        boolean ranged = dto.getRequestType() == AttendanceRequestType.LEAVE
-                || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
-                || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP;
+        boolean ranged = isRangedLeaveType(dto.getRequestType());
         Integer forgotFineUnits = null;
         if (dto.getRequestType() == AttendanceRequestType.UPDATE && updateKind != null) {
             AttendanceRecord existing = attendanceRecordRepository
@@ -149,7 +160,10 @@ public class AttendanceWorkRequestService {
             forgotFineUnits = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
                     updateKind, existing, continuousDay || twoPunchDay);
         }
+        boolean personalLeave = dto.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE;
         AttendanceWorkRequest req = AttendanceWorkRequest.builder()
+                .personalLeaveKind(personalLeave ? dto.getPersonalLeaveKind() : null)
+                .personalLeavePaid(personalLeave ? isPersonalLeavePaid(emp) : null)
                 .employee(emp)
                 .requestType(dto.getRequestType())
                 .workDate(dto.getWorkDate())
@@ -239,9 +253,7 @@ public class AttendanceWorkRequestService {
     private void applyWorkRequestFields(
             AttendanceWorkRequest req, AttendanceWorkRequestSubmitDto dto, Employee emp) {
         AttendanceShiftScope scope = dto.getShiftScope();
-        if (dto.getRequestType() == AttendanceRequestType.LEAVE
-                || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
-                || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
+        if (isRangedLeaveType(dto.getRequestType())) {
             scope = AttendanceShiftScope.FULL_DAY;
         }
         boolean continuousDay = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
@@ -255,9 +267,7 @@ public class AttendanceWorkRequestService {
                 updateKind = AttendanceUpdateKind.FULL_DAY_SUPPLEMENT;
             }
         }
-        boolean ranged = dto.getRequestType() == AttendanceRequestType.LEAVE
-                || dto.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
-                || dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP;
+        boolean ranged = isRangedLeaveType(dto.getRequestType());
         Integer forgotFineUnits = null;
         if (dto.getRequestType() == AttendanceRequestType.UPDATE && updateKind != null) {
             AttendanceRecord existing = attendanceRecordRepository
@@ -265,6 +275,10 @@ public class AttendanceWorkRequestService {
                     .orElse(null);
             forgotFineUnits = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
                     updateKind, existing, continuousDay || twoPunchDay);
+        }
+        if (dto.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE) {
+            req.setPersonalLeaveKind(dto.getPersonalLeaveKind());
+            req.setPersonalLeavePaid(isPersonalLeavePaid(emp));
         }
         req.setWorkDate(dto.getWorkDate());
         req.setEndDate(ranged
@@ -855,6 +869,7 @@ public class AttendanceWorkRequestService {
                         return true;
                     }
                     return "ABSENT".equals(st) || "LEAVE".equals(st) || "UNPAID_LEAVE".equals(st)
+                            || "PERSONAL_LEAVE".equals(st)
                             || "BUSINESS_TRIP".equals(st) || "SEMINAR".equals(st);
                 })
                 .orElse(true);
@@ -1158,11 +1173,12 @@ public class AttendanceWorkRequestService {
             applyDeploymentTimeCorrection(req, dto);
         }
 
-        // Các loại cần bước Giám đốc cuối: cập nhật công, giải trình, các đơn nghỉ và điều động.
+        // HCNS không quyết định phạt. Trừ / miễn tiền chỉ ở bước Giám đốc (directorReview).
         if (req.getRequestType() == AttendanceRequestType.UPDATE
                 || req.getRequestType() == AttendanceRequestType.EXPLANATION
                 || req.getRequestType() == AttendanceRequestType.LEAVE
                 || req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                || req.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE
                 || req.getRequestType() == AttendanceRequestType.DEPLOYMENT) {
             if (previousStatus == AttendanceRequestStatus.PENDING_HR
                     || previousStatus == AttendanceRequestStatus.HR_REJECTED) {
@@ -1208,6 +1224,7 @@ public class AttendanceWorkRequestService {
                 && req.getRequestType() != AttendanceRequestType.EXPLANATION
                 && req.getRequestType() != AttendanceRequestType.LEAVE
                 && req.getRequestType() != AttendanceRequestType.UNPAID_LEAVE
+                && req.getRequestType() != AttendanceRequestType.PERSONAL_LEAVE
                 && req.getRequestType() != AttendanceRequestType.DEPLOYMENT) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Loại đơn này không cần Giám đốc duyệt");
         }
@@ -1249,6 +1266,9 @@ public class AttendanceWorkRequestService {
         } else if (req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) {
             req.setStatus(AttendanceRequestStatus.APPROVED);
             applyApprovedUnpaidLeave(req);
+        } else if (req.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE) {
+            req.setStatus(AttendanceRequestStatus.APPROVED);
+            applyApprovedPersonalLeave(req);
         } else {
             req.setStatus(AttendanceRequestStatus.APPROVED);
             if (!attendanceEffectAlreadyApplied(req)) {
@@ -1321,6 +1341,72 @@ public class AttendanceWorkRequestService {
     }
 
     /**
+     * Phép ghi nhận ngoài hệ thống (admin gắn): chỉ đánh dấu LEAVE lên các ngày chưa có dữ liệu
+     * chấm công, không ghi đè ngày đã có giờ vào/ra. Trả về số ngày đã đánh dấu.
+     */
+    @Transactional
+    public int applyManualLeaveOnEmptyDays(AttendanceWorkRequest req) {
+        LocalDate from = req.getWorkDate();
+        LocalDate to = req.getEndDate() != null ? req.getEndDate() : from;
+        int marked = 0;
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            if (isOffOrEmptyWorkDay(req.getEmployee().getId(), d)) {
+                applyLeaveDay(req.getEmployee(), d, req.getReason());
+                marked++;
+            }
+        }
+        return marked;
+    }
+
+    /**
+     * Gỡ hiệu lực phép ghi nhận ngoài hệ thống: các ngày đang là LEAVE (không có giờ chấm) trở về
+     * ABSENT 0 công; ngày đã có dữ liệu chấm công giữ nguyên.
+     */
+    @Transactional
+    public int revertManualLeaveDays(AttendanceWorkRequest req) {
+        LocalDate from = req.getWorkDate();
+        LocalDate to = req.getEndDate() != null ? req.getEndDate() : from;
+        int reverted = 0;
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            AttendanceRecord rec = attendanceRecordRepository
+                    .findByEmployeeAndWorkDate(req.getEmployee(), d).orElse(null);
+            if (rec == null || !"LEAVE".equals(rec.getStatus())) {
+                continue;
+            }
+            // Tính lại từ log máy chấm công gốc (nếu có) — giống thu hồi đơn nghỉ thường
+            rec.setStatus("ABSENT");
+            rec.setLateMinutesExempt(false);
+            rec.setOvertimeWorkUnits(BigDecimal.ZERO);
+            String note = stripProtectedDayNotes(rec.getNote());
+            rec.setNote(note.isBlank() ? null : note);
+            dayProcessor.applyToRecord(rec);
+            attendanceRecordRepository.save(rec);
+            reverted++;
+        }
+        return reverted;
+    }
+
+    /**
+     * Đơn nghỉ (phép / không lương / chế độ) còn hiệu lực hoặc đang chờ duyệt giao với khoảng ngày.
+     */
+    public List<AttendanceWorkRequest> findLeaveConflicts(Long employeeId, LocalDate from, LocalDate to) {
+        EnumSet<AttendanceRequestStatus> live = EnumSet.of(
+                AttendanceRequestStatus.PENDING_HEAD,
+                AttendanceRequestStatus.PENDING_NURSING_HEAD,
+                AttendanceRequestStatus.PENDING_HR,
+                AttendanceRequestStatus.PENDING_DIRECTOR,
+                AttendanceRequestStatus.APPROVED,
+                AttendanceRequestStatus.APPROVED_NO_FINE);
+        return requestRepository.findApprovedOverlappingForEmployees(from, to, List.of(employeeId), live).stream()
+                .filter(r -> isRangedLeaveType(r.getRequestType()))
+                .toList();
+    }
+
+    public Map<String, Object> leaveBalanceSnapshot(Employee emp, int year) {
+        return leaveBalanceFor(emp, year);
+    }
+
+    /**
      * Khôi phục hiệu lực mọi đơn công đã duyệt trong khoảng ngày (ADMIN/HR).
      * Dùng khi đồng bộ trước đó đã ghi đè bảng công.
      */
@@ -1363,7 +1449,7 @@ public class AttendanceWorkRequestService {
 
     private static int reapplyPriority(AttendanceRequestType type) {
         return switch (type) {
-            case LEAVE, UNPAID_LEAVE, BUSINESS_TRIP -> 0;
+            case LEAVE, UNPAID_LEAVE, PERSONAL_LEAVE, BUSINESS_TRIP -> 0;
             case UPDATE -> 1;
             case EXPLANATION -> 2;
             case DEPLOYMENT -> 3;
@@ -1378,6 +1464,7 @@ public class AttendanceWorkRequestService {
             case EXPLANATION -> applyApprovedExplanation(req, waive);
             case LEAVE -> applyApprovedLeave(req);
             case UNPAID_LEAVE -> applyApprovedUnpaidLeave(req);
+            case PERSONAL_LEAVE -> applyApprovedPersonalLeave(req);
             case BUSINESS_TRIP -> applyApprovedBusinessTrip(req);
             case DEPLOYMENT -> {
                 // OT/điều động trong ca đã được applyToRecord đọc lại từ ghi chú [DD:…] / [DDTC:…]
@@ -1407,6 +1494,8 @@ public class AttendanceWorkRequestService {
             case LEAVE -> "LEAVE".equals(rec.getStatus()) || note.contains("Nghỉ phép đã duyệt");
             case UNPAID_LEAVE -> "UNPAID_LEAVE".equals(rec.getStatus())
                     || note.contains("Nghỉ không lương đã duyệt");
+            case PERSONAL_LEAVE -> "PERSONAL_LEAVE".equals(rec.getStatus())
+                    || note.contains("Nghỉ chế độ");
             case BUSINESS_TRIP -> "BUSINESS_TRIP".equals(rec.getStatus())
                     || note.contains("Công tác đã duyệt");
             case DEPLOYMENT -> req.getId() != null && note.contains("[DD:" + req.getId() + "]");
@@ -1820,6 +1909,17 @@ public class AttendanceWorkRequestService {
         return mins / 60.0;
     }
 
+    /**
+     * Ngày nghỉ / công tác đã duyệt: xoá giờ vào-ra hiển thị nhưng GIỮ log máy chấm công gốc trong
+     * punchTimesJson — khi thu hồi / từ chối đơn, {@code revokeAppliedAttendanceEffect} tính lại được
+     * giờ vào/ra và trạng thái mà không cần đồng bộ lại máy chấm công.
+     */
+    private void preserveRawPunches(AttendanceRecord rec) {
+        if (rec.getPunchTimesJson() == null || rec.getPunchTimesJson().isBlank()) {
+            rec.setPunchTimesJson(dayProcessor.writePunches(dayProcessor.resolvePunches(rec)));
+        }
+    }
+
     private void applyLeaveDay(Employee emp, LocalDate workDate, String reason) {
         AttendanceRecord rec = attendanceRecordRepository
                 .findByEmployeeAndWorkDate(emp, workDate)
@@ -1829,7 +1929,7 @@ public class AttendanceWorkRequestService {
                         .status("ABSENT")
                         .build());
         AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(emp.getId(), workDate);
-        rec.setPunchTimesJson("[]");
+        preserveRawPunches(rec);
         rec.setCheckIn(null);
         rec.setCheckOut(null);
         rec.setMorningCheckIn(null);
@@ -1851,6 +1951,59 @@ public class AttendanceWorkRequestService {
         attendanceRecordRepository.save(rec);
     }
 
+    /**
+     * Nghỉ chế độ: chính thức hưởng lương cơ bản (đủ công ca, trạng thái PERSONAL_LEAVE,
+     * không trừ phép năm); thử việc / thực tập khoá ngày 0 công như nghỉ không lương.
+     */
+    private void applyApprovedPersonalLeave(AttendanceWorkRequest req) {
+        LocalDate from = req.getWorkDate();
+        LocalDate to = req.getEndDate() != null ? req.getEndDate() : from;
+        boolean paid = Boolean.TRUE.equals(req.getPersonalLeavePaid());
+        String kindLabel = req.getPersonalLeaveKind() != null ? req.getPersonalLeaveKind().label() : "chế độ";
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            applyPersonalLeaveDay(req.getEmployee(), d, req.getReason(), kindLabel, paid);
+        }
+    }
+
+    private void applyPersonalLeaveDay(
+            Employee emp, LocalDate workDate, String reason, String kindLabel, boolean paid) {
+        AttendanceRecord rec = attendanceRecordRepository
+                .findByEmployeeAndWorkDate(emp, workDate)
+                .orElseGet(() -> AttendanceRecord.builder()
+                        .employee(emp)
+                        .workDate(workDate)
+                        .status("ABSENT")
+                        .build());
+        preserveRawPunches(rec);
+        rec.setCheckIn(null);
+        rec.setCheckOut(null);
+        rec.setMorningCheckIn(null);
+        rec.setMorningCheckOut(null);
+        rec.setAfternoonCheckIn(null);
+        rec.setAfternoonCheckOut(null);
+        if (paid) {
+            AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(emp.getId(), workDate);
+            rec.setMorningWorkUnits(schedule.morningUnits());
+            rec.setAfternoonWorkUnits(schedule.afternoonUnits());
+            rec.setStatus("PERSONAL_LEAVE");
+        } else {
+            rec.setMorningWorkUnits(BigDecimal.ZERO);
+            rec.setAfternoonWorkUnits(BigDecimal.ZERO);
+            rec.setStatus("UNPAID_LEAVE");
+        }
+        rec.setOvertimeWorkUnits(BigDecimal.ZERO);
+        rec.setLateMinutes(0);
+        rec.setLateMinutesExempt(true);
+        rec.setForgotShifts(null);
+        String noteLine = "Nghỉ chế độ (" + kindLabel + ") đã duyệt"
+                + (paid ? " — hưởng lương cơ bản" : " — thử việc, không lương");
+        if (reason != null && !reason.isBlank()) {
+            noteLine += ": " + reason.trim();
+        }
+        rec.setNote(appendNote(stripProtectedDayNotes(rec.getNote()), noteLine));
+        attendanceRecordRepository.save(rec);
+    }
+
     /** Nghỉ không lương: khóa ngày, 0 công — không tính vào tổng công / lương. */
     private void applyUnpaidLeaveDay(Employee emp, LocalDate workDate, String reason) {
         AttendanceRecord rec = attendanceRecordRepository
@@ -1860,7 +2013,7 @@ public class AttendanceWorkRequestService {
                         .workDate(workDate)
                         .status("ABSENT")
                         .build());
-        rec.setPunchTimesJson("[]");
+        preserveRawPunches(rec);
         rec.setCheckIn(null);
         rec.setCheckOut(null);
         rec.setMorningCheckIn(null);
@@ -1891,7 +2044,7 @@ public class AttendanceWorkRequestService {
                         .status("ABSENT")
                         .build());
         AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(emp.getId(), workDate);
-        rec.setPunchTimesJson("[]");
+        preserveRawPunches(rec);
         rec.setCheckIn(null);
         rec.setCheckOut(null);
         rec.setMorningCheckIn(null);
@@ -1934,6 +2087,7 @@ public class AttendanceWorkRequestService {
             if (p.isEmpty()
                     || p.startsWith("Nghỉ phép đã duyệt")
                     || p.startsWith("Nghỉ không lương đã duyệt")
+                    || p.startsWith("Nghỉ chế độ")
                     || p.startsWith("Công tác đã duyệt")
                     || p.startsWith("Hội thảo đã duyệt")
                     || p.startsWith("Cập nhật công theo đơn đã duyệt")
@@ -2067,6 +2221,21 @@ public class AttendanceWorkRequestService {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Ngày kết thúc phải sau hoặc bằng ngày bắt đầu");
             }
             assertNoOverlappingLeaveKinds(emp.getId(), dto.getWorkDate(), end, excludeId);
+        } else if (dto.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE) {
+            if (dto.getPersonalLeaveKind() == null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "Cần chọn chế độ nghỉ: NLĐ kết hôn hoặc người thân NLĐ mất");
+            }
+            LocalDate end = dto.getEndDate() != null ? dto.getEndDate() : dto.getWorkDate();
+            if (end.isBefore(dto.getWorkDate())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Ngày kết thúc phải sau hoặc bằng ngày bắt đầu");
+            }
+            int requestDays = LeaveEntitlement.calendarDaysInclusive(dto.getWorkDate(), end);
+            if (requestDays > PERSONAL_LEAVE_MAX_DAYS) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, String.format(
+                        "Nghỉ chế độ tối đa %d ngày, đơn xin %d ngày", PERSONAL_LEAVE_MAX_DAYS, requestDays));
+            }
+            assertNoOverlappingLeaveKinds(emp.getId(), dto.getWorkDate(), end, excludeId);
         } else if (dto.getRequestType() == AttendanceRequestType.BUSINESS_TRIP) {
             LocalDate end = dto.getEndDate() != null ? dto.getEndDate() : dto.getWorkDate();
             if (end.isBefore(dto.getWorkDate())) {
@@ -2103,7 +2272,8 @@ public class AttendanceWorkRequestService {
         List<AttendanceWorkRequest> ranged = requestRepository.findByEmployeeIdOrderByCreatedAtDesc(employeeId).stream()
                 .filter(r -> excludeId == null || !r.getId().equals(excludeId))
                 .filter(r -> r.getRequestType() == AttendanceRequestType.LEAVE
-                        || r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE)
+                        || r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                        || r.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE)
                 .filter(r -> blocking.contains(r.getStatus()))
                 .toList();
         for (AttendanceWorkRequest r : ranged) {
@@ -2111,9 +2281,11 @@ public class AttendanceWorkRequestService {
             LocalDate rTo = r.getEndDate() != null ? r.getEndDate() : rFrom;
             boolean overlap = !from.isAfter(rTo) && !to.isBefore(rFrom);
             if (overlap) {
-                String kind = r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
-                        ? "nghỉ không lương"
-                        : "nghỉ phép";
+                String kind = switch (r.getRequestType()) {
+                    case UNPAID_LEAVE -> "nghỉ không lương";
+                    case PERSONAL_LEAVE -> "nghỉ chế độ";
+                    default -> "nghỉ phép";
+                };
                 throw new ApiException(HttpStatus.BAD_REQUEST,
                         "Khoảng ngày trùng với đơn " + kind + " khác (đang chờ hoặc đã duyệt)");
             }
@@ -2408,14 +2580,16 @@ public class AttendanceWorkRequestService {
         m.put("requestType", r.getRequestType().name());
         m.put("workDate", r.getWorkDate().toString());
         m.put("endDate", r.getEndDate() != null ? r.getEndDate().toString() : "");
-        int rangedDays = (r.getRequestType() == AttendanceRequestType.LEAVE
-                || r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
-                || r.getRequestType() == AttendanceRequestType.BUSINESS_TRIP)
+        int rangedDays = isRangedLeaveType(r.getRequestType())
                 ? LeaveEntitlement.calendarDaysInclusive(
                         r.getWorkDate(), r.getEndDate() != null ? r.getEndDate() : r.getWorkDate())
                 : 0;
         m.put("leaveDays", (r.getRequestType() == AttendanceRequestType.LEAVE
-                || r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE) ? rangedDays : 0);
+                || r.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                || r.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE) ? rangedDays : 0);
+        m.put("personalLeaveKind", r.getPersonalLeaveKind() != null ? r.getPersonalLeaveKind().name() : null);
+        m.put("personalLeaveKindLabel", r.getPersonalLeaveKind() != null ? r.getPersonalLeaveKind().label() : null);
+        m.put("personalLeavePaid", r.getPersonalLeavePaid());
         m.put("tripDays", r.getRequestType() == AttendanceRequestType.BUSINESS_TRIP ? rangedDays : 0);
         m.put("shiftScope", r.getShiftScope().name());
         m.put("updateKind", r.getUpdateKind() != null ? r.getUpdateKind().name() : "");

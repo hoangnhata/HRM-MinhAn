@@ -248,11 +248,13 @@ public class NotificationService {
             case UPDATE -> "cập nhật công";
             case LEAVE -> "nghỉ phép";
             case UNPAID_LEAVE -> "nghỉ không lương";
+            case PERSONAL_LEAVE -> "nghỉ chế độ";
             case BUSINESS_TRIP -> "công tác";
             case DEPLOYMENT -> "điều động";
         };
         String datePart = (req.getRequestType() == AttendanceRequestType.LEAVE
                 || req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                || req.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE
                 || req.getRequestType() == AttendanceRequestType.BUSINESS_TRIP)
                 && req.getEndDate() != null
                 ? req.getWorkDate() + " → " + req.getEndDate()
@@ -286,11 +288,13 @@ public class NotificationService {
             case UPDATE -> "Cập nhật công";
             case LEAVE -> "Nghỉ phép";
             case UNPAID_LEAVE -> "Nghỉ không lương";
+            case PERSONAL_LEAVE -> "Nghỉ chế độ";
             case BUSINESS_TRIP -> "Công tác";
             case DEPLOYMENT -> "Điều động";
         };
         String datePart = (req.getRequestType() == AttendanceRequestType.LEAVE
                 || req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                || req.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE
                 || req.getRequestType() == AttendanceRequestType.BUSINESS_TRIP)
                 && req.getEndDate() != null
                 ? req.getWorkDate() + " → " + req.getEndDate()
@@ -319,11 +323,13 @@ public class NotificationService {
             case UPDATE -> "cập nhật công";
             case LEAVE -> "nghỉ phép";
             case UNPAID_LEAVE -> "nghỉ không lương";
+            case PERSONAL_LEAVE -> "nghỉ chế độ";
             case BUSINESS_TRIP -> "công tác";
             case DEPLOYMENT -> "điều động";
         };
         String datePart = (req.getRequestType() == AttendanceRequestType.LEAVE
                 || req.getRequestType() == AttendanceRequestType.UNPAID_LEAVE
+                || req.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE
                 || req.getRequestType() == AttendanceRequestType.BUSINESS_TRIP)
                 && req.getEndDate() != null
                 ? req.getWorkDate() + " → " + req.getEndDate()

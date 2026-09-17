@@ -7,7 +7,6 @@ import '../../../core/session/session_epoch.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/utils/user_role.dart';
 import '../../../core/widgets/app_ambient_background.dart';
 import '../../../core/widgets/app_date_picker.dart';
 import '../../../core/widgets/gradient_header.dart';
@@ -59,8 +58,8 @@ class _AttendanceRequestsScreenState
   void initState() {
     super.initState();
     final auth = ref.read(authControllerProvider);
-    _canApprove = RoleGroups.canApproveAttendance(
-      auth.role,
+    _canApprove = widget.scope.canApprove(
+      role: auth.role,
       directorApprovalEnabled:
           auth.currentUser?.directorApprovalEnabled ?? false,
     );

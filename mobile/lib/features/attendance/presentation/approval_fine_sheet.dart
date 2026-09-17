@@ -7,7 +7,7 @@ import '../../../core/widgets/notice_banner.dart';
 import '../../../shared/models/attendance_models.dart';
 import 'attendance_enums.dart';
 
-/// Quyết định HCNS / Giám đốc khi duyệt đơn công liên quan tiền phạt.
+/// Quyết định Giám đốc khi duyệt đơn công liên quan tiền phạt.
 class FineDecision {
   const FineDecision({
     required this.waiveForgotFine,
@@ -296,11 +296,7 @@ class _Choice extends StatelessWidget {
 }
 
 bool attendanceNeedsFineDecision(AttendanceWorkRequest r) {
-  final atFineStage =
-      r.status == 'PENDING_HR' || r.status == 'PENDING_DIRECTOR';
-  final finableType =
-      r.requestType == 'UPDATE' || r.requestType == 'EXPLANATION';
-  return atFineStage && finableType;
+  return AttendanceEnums.directorDecidesFine(r);
 }
 
 /// Kết quả chọn phạt khi duyệt hàng loạt.

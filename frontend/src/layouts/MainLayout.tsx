@@ -2,6 +2,7 @@ import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import DescriptionIcon from '@mui/icons-material/Description';
+import EventBusyOutlinedIcon from '@mui/icons-material/EventBusyOutlined';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import GroupsIcon from '@mui/icons-material/Groups';
@@ -57,12 +58,35 @@ const drawerWidth = 256;
 /** Khớp chiều cao Toolbar — Drawer bắt đầu ngay dưới AppBar, không cắt nội dung */
 const toolbarOffset = { xs: '56px', sm: '64px' };
 
-const ALL_STAFF = ['ADMIN', 'EMPLOYEE', 'HR', 'HR2', 'HEAD_DEPARTMENT', 'HEAD_HR', 'HEAD_NURSING', 'DIRECTOR'] as const;
-const ADMIN_HR_HEADS = ['ADMIN', 'HR', 'HEAD_DEPARTMENT', 'HEAD_NURSING', 'HOSPITAL_EMPLOYEE_VIEWER'] as const;
+const ALL_STAFF = [
+  'ADMIN',
+  'EMPLOYEE',
+  'HR',
+  'HR2',
+  'HEAD_DEPARTMENT',
+  'HEAD_HR',
+  'HEAD_NURSING',
+  'DIRECTOR',
+] as const;
+const ADMIN_HR_HEADS = [
+  'ADMIN',
+  'HR',
+  'HEAD_DEPARTMENT',
+  'HEAD_NURSING',
+  'HOSPITAL_EMPLOYEE_VIEWER',
+] as const;
 /** Quản lý bảng công nhiều NV — menu «Công» */
 const WORK_MANAGERS = ['ADMIN', 'HR', 'HR2', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
 /** Xem công cá nhân — menu «Công của tôi» */
-const WORK_SELF_ROLES = ['EMPLOYEE', 'DIRECTOR', 'ADMIN', 'HR', 'HR2', 'HEAD_DEPARTMENT', 'HEAD_NURSING'] as const;
+const WORK_SELF_ROLES = [
+  'EMPLOYEE',
+  'DIRECTOR',
+  'ADMIN',
+  'HR',
+  'HR2',
+  'HEAD_DEPARTMENT',
+  'HEAD_NURSING',
+] as const;
 const SALARY_MANAGERS = ['ADMIN', 'HR'] as const;
 const REPORT_VIEWERS = ['ADMIN', 'HR', 'HR2', 'DIRECTOR', 'REPORT_VIEWER'] as const;
 // Khớp RoleRoute của trang /reports/professional-qualification.
@@ -74,7 +98,11 @@ const PROFESSIONAL_QUALIFICATION_VIEWERS = [
   'PROFESSIONAL_QUALIFICATION_VIEWER',
 ] as const;
 
-const EMPLOYEE_CATEGORY_PATHS = ['/employees/official', '/employees/trial', '/employees/terminated'] as const;
+const EMPLOYEE_CATEGORY_PATHS = [
+  '/employees/official',
+  '/employees/trial',
+  '/employees/terminated',
+] as const;
 
 type NavLink = {
   kind: 'link';
@@ -107,7 +135,13 @@ type NavEntry = { kind: 'link'; item: NavLink } | { kind: 'group'; group: NavGro
 const NAV_ENTRIES: NavEntry[] = [
   {
     kind: 'link',
-    item: { kind: 'link', to: '/', label: 'Dashboard', icon: <DashboardIcon fontSize="small" />, roles: ALL_STAFF },
+    item: {
+      kind: 'link',
+      to: '/',
+      label: 'Dashboard',
+      icon: <DashboardIcon fontSize="small" />,
+      roles: ALL_STAFF,
+    },
   },
   {
     kind: 'group',
@@ -130,9 +164,27 @@ const NAV_ENTRIES: NavEntry[] = [
           icon: <PeopleIcon fontSize="small" />,
           roles: ADMIN_HR_HEADS,
           children: [
-            { kind: 'link', to: '/employees/official', label: 'Chính thức', icon: <PeopleIcon fontSize="small" />, roles: ADMIN_HR_HEADS },
-            { kind: 'link', to: '/employees/trial', label: 'Thử việc / Thực tập', icon: <PeopleIcon fontSize="small" />, roles: ADMIN_HR_HEADS },
-            { kind: 'link', to: '/employees/terminated', label: 'Nghỉ việc', icon: <PeopleIcon fontSize="small" />, roles: ADMIN_HR_HEADS },
+            {
+              kind: 'link',
+              to: '/employees/official',
+              label: 'Chính thức',
+              icon: <PeopleIcon fontSize="small" />,
+              roles: ADMIN_HR_HEADS,
+            },
+            {
+              kind: 'link',
+              to: '/employees/trial',
+              label: 'Thử việc / Thực tập',
+              icon: <PeopleIcon fontSize="small" />,
+              roles: ADMIN_HR_HEADS,
+            },
+            {
+              kind: 'link',
+              to: '/employees/terminated',
+              label: 'Nghỉ việc',
+              icon: <PeopleIcon fontSize="small" />,
+              roles: ADMIN_HR_HEADS,
+            },
           ],
         },
       ],
@@ -235,7 +287,13 @@ const NAV_ENTRIES: NavEntry[] = [
       label: 'Công & đơn',
       icon: <WorkOutlineIcon fontSize="small" />,
       children: [
-        { kind: 'link', to: '/work', label: 'Công', icon: <EventNoteIcon fontSize="small" />, roles: WORK_MANAGERS },
+        {
+          kind: 'link',
+          to: '/work',
+          label: 'Công',
+          icon: <EventNoteIcon fontSize="small" />,
+          roles: WORK_MANAGERS,
+        },
         {
           kind: 'link',
           to: '/work/me',
@@ -243,7 +301,13 @@ const NAV_ENTRIES: NavEntry[] = [
           icon: <PersonOutlineIcon fontSize="small" />,
           roles: WORK_SELF_ROLES,
         },
-        { kind: 'link', to: '/requests', label: 'Đơn', icon: <DescriptionIcon fontSize="small" />, roles: ALL_STAFF },
+        {
+          kind: 'link',
+          to: '/requests',
+          label: 'Đơn',
+          icon: <DescriptionIcon fontSize="small" />,
+          roles: ALL_STAFF,
+        },
         {
           kind: 'link',
           to: '/evaluations',
@@ -283,10 +347,15 @@ function headerAvatar(name: string, imageUrl?: string | null) {
 function pathActive(pathname: string, path: string): boolean {
   if (path === '/') return pathname === '/';
   // /work và /work/me là hai mục riêng
-  if (path === '/work' || path === '/work/me'
-      || path === '/salary' || path === '/salary/me'
-      || path === '/salary-scales' || path === '/salary-scales/me'
-      || path === '/salary-grade-reviews') {
+  if (
+    path === '/work' ||
+    path === '/work/me' ||
+    path === '/salary' ||
+    path === '/salary/me' ||
+    path === '/salary-scales' ||
+    path === '/salary-scales/me' ||
+    path === '/salary-grade-reviews'
+  ) {
     return pathname === path;
   }
   if ((EMPLOYEE_CATEGORY_PATHS as readonly string[]).includes(path)) {
@@ -300,7 +369,10 @@ function collectGroupLinks(children: NavGroupChild[]): NavLink[] {
 }
 
 function groupHasActive(pathname: string, children: NavGroupChild[]): boolean {
-  if (pathname.startsWith('/employees/') && children.some((c) => c.kind === 'submenu' && c.id === 'employees')) {
+  if (
+    pathname.startsWith('/employees/') &&
+    children.some((c) => c.kind === 'submenu' && c.id === 'employees')
+  ) {
     return true;
   }
   return collectGroupLinks(children).some((c) => pathActive(pathname, c.to));
@@ -452,7 +524,9 @@ export function MainLayout() {
     boxShadow: active ? `inset 3px 0 0 ${theme.palette.primary.main}` : 'none',
     transition: 'background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease',
     '&:hover': {
-      bgcolor: active ? alpha(theme.palette.primary.main, 0.14) : alpha(theme.palette.primary.main, 0.05),
+      bgcolor: active
+        ? alpha(theme.palette.primary.main, 0.14)
+        : alpha(theme.palette.primary.main, 0.05),
     },
     '&.Mui-selected': {
       ...navBtnBase['&.Mui-selected'],
@@ -493,7 +567,9 @@ export function MainLayout() {
     boxShadow: active ? `inset 3px 0 0 ${theme.palette.primary.main}` : 'none',
     transition: 'background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease',
     '&:hover': {
-      bgcolor: active ? alpha(theme.palette.primary.main, 0.14) : alpha(theme.palette.primary.main, 0.05),
+      bgcolor: active
+        ? alpha(theme.palette.primary.main, 0.14)
+        : alpha(theme.palette.primary.main, 0.05),
     },
     '&.Mui-selected': {
       ...navBtnBase['&.Mui-selected'],
@@ -519,7 +595,9 @@ export function MainLayout() {
     boxShadow: active ? `inset 3px 0 0 ${theme.palette.primary.main}` : 'none',
     transition: 'background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease',
     '&:hover': {
-      bgcolor: active ? alpha(theme.palette.primary.main, 0.14) : alpha(theme.palette.primary.main, 0.05),
+      bgcolor: active
+        ? alpha(theme.palette.primary.main, 0.14)
+        : alpha(theme.palette.primary.main, 0.05),
     },
     '&.Mui-selected': {
       ...navBtnBase['&.Mui-selected'],
@@ -750,7 +828,9 @@ export function MainLayout() {
                               <ListItemText
                                 primary={child.label}
                                 primaryTypographyProps={{
-                                  fontWeight: subActive ? navLabel.fontWeightActive : navLabel.fontWeight,
+                                  fontWeight: subActive
+                                    ? navLabel.fontWeightActive
+                                    : navLabel.fontWeight,
                                   fontSize: navLabel.fontSize,
                                   letterSpacing: navLabel.letterSpacing,
                                   color: 'inherit',
@@ -1103,6 +1183,18 @@ export function MainLayout() {
                     <ManageAccountsIcon fontSize="small" />
                   </ListItemIcon>
                   Quản trị tài khoản
+                </MenuItem>
+              )}
+              {user?.role === 'ADMIN' && (
+                <MenuItem
+                  component={Link}
+                  to="/manual-leaves"
+                  onClick={() => setUserMenuAnchor(null)}
+                >
+                  <ListItemIcon>
+                    <EventBusyOutlinedIcon fontSize="small" />
+                  </ListItemIcon>
+                  Gắn ngày phép đã nghỉ
                 </MenuItem>
               )}
               <Divider />

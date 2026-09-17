@@ -68,6 +68,24 @@ public interface AttendanceWorkRequestRepository extends JpaRepository<Attendanc
             @Param("employeeIds") Collection<Long> employeeIds,
             @Param("statuses") Collection<AttendanceRequestStatus> statuses);
 
+    /**
+     * Phép ghi nhận ngoài hệ thống (admin gắn tay / import Excel) — nhận diện qua marker đầu reason.
+     */
+    @Query("""
+            SELECT r FROM AttendanceWorkRequest r
+            JOIN FETCH r.employee e
+            JOIN FETCH e.department
+            WHERE r.requestType = com.minhan.hrm.entity.AttendanceRequestType.LEAVE
+              AND r.reason LIKE CONCAT(:marker, '%')
+              AND r.workDate <= :to
+              AND COALESCE(r.endDate, r.workDate) >= :from
+            ORDER BY r.workDate DESC, r.id DESC
+            """)
+    List<AttendanceWorkRequest> findManualLeavesOverlapping(
+            @Param("marker") String marker,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
+
     void deleteByEmployee_Id(Long employeeId);
 
     /**

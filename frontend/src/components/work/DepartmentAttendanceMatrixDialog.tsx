@@ -90,7 +90,7 @@ function punchRange(a?: string | null, b?: string | null): string | null {
 }
 
 function isLeave(status?: string) {
-  return status === 'LEAVE' || status === 'UNPAID_LEAVE' || status === 'ABSENT';
+  return status === 'LEAVE' || status === 'UNPAID_LEAVE' || status === 'PERSONAL_LEAVE' || status === 'ABSENT';
 }
 
 function dutyDisplayName(duty?: attSvc.AttendanceMatrixDutyDay): { short: string; full: string } {

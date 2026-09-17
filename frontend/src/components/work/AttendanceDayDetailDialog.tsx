@@ -316,6 +316,8 @@ export function AttendanceDayDetailDialog({
                         ? "info"
                         : status === "UNPAID_LEAVE"
                           ? "default"
+                          : status === "PERSONAL_LEAVE"
+                            ? "info"
                           : status === "BUSINESS_TRIP"
                             ? "warning"
                             : status === "SEMINAR"

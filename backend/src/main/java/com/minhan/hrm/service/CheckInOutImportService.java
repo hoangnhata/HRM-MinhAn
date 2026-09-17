@@ -206,6 +206,7 @@ public class CheckInOutImportService {
         String status = rec.getStatus();
         return "LEAVE".equals(status)
                 || "UNPAID_LEAVE".equals(status)
+                || "PERSONAL_LEAVE".equals(status)
                 || "BUSINESS_TRIP".equals(status);
     }
 

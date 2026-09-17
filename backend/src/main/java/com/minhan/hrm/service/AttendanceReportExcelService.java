@@ -998,7 +998,8 @@ public class AttendanceReportExcelService {
     }
 
     private static boolean isPaidLeave(Map<String, Object> day) {
-        return "LEAVE".equals(str(day.get("status")));
+        String status = str(day.get("status"));
+        return "LEAVE".equals(status) || "PERSONAL_LEAVE".equals(status);
     }
 
     /** Tổng công các ngày có bổ sung Quang Trung (đã nằm trong công chấm). */
@@ -1041,6 +1042,7 @@ public class AttendanceReportExcelService {
             case "PARTIAL" -> "Thiếu ca";
             case "ABSENT" -> "Vắng";
             case "LEAVE" -> "Phép";
+            case "PERSONAL_LEAVE" -> "Nghỉ chế độ";
             case "UNPAID_LEAVE" -> "Không lương";
             case "BUSINESS_TRIP" -> "Công tác";
             case "SEMINAR" -> "Hội thảo";

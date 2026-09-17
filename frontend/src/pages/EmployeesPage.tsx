@@ -3,6 +3,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import DownloadIcon from '@mui/icons-material/Download';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import EditIcon from '@mui/icons-material/Edit';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -24,6 +25,8 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  ListItemText,
+  Menu,
   MenuItem,
   Paper,
   Snackbar,
@@ -124,6 +127,7 @@ export default function EmployeesPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [accompanyingImportOpen, setAccompanyingImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportMenuEl, setExportMenuEl] = useState<HTMLElement | null>(null);
   const [transferTarget, setTransferTarget] = useState<{
     id: number;
     fullName: string;
@@ -299,6 +303,25 @@ export default function EmployeesPage() {
     setFormMode('edit');
     setEditEmployeeId(id);
     setFormOpen(true);
+  }
+
+  async function exportWorkforce(scope: importService.WorkforceExcelScope) {
+    setExportMenuEl(null);
+    setExporting(true);
+    try {
+      await importService.downloadWorkforceExcel(scope);
+      setSnackbar({
+        open: true,
+        message:
+          scope === 'NURSING'
+            ? 'Đã tải Excel nhân lực khối điều dưỡng.'
+            : 'Đã tải Excel nhân lực toàn viện.',
+      });
+    } catch {
+      setSnackbar({ open: true, message: 'Xuất Excel thất bại. Kiểm tra quyền.' });
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function confirmPurge() {
@@ -552,43 +575,68 @@ export default function EmployeesPage() {
               : categoryMeta.description
         }
         actions={
-          canManageStaff ? (
+          isNursingHead || canManageStaff ? (
             <>
-              <Button variant="outlined" startIcon={<PersonAddIcon />} onClick={openCreate}>
-                Thêm nhân viên
-              </Button>
-              {isHrOrAdmin && (
-                <>
-                  <Button
-                    variant="outlined"
-                    startIcon={exporting ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />}
-                    disabled={exporting}
-                    onClick={async () => {
-                      setExporting(true);
-                      try {
-                        await importService.downloadWorkforceExcel();
-                        setSnackbar({ open: true, message: 'Đã tải file Excel nhân lực.' });
-                      } catch {
-                        setSnackbar({ open: true, message: 'Xuất Excel thất bại. Kiểm tra quyền ADMIN/HCNS.' });
-                      } finally {
-                        setExporting(false);
-                      }
-                    }}
-                  >
-                    Xuất Excel
-                  </Button>
-                  <Button variant="contained" startIcon={<CloudUploadIcon />} onClick={() => setImportOpen(true)}>
-                    Import Excel
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<NightsStayIcon />}
-                    onClick={() => setAccompanyingImportOpen(true)}
-                  >
-                    Import DS trực kèm
-                  </Button>
-                </>
+              {isNursingHead && (
+                <Button
+                  variant="outlined"
+                  startIcon={exporting ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />}
+                  disabled={exporting}
+                  onClick={() => void exportWorkforce('NURSING')}
+                >
+                  Xuất Excel khối điều dưỡng
+                </Button>
               )}
+              {canManageStaff ? (
+                <>
+                  <Button variant="outlined" startIcon={<PersonAddIcon />} onClick={openCreate}>
+                    Thêm nhân viên
+                  </Button>
+                  {isHrOrAdmin && (
+                    <>
+                      <Button
+                        variant="outlined"
+                        startIcon={exporting ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />}
+                        endIcon={<KeyboardArrowDownIcon />}
+                        disabled={exporting}
+                        onClick={(e) => setExportMenuEl(e.currentTarget)}
+                      >
+                        Xuất Excel
+                      </Button>
+                      <Menu
+                        anchorEl={exportMenuEl}
+                        open={Boolean(exportMenuEl)}
+                        onClose={() => setExportMenuEl(null)}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                      >
+                        <MenuItem disabled={exporting} onClick={() => void exportWorkforce('HOSPITAL')}>
+                          <ListItemText
+                            primary="Toàn viện"
+                            secondary="Mọi nhân sự đang làm việc và thử việc / thực tập"
+                          />
+                        </MenuItem>
+                        <MenuItem disabled={exporting} onClick={() => void exportWorkforce('NURSING')}>
+                          <ListItemText
+                            primary="Khối điều dưỡng"
+                            secondary="ĐD – KTV – Hộ sinh – Thư ký y khoa – Y sĩ (phạm vi Trưởng phòng ĐD)"
+                          />
+                        </MenuItem>
+                      </Menu>
+                      <Button variant="contained" startIcon={<CloudUploadIcon />} onClick={() => setImportOpen(true)}>
+                        Import Excel
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        startIcon={<NightsStayIcon />}
+                        onClick={() => setAccompanyingImportOpen(true)}
+                      >
+                        Import DS trực kèm
+                      </Button>
+                    </>
+                  )}
+                </>
+              ) : null}
             </>
           ) : undefined
         }

@@ -78,9 +78,12 @@ export async function importAccompanyingDutyExcel(file: File) {
   return data;
 }
 
-/** Xuất Excel nhân lực đúng cấu trúc file nhập (chính thức + thử việc/thực tập). */
-export async function downloadWorkforceExcel() {
+export type WorkforceExcelScope = 'HOSPITAL' | 'NURSING';
+
+/** Xuất Excel nhân lực (chính thức + thử việc). NURSING = khối Trưởng phòng ĐD quản lý. */
+export async function downloadWorkforceExcel(scope: WorkforceExcelScope = 'HOSPITAL') {
   const res = await api.get('/v1/import/workforce/export', {
+    params: { scope },
     responseType: 'blob',
     timeout: 300000,
   });
@@ -91,7 +94,10 @@ export async function downloadWorkforceExcel() {
   const a = document.createElement('a');
   a.href = url;
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
-  a.download = `NHAN-LUC-BENH-VIEN-MINH-AN-${stamp}.xlsx`;
+  a.download =
+    scope === 'NURSING'
+      ? `NHAN-LUC-KHOI-DIEU-DUONG-${stamp}.xlsx`
+      : `NHAN-LUC-BENH-VIEN-MINH-AN-${stamp}.xlsx`;
   document.body.appendChild(a);
   a.click();
   a.remove();

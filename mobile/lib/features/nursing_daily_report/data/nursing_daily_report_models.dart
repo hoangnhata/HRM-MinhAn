@@ -32,6 +32,9 @@ class NursingDailyReport {
     required this.dutyAfternoonOff,
     required this.externalMission,
     required this.inpatients,
+    required this.inpatientsCareLevel1,
+    required this.inpatientsCareLevel2,
+    required this.inpatientsCareLevel3,
     required this.outpatients,
     required this.paraclinical,
     required this.surgery,
@@ -68,6 +71,9 @@ class NursingDailyReport {
   final int dutyAfternoonOff;
   final int externalMission;
   final int inpatients;
+  final int inpatientsCareLevel1;
+  final int inpatientsCareLevel2;
+  final int inpatientsCareLevel3;
   final int outpatients;
   final int paraclinical;
   final int surgery;
@@ -110,6 +116,9 @@ class NursingDailyReport {
     'dutyAfternoonOff': dutyAfternoonOff,
     'externalMission': externalMission,
     'inpatients': inpatients,
+    'inpatientsCareLevel1': inpatientsCareLevel1,
+    'inpatientsCareLevel2': inpatientsCareLevel2,
+    'inpatientsCareLevel3': inpatientsCareLevel3,
     'outpatients': outpatients,
     'paraclinical': paraclinical,
     'surgery': surgery,
@@ -139,6 +148,9 @@ class NursingDailyReport {
         dutyAfternoonOff: _integer(json['dutyAfternoonOff']),
         externalMission: _integer(json['externalMission']),
         inpatients: _integer(json['inpatients']),
+        inpatientsCareLevel1: _integer(json['inpatientsCareLevel1']),
+        inpatientsCareLevel2: _integer(json['inpatientsCareLevel2']),
+        inpatientsCareLevel3: _integer(json['inpatientsCareLevel3']),
         outpatients: _integer(json['outpatients']),
         paraclinical: _integer(json['paraclinical']),
         surgery: _integer(json['surgery']),

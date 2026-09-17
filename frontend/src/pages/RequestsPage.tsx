@@ -7,6 +7,7 @@ import EventAvailableOutlinedIcon from '@mui/icons-material/EventAvailableOutlin
 import HourglassEmptyOutlinedIcon from '@mui/icons-material/HourglassEmptyOutlined';
 import InboxOutlinedIcon from '@mui/icons-material/InboxOutlined';
 import MoneyOffOutlinedIcon from '@mui/icons-material/MoneyOffOutlined';
+import VolunteerActivismOutlinedIcon from '@mui/icons-material/VolunteerActivismOutlined';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import HowToRegIcon from '@mui/icons-material/HowToReg';
 import ChildCareIcon from '@mui/icons-material/ChildCare';
@@ -47,6 +48,7 @@ import { YoungChildRequestPendingPanel } from '../components/YoungChildRequestPe
 import { ShiftConfigChangePendingPanel } from '../components/ShiftConfigChangePendingPanel';
 import { SeminarProposalDialog } from '../components/SeminarProposalDialog';
 import { UnpaidLeaveRequestDialog } from '../components/UnpaidLeaveRequestDialog';
+import { PersonalLeaveRequestDialog } from '../components/PersonalLeaveRequestDialog';
 import { PageHeader } from '../components/layout/PageHeader';
 import {
   applyRequestListFilters,
@@ -64,6 +66,7 @@ function workRequestSummary(r: att.WorkRequest): string {
   const isRanged =
     r.requestType === 'LEAVE' ||
     r.requestType === 'UNPAID_LEAVE' ||
+    r.requestType === 'PERSONAL_LEAVE' ||
     r.requestType === 'BUSINESS_TRIP';
   if (r.requestType === 'UPDATE') return att.formatRequestedTimes(r);
   if (r.requestType === 'DEPLOYMENT' && r.requestedStart && r.requestedEnd) {
@@ -78,7 +81,7 @@ function workRequestSummary(r: att.WorkRequest): string {
   return att.formatExplanationTimes(r);
 }
 
-type FilterKey = 'all' | 'leave' | 'unpaid' | 'work' | 'pending' | 'done';
+type FilterKey = 'all' | 'leave' | 'unpaid' | 'personal' | 'work' | 'pending' | 'done';
 
 const WORK_REQUEST_TYPES = new Set<att.WorkRequest['requestType']>([
   'UPDATE',
@@ -248,6 +251,7 @@ export default function RequestsPage() {
   const [detail, setDetail] = useState<att.WorkRequest | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [unpaidLeaveOpen, setUnpaidLeaveOpen] = useState(false);
+  const [personalLeaveOpen, setPersonalLeaveOpen] = useState(false);
   const [createMenuEl, setCreateMenuEl] = useState<null | HTMLElement>(null);
   const [seminarOpen, setSeminarOpen] = useState(false);
   const [balance, setBalance] = useState<att.LeaveBalance | null>(null);
@@ -428,16 +432,18 @@ export default function RequestsPage() {
     const requestsInMine = myRequests.filter((r) => r.requestType !== 'DEPLOYMENT');
     const leave = requestsInMine.filter((r) => r.requestType === 'LEAVE').length;
     const unpaid = requestsInMine.filter((r) => r.requestType === 'UNPAID_LEAVE').length;
+    const personal = requestsInMine.filter((r) => r.requestType === 'PERSONAL_LEAVE').length;
     const work = requestsInMine.filter((r) => WORK_REQUEST_TYPES.has(r.requestType)).length;
     const pending = requestsInMine.filter((r) => att.isRequestPending(r.status)).length;
     const done = requestsInMine.filter((r) => !att.isRequestPending(r.status)).length;
-    return { all: requestsInMine.length, leave, unpaid, work, pending, done };
+    return { all: requestsInMine.length, leave, unpaid, personal, work, pending, done };
   }, [myRequests]);
 
   const filteredByType = useMemo(() => {
     const requestsInMine = myRequests.filter((r) => r.requestType !== 'DEPLOYMENT');
     if (filter === 'leave') return requestsInMine.filter((r) => r.requestType === 'LEAVE');
     if (filter === 'unpaid') return requestsInMine.filter((r) => r.requestType === 'UNPAID_LEAVE');
+    if (filter === 'personal') return requestsInMine.filter((r) => r.requestType === 'PERSONAL_LEAVE');
     if (filter === 'work') return requestsInMine.filter((r) => WORK_REQUEST_TYPES.has(r.requestType));
     if (filter === 'pending') return requestsInMine.filter((r) => att.isRequestPending(r.status));
     if (filter === 'done') return requestsInMine.filter((r) => !att.isRequestPending(r.status));
@@ -541,6 +547,7 @@ export default function RequestsPage() {
     { key: 'all', label: 'Tất cả', count: counts.all },
     { key: 'leave', label: 'Nghỉ phép', count: counts.leave },
     { key: 'unpaid', label: 'Không lương', count: counts.unpaid },
+    { key: 'personal', label: 'Nghỉ chế độ', count: counts.personal },
     { key: 'work', label: 'Đơn công', count: counts.work },
     { key: 'pending', label: 'Chờ duyệt', count: counts.pending },
     { key: 'done', label: 'Đã xử lý', count: counts.done },
@@ -618,6 +625,23 @@ export default function RequestsPage() {
                 <ListItemText
                   primary="Xin nghỉ không lương"
                   secondary="0 công · không trừ phép năm"
+                  primaryTypographyProps={{ fontWeight: 700, fontSize: '0.9rem' }}
+                  secondaryTypographyProps={{ fontSize: '0.72rem' }}
+                />
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setCreateMenuEl(null);
+                  setPersonalLeaveOpen(true);
+                }}
+                sx={{ py: 1.25, borderRadius: 1.5, mx: 0.5 }}
+              >
+                <ListItemIcon>
+                  <VolunteerActivismOutlinedIcon fontSize="small" sx={{ color: '#7c3aed' }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Xin nghỉ chế độ"
+                  secondary="Kết hôn / người thân mất · 3 ngày, không trừ phép"
                   primaryTypographyProps={{ fontWeight: 700, fontSize: '0.9rem' }}
                   secondaryTypographyProps={{ fontSize: '0.72rem' }}
                 />
@@ -885,6 +909,8 @@ export default function RequestsPage() {
                     ? 'Bắt đầu bằng đơn nghỉ phép hoặc nghỉ không lương — chọn khoảng ngày và lý do, rồi gửi lãnh đạo duyệt.'
                     : filter === 'unpaid'
                       ? 'Chưa có đơn nghỉ không lương. Ngày được duyệt ghi 0 công, không trừ phép năm.'
+                      : filter === 'personal'
+                        ? 'Chưa có đơn nghỉ chế độ. Kết hôn hoặc người thân mất: tối đa 3 ngày, không trừ phép năm.'
                       : filter === 'work'
                         ? 'Chưa có đơn cập nhật công hoặc giải trình. Tạo từ trang Công.'
                         : 'Thử đổi bộ lọc hoặc tạo đơn mới.'
@@ -968,8 +994,8 @@ export default function RequestsPage() {
           {tab === leaveTabIndex && canApproveLeave && (
             <AttendancePendingPanel
               onChanged={reload}
-              types={['LEAVE', 'UNPAID_LEAVE']}
-              description="Nghỉ phép và nghỉ không lương: Lãnh đạo → HCNS → Giám đốc. Dùng bảng danh sách để xem, lọc và duyệt."
+              types={['LEAVE', 'UNPAID_LEAVE', 'PERSONAL_LEAVE']}
+              description="Nghỉ phép, nghỉ không lương và nghỉ chế độ: Lãnh đạo → HCNS → Giám đốc. Dùng bảng danh sách để xem, lọc và duyệt."
             />
           )}
           {tab === workTabIndex && canApproveWorkRequests && (
@@ -1060,6 +1086,16 @@ export default function RequestsPage() {
         onClose={() => setUnpaidLeaveOpen(false)}
         onSubmitted={() => {
           setMsg('Đã gửi đơn nghỉ không lương thành công.');
+          setMsgSeverity('success');
+          reload();
+        }}
+      />
+
+      <PersonalLeaveRequestDialog
+        open={personalLeaveOpen}
+        onClose={() => setPersonalLeaveOpen(false)}
+        onSubmitted={() => {
+          setMsg('Đã gửi đơn nghỉ chế độ thành công.');
           setMsgSeverity('success');
           reload();
         }}

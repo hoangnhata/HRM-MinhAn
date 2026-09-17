@@ -158,7 +158,7 @@ class RequestTypeConfig {
           label: 'HCNS',
           pendingPath: 'pending',
           reviewSlug: 'hr-review',
-          roles: {UserRole.admin, UserRole.hr, UserRole.hr2},
+          roles: {UserRole.admin, UserRole.hr2},
         ),
       ],
       fieldLabels: {
@@ -202,7 +202,7 @@ class RequestTypeConfig {
       canCreateRoles: {UserRole.admin, UserRole.headDepartment},
       stages: [
         RequestReviewStage(label: 'Trưởng phòng ĐD', pendingPath: 'pending-nursing-head', reviewSlug: 'nursing-head-review', roles: {UserRole.admin, UserRole.headNursing}),
-        RequestReviewStage(label: 'HCNS', pendingPath: 'pending-hr', reviewSlug: 'hr-review', roles: {UserRole.admin, UserRole.hr, UserRole.hr2}),
+        RequestReviewStage(label: 'HCNS', pendingPath: 'pending-hr', reviewSlug: 'hr-review', roles: {UserRole.admin, UserRole.hr2}),
         RequestReviewStage(label: 'Giám đốc', pendingPath: 'pending-director', reviewSlug: 'director-review', roles: {UserRole.admin, UserRole.director}),
       ],
       fieldLabels: {
@@ -222,12 +222,11 @@ class RequestTypeConfig {
       description: 'Xin công nhận đủ điều kiện trực chính sau thời gian trực kèm.',
       color: AppColors.secondaryDark,
       canCancelRoles: {UserRole.admin, UserRole.headDepartment},
-      listViewerRoles: {UserRole.headDepartment},
+      listViewerRoles: {UserRole.headDepartment, UserRole.hr2},
       canCreateRoles: {UserRole.admin, UserRole.headDepartment},
       stages: [
         RequestReviewStage(label: 'Trưởng khoa/phòng', pendingPath: 'pending-head', reviewSlug: 'head-review', roles: {UserRole.admin, UserRole.headDepartment}),
         RequestReviewStage(label: 'Trưởng phòng ĐD', pendingPath: 'pending-nursing-head', reviewSlug: 'nursing-head-review', roles: {UserRole.admin, UserRole.headNursing}),
-        RequestReviewStage(label: 'HCNS', pendingPath: 'pending-hr', reviewSlug: 'hr-review', roles: {UserRole.admin, UserRole.hr, UserRole.hr2}),
         RequestReviewStage(label: 'Giám đốc', pendingPath: 'pending-director', reviewSlug: 'director-review', roles: {UserRole.admin, UserRole.director}),
       ],
       fieldLabels: {
@@ -257,7 +256,7 @@ class RequestTypeConfig {
           label: 'HCNS',
           pendingPath: 'pending-hr',
           reviewSlug: 'hr-review',
-          roles: {UserRole.admin, UserRole.hr, UserRole.hr2},
+          roles: {UserRole.admin, UserRole.hr2},
           // Backend chặn duyệt nếu thiếu hai thông tin này.
           approveFields: [
             ApprovalField(
@@ -351,7 +350,7 @@ class RequestTypeConfig {
           label: 'HCNS',
           pendingPath: 'pending',
           reviewSlug: 'hr-review',
-          roles: {UserRole.admin, UserRole.hr, UserRole.hr2},
+          roles: {UserRole.admin, UserRole.hr2},
         ),
       ],
       fieldLabels: {

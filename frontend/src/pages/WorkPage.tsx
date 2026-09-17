@@ -88,6 +88,7 @@ const STATUS_CHIP: Record<string, { label: string; color: 'success' | 'warning' 
   ABSENT: { label: 'Vắng', color: 'error' },
   LEAVE: { label: 'Phép', color: 'info' },
   UNPAID_LEAVE: { label: 'Không lương', color: 'default' },
+  PERSONAL_LEAVE: { label: 'Nghỉ chế độ', color: 'info' },
   BUSINESS_TRIP: { label: 'Công tác', color: 'warning' },
   SEMINAR: { label: 'Hội thảo', color: 'info' },
   DEPLOYMENT: { label: 'Điều động', color: 'info' },

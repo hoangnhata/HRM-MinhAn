@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { extractApiErrorMessage } from '../../services/approvalSignatureService';
 import * as ndr from '../../services/nursingDailyReportService';
 import { WorkRequestDialogShell } from '../work/WorkRequestFormUi';
+import { InpatientCareLevelAccordion } from './InpatientCareLevelAccordion';
 import { IntegerStepperField } from './IntegerStepperField';
 
 const ACCENT = '#0f766e';
@@ -38,7 +39,6 @@ const STAFF_FIELDS: { key: FieldKey; label: string }[] = [
 ];
 
 const PATIENT_FIELDS: { key: FieldKey; label: string }[] = [
-  { key: 'inpatients', label: 'Người bệnh nội trú' },
   { key: 'outpatients', label: 'Người bệnh ngoại trú' },
   { key: 'paraclinical', label: 'Người bệnh CLS' },
   { key: 'surgery', label: 'Người bệnh phẫu thuật' },
@@ -210,6 +210,17 @@ export function NursingDailyReportDialog({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function setInpatientLevels(next: { level1: number; level2: number; level3: number }) {
+    const total = next.level1 + next.level2 + next.level3;
+    setForm((prev) => ({
+      ...prev,
+      inpatientsCareLevel1: next.level1,
+      inpatientsCareLevel2: next.level2,
+      inpatientsCareLevel3: next.level3,
+      inpatients: total,
+    }));
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -315,21 +326,31 @@ export function NursingDailyReportDialog({
       <ReportSection
         icon={<PeopleOutlinedIcon sx={{ fontSize: 18 }} />}
         title="Người bệnh"
-        subtitle="Nội trú · ngoại trú · CLS · phẫu thuật"
+        subtitle="Nội trú theo cấp chăm sóc · ngoại trú · CLS · phẫu thuật"
         accent="#0369a1"
       >
-        <FieldGrid
-          fields={PATIENT_FIELDS}
-          values={form}
-          onChange={setField}
-          accent="#0369a1"
-          columns={{
-            xs: '1fr',
-            sm: 'repeat(2, 1fr)',
-            md: 'repeat(3, 1fr)',
-            lg: 'repeat(5, 1fr)',
-          }}
-        />
+        <Stack spacing={1.15}>
+          <InpatientCareLevelAccordion
+            level1={form.inpatientsCareLevel1}
+            level2={form.inpatientsCareLevel2}
+            level3={form.inpatientsCareLevel3}
+            onChange={setInpatientLevels}
+            accent="#0369a1"
+            defaultExpanded
+          />
+          <FieldGrid
+            fields={PATIENT_FIELDS}
+            values={form}
+            onChange={setField}
+            accent="#0369a1"
+            columns={{
+              xs: '1fr',
+              sm: 'repeat(2, 1fr)',
+              md: 'repeat(2, 1fr)',
+              lg: 'repeat(4, 1fr)',
+            }}
+          />
+        </Stack>
       </ReportSection>
 
       <Box

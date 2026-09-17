@@ -4,6 +4,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import EditCalendarOutlinedIcon from '@mui/icons-material/EditCalendarOutlined';
 import MoneyOffOutlinedIcon from '@mui/icons-material/MoneyOffOutlined';
+import VolunteerActivismOutlinedIcon from '@mui/icons-material/VolunteerActivismOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import { Box, Chip, Paper, Stack, Typography } from '@mui/material';
@@ -20,6 +21,7 @@ function requestAccent(type: att.WorkRequest['requestType'], theme: Theme) {
   if (type === 'EXPLANATION') return theme.palette.info.main;
   if (type === 'LEAVE') return theme.palette.secondary.main;
   if (type === 'UNPAID_LEAVE') return theme.palette.error.dark;
+  if (type === 'PERSONAL_LEAVE') return '#7c3aed';
   if (type === 'BUSINESS_TRIP') return theme.palette.warning.dark;
   if (type === 'DEPLOYMENT') return '#0f766e';
   return theme.palette.primary.main;
@@ -31,6 +33,7 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
   const isRanged =
     request.requestType === 'LEAVE' ||
     request.requestType === 'UNPAID_LEAVE' ||
+    request.requestType === 'PERSONAL_LEAVE' ||
     request.requestType === 'BUSINESS_TRIP';
   const times =
     request.requestType === 'UPDATE'
@@ -41,7 +44,9 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
           ? att.formatLeaveRange(request)
           : att.formatExplanationTimes(request);
   const dayCount =
-    request.requestType === 'LEAVE' || request.requestType === 'UNPAID_LEAVE'
+    request.requestType === 'LEAVE' ||
+    request.requestType === 'UNPAID_LEAVE' ||
+    request.requestType === 'PERSONAL_LEAVE'
       ? (request.leaveDays ?? 1)
       : request.requestType === 'BUSINESS_TRIP'
         ? (request.tripDays ?? 1)
@@ -86,6 +91,8 @@ export function WorkRequestListCard({ request, onClick, showEmployee = false }: 
               <BeachAccessOutlinedIcon sx={{ fontSize: 20 }} />
             ) : request.requestType === 'UNPAID_LEAVE' ? (
               <MoneyOffOutlinedIcon sx={{ fontSize: 20 }} />
+            ) : request.requestType === 'PERSONAL_LEAVE' ? (
+              <VolunteerActivismOutlinedIcon sx={{ fontSize: 20 }} />
             ) : request.requestType === 'BUSINESS_TRIP' ? (
               <BusinessCenterOutlinedIcon sx={{ fontSize: 20 }} />
             ) : request.requestType === 'DEPLOYMENT' ? (

@@ -14,6 +14,7 @@ import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../data/nursing_daily_report_models.dart';
 import '../data/nursing_daily_report_repository.dart';
+import 'inpatient_care_level_accordion.dart';
 import 'nursing_integer_stepper.dart';
 
 /// Mô tả một nhóm chỉ số của phiếu báo cáo.
@@ -89,11 +90,10 @@ class _NursingDailyReportFormScreenState
     _SectionSpec(
       step: '02',
       title: 'Người bệnh',
-      subtitle: 'Nội trú, ngoại trú, CLS và phẫu thuật.',
+      subtitle: 'Nội trú theo cấp chăm sóc, ngoại trú, CLS và phẫu thuật.',
       icon: Icons.personal_injury_outlined,
       accent: AppColors.info,
       fields: [
-        ('inpatients', 'Số người bệnh nội trú'),
         ('outpatients', 'Số người bệnh ngoại trú'),
         ('paraclinical', 'Số người bệnh cận lâm sàng'),
         ('surgery', 'Số người bệnh phẫu thuật'),
@@ -140,6 +140,10 @@ class _NursingDailyReportFormScreenState
 
   List<(String, String)> get _allFields => [
     for (final section in _sections) ...section.fields,
+    ('inpatients', 'Người bệnh nội trú'),
+    ('inpatientsCareLevel1', 'NB chăm sóc cấp 1'),
+    ('inpatientsCareLevel2', 'NB chăm sóc cấp 2'),
+    ('inpatientsCareLevel3', 'NB chăm sóc cấp 3'),
   ];
 
   @override
@@ -149,6 +153,16 @@ class _NursingDailyReportFormScreenState
     _values = {
       for (final field in _allFields) field.$1: existingValues[field.$1] ?? 0,
     };
+    // Đồng bộ tổng nội trú từ 3 cấp (hoặc giữ tổng cũ nếu chưa phân cấp).
+    final l1 = _values['inpatientsCareLevel1'] ?? 0;
+    final l2 = _values['inpatientsCareLevel2'] ?? 0;
+    final l3 = _values['inpatientsCareLevel3'] ?? 0;
+    final levelSum = l1 + l2 + l3;
+    if (levelSum > 0) {
+      _values['inpatients'] = levelSum;
+    } else if ((_values['inpatients'] ?? 0) > 0) {
+      _values['inpatientsCareLevel1'] = _values['inpatients']!;
+    }
     _initialValues = Map<String, int>.from(_values);
     // Đã gửi + không có quyền sửa → chỉ xem (có thể thu hồi trong menu)
     _readOnly = widget.existing != null && !widget.canEdit;
@@ -195,12 +209,21 @@ class _NursingDailyReportFormScreenState
     return false;
   }
 
-  Map<String, dynamic> _payload() => {
-    'departmentId': widget.departmentId,
-    'reportDate': widget.reportDate,
-    'submit': true,
-    ..._values,
-  };
+  Map<String, dynamic> _payload() {
+    final l1 = _values['inpatientsCareLevel1'] ?? 0;
+    final l2 = _values['inpatientsCareLevel2'] ?? 0;
+    final l3 = _values['inpatientsCareLevel3'] ?? 0;
+    return {
+      'departmentId': widget.departmentId,
+      'reportDate': widget.reportDate,
+      'submit': true,
+      ..._values,
+      'inpatients': l1 + l2 + l3,
+      'inpatientsCareLevel1': l1,
+      'inpatientsCareLevel2': l2,
+      'inpatientsCareLevel3': l3,
+    };
+  }
 
   int get _staffTotal => _values['totalStaff'] ?? 0;
 
@@ -351,6 +374,29 @@ class _NursingDailyReportFormScreenState
                             icon: section.icon,
                             accent: section.accent,
                             children: [
+                              if (section.step == '02') ...[
+                                InpatientCareLevelAccordion(
+                                  level1:
+                                      _values['inpatientsCareLevel1'] ?? 0,
+                                  level2:
+                                      _values['inpatientsCareLevel2'] ?? 0,
+                                  level3:
+                                      _values['inpatientsCareLevel3'] ?? 0,
+                                  enabled: !_readOnly,
+                                  onChanged: (next) => setState(() {
+                                    _values['inpatientsCareLevel1'] =
+                                        next.level1;
+                                    _values['inpatientsCareLevel2'] =
+                                        next.level2;
+                                    _values['inpatientsCareLevel3'] =
+                                        next.level3;
+                                    _values['inpatients'] = next.level1 +
+                                        next.level2 +
+                                        next.level3;
+                                  }),
+                                ),
+                                const SizedBox(height: AppSpacing.sm),
+                              ],
                               for (final field in section.fields)
                                 NursingIntegerStepper(
                                   label: field.$2,

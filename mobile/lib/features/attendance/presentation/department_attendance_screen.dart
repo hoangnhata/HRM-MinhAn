@@ -1244,6 +1244,8 @@ class _SelectedDayCard extends StatelessWidget {
                 'Nghỉ',
                 day!.status == 'UNPAID_LEAVE'
                     ? 'Không lương'
+                    : day!.status == 'PERSONAL_LEAVE'
+                    ? 'Nghỉ chế độ'
                     : 'Nghỉ phép / vắng',
                 _leave,
               ),

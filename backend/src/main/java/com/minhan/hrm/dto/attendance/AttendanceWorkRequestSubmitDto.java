@@ -4,6 +4,7 @@ import com.minhan.hrm.entity.AttendanceRequestType;
 import com.minhan.hrm.entity.AttendanceShiftScope;
 import com.minhan.hrm.entity.AttendanceUpdateKind;
 import com.minhan.hrm.entity.ExplanationKind;
+import com.minhan.hrm.entity.PersonalLeaveKind;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -50,6 +51,9 @@ public class AttendanceWorkRequestSubmitDto {
     private LocalTime requestedAfternoonEnd;
 
     private ExplanationKind explanationKind;
+
+    /** Bắt buộc với PERSONAL_LEAVE. */
+    private PersonalLeaveKind personalLeaveKind;
 
     /** Giờ vào thực tế (đi muộn) — legacy / 1 mốc. */
     private LocalTime explainedTime;

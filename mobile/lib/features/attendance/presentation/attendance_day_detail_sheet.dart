@@ -36,10 +36,7 @@ Future<void> showAttendanceDayDetailSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _AttendanceDayDetailSheet(
-      day: day,
-      employeeId: employeeId,
-    ),
+    builder: (_) => _AttendanceDayDetailSheet(day: day, employeeId: employeeId),
   );
 }
 
@@ -93,11 +90,10 @@ class _AttendanceDayDetailSheetState
       final employeeId = widget.employeeId > 0
           ? widget.employeeId
           : widget.day.employeeId ??
-              ref.read(authControllerProvider).employeeId;
-      final schedule = await ref.read(attendanceRepositoryProvider).daySchedule(
-            date: date,
-            employeeId: employeeId,
-          );
+                ref.read(authControllerProvider).employeeId;
+      final schedule = await ref
+          .read(attendanceRepositoryProvider)
+          .daySchedule(date: date, employeeId: employeeId);
       if (!mounted) return;
       setState(() {
         _schedule = schedule;
@@ -114,7 +110,10 @@ class _AttendanceDayDetailSheetState
       'PRESENT' => AppColors.success,
       'PARTIAL' => AppColors.warning,
       'ABSENT' => AppColors.error,
-      'LEAVE' || 'SEMINAR' || 'DEPLOYMENT' => AppColors.info,
+      'LEAVE' ||
+      'PERSONAL_LEAVE' ||
+      'SEMINAR' ||
+      'DEPLOYMENT' => AppColors.info,
       'UNPAID_LEAVE' => AppColors.textSecondary,
       'BUSINESS_TRIP' => AppColors.warning,
       _ => AppColors.textTertiary,
@@ -142,14 +141,16 @@ class _AttendanceDayDetailSheetState
     final canManageDutyQuangTrung =
         role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role);
     final missingMorning = _isMissingShift(
-      hasSchedule: _schedule?.morningStart != null ||
+      hasSchedule:
+          _schedule?.morningStart != null ||
           (scheduleUnknown && canSupplement && day.morningWorkUnits <= 0),
       checkIn: day.morningCheckIn,
       checkOut: day.morningCheckOut,
       workUnits: day.morningWorkUnits,
     );
     final missingAfternoon = _isMissingShift(
-      hasSchedule: _schedule?.afternoonStart != null ||
+      hasSchedule:
+          _schedule?.afternoonStart != null ||
           (scheduleUnknown && canSupplement && day.afternoonWorkUnits <= 0),
       checkIn: day.afternoonCheckIn,
       checkOut: day.afternoonCheckOut,
@@ -199,9 +200,7 @@ class _AttendanceDayDetailSheetState
               ),
               const SizedBox(height: 6),
               Text(
-                date == null
-                    ? 'Không rõ ngày'
-                    : AppFormat.longDateVi(date),
+                date == null ? 'Không rõ ngày' : AppFormat.longDateVi(date),
                 style: AppTypography.style(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
@@ -379,9 +378,9 @@ class _AttendanceDayDetailSheetState
                                 workDate: date,
                                 updateKind:
                                     AttendanceRequestPrefill.updateKindForDay(
-                                  missingMorning: missingMorning,
-                                  missingAfternoon: missingAfternoon,
-                                ),
+                                      missingMorning: missingMorning,
+                                      missingAfternoon: missingAfternoon,
+                                    ),
                               ),
                             );
                           },
@@ -402,9 +401,7 @@ class _AttendanceDayDetailSheetState
     final a = DayShiftSchedule.displayTime(start);
     final b = DayShiftSchedule.displayTime(end);
     if (a == null || b == null) return null;
-    final h = hours == null
-        ? ''
-        : ' (${AppFormat.compactNumber(hours)}h)';
+    final h = hours == null ? '' : ' (${AppFormat.compactNumber(hours)}h)';
     return '$a – $b$h';
   }
 
@@ -529,10 +526,7 @@ class _ShiftPanel extends StatelessWidget {
 }
 
 class _PunchLogCard extends StatelessWidget {
-  const _PunchLogCard({
-    required this.punches,
-    this.continuous = false,
-  });
+  const _PunchLogCard({required this.punches, this.continuous = false});
 
   final List<String> punches;
   final bool continuous;
@@ -624,7 +618,8 @@ class _DayActionsCard extends StatelessWidget {
   final VoidCallback? onUpdate;
 
   String get _missingLabel {
-    if (missingMorning && missingAfternoon) return 'Thiếu cả ca sáng và ca chiều';
+    if (missingMorning && missingAfternoon)
+      return 'Thiếu cả ca sáng và ca chiều';
     if (missingMorning) return 'Thiếu ca sáng — chưa có giờ vào/ra';
     return 'Thiếu ca chiều — chưa có giờ vào/ra';
   }
@@ -634,13 +629,13 @@ class _DayActionsCard extends StatelessWidget {
     final title = showLate && showUpdate
         ? 'Điều chỉnh công ngày này'
         : showUpdate
-            ? 'Thiếu ca'
-            : 'Khung giờ bị trừ tiền';
+        ? 'Thiếu ca'
+        : 'Khung giờ bị trừ tiền';
     final subtitle = showLate && showUpdate
         ? 'Gửi đơn giải trình muộn/về sớm hoặc cập nhật công cho ca còn thiếu.'
         : showUpdate
-            ? 'Gửi đơn cập nhật công nếu bạn đã làm nhưng quên chấm.'
-            : 'Gửi đơn giải trình nếu có lý do chính đáng.';
+        ? 'Gửi đơn cập nhật công nếu bạn đã làm nhưng quên chấm.'
+        : 'Gửi đơn giải trình nếu có lý do chính đáng.';
 
     return AppCard(
       padding: const EdgeInsets.all(14),
@@ -810,17 +805,14 @@ class _DaySummaryCard extends StatelessWidget {
     final rows = <(String, String)>[
       ('Tổng công', AppFormat.compactNumber(day.totalWorkUnits)),
       if (day.overtimeWorkUnits > 0)
-        (
-          'Ngoài giờ',
-          AppFormat.compactNumber(day.overtimeWorkUnits),
-        ),
+        ('Ngoài giờ', AppFormat.compactNumber(day.overtimeWorkUnits)),
       (
         'Muộn / về sớm',
         day.lateMinutesExempt
             ? 'Miễn trừ'
             : day.lateMinutes > 0
-                ? '${day.lateMinutes} phút'
-                : '0 phút',
+            ? '${day.lateMinutes} phút'
+            : '0 phút',
       ),
     ];
     final notes = parseAttendanceNotes(day.note);
@@ -903,9 +895,10 @@ class _DaySummaryCard extends StatelessWidget {
                       if (n.timeRange != null || n.hoursLine != null) ...[
                         const SizedBox(height: 4),
                         Text(
-                          [n.timeRange, n.hoursLine]
-                              .whereType<String>()
-                              .join(' · '),
+                          [
+                            n.timeRange,
+                            n.hoursLine,
+                          ].whereType<String>().join(' · '),
                           style: AppTypography.style(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700,
@@ -967,13 +960,14 @@ class _SupplementModeSheet extends StatelessWidget {
   final _SupplementKind kind;
   final VoidCallback onEmployee;
   final VoidCallback onBulk;
+
   /// Nếu không null, hiển thị hàng "Điều động hàng loạt" (chỉ dùng cho duty).
   final VoidCallback? onBulkDeployment;
 
   String get _title => switch (kind) {
-        _SupplementKind.duty => 'Công trực',
-        _SupplementKind.quangTrung => 'Công Quang Trung',
-      };
+    _SupplementKind.duty => 'Công trực',
+    _SupplementKind.quangTrung => 'Công Quang Trung',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -1096,11 +1090,7 @@ class _ModeRow extends StatelessWidget {
                   ),
                 ),
                 child: Center(
-                  child: Icon(
-                    icon,
-                    color: AppColors.primaryDark,
-                    size: 20,
-                  ),
+                  child: Icon(icon, color: AppColors.primaryDark, size: 20),
                 ),
               ),
               const SizedBox(width: 10),
@@ -1116,10 +1106,7 @@ class _ModeRow extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: AppTypography.caption(),
-                    ),
+                    Text(subtitle, style: AppTypography.caption()),
                   ],
                 ),
               ),
@@ -1153,7 +1140,11 @@ class _DutyQuangTrungSupplementCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.assignment_late_rounded, size: 18, color: AppColors.primary),
+              const Icon(
+                Icons.assignment_late_rounded,
+                size: 18,
+                color: AppColors.primary,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1210,7 +1201,9 @@ class _DutyQuangTrungSupplementCard extends StatelessWidget {
                   },
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 10),
-                    side: BorderSide(color: AppColors.primary.withValues(alpha: 0.35)),
+                    side: BorderSide(
+                      color: AppColors.primary.withValues(alpha: 0.35),
+                    ),
                     foregroundColor: AppColors.primaryDark,
                   ),
                   icon: const Icon(Icons.spa_rounded, size: 18),
@@ -1258,7 +1251,9 @@ class _DutyQuangTrungSupplementCard extends StatelessWidget {
                   },
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 10),
-                    side: BorderSide(color: AppColors.secondary.withValues(alpha: 0.35)),
+                    side: BorderSide(
+                      color: AppColors.secondary.withValues(alpha: 0.35),
+                    ),
                     foregroundColor: AppColors.secondaryDark,
                   ),
                   icon: const Icon(Icons.nights_stay_rounded, size: 18),
@@ -1397,8 +1392,11 @@ class _DutyShiftSupplementSheetState
               ),
               Row(
                 children: [
-                  const Icon(Icons.spa_rounded,
-                      size: 18, color: AppColors.primary),
+                  const Icon(
+                    Icons.spa_rounded,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1465,8 +1463,9 @@ class _DutyShiftSupplementSheetState
                         } else {
                           final current = _selectedRoleTierCode;
                           final ok = tiers.any((x) => x.code == current);
-                          _selectedRoleTierCode =
-                              ok ? current : tiers.first.code;
+                          _selectedRoleTierCode = ok
+                              ? current
+                              : tiers.first.code;
                         }
                       });
                     },
@@ -1533,24 +1532,29 @@ class _DutyShiftSupplementSheetState
                                 final shiftTypeCode = _selectedShiftTypeCode;
                                 if (shiftTypeCode == null ||
                                     shiftTypeCode.trim().isEmpty) {
-                                  showAppSnackBar(context,
-                                      'Vui lòng chọn loại ca trực',
-                                      isError: true);
+                                  showAppSnackBar(
+                                    context,
+                                    'Vui lòng chọn loại ca trực',
+                                    isError: true,
+                                  );
                                   return;
                                 }
                                 if (roleTiersForSelected != null &&
                                     roleTiersForSelected.isNotEmpty &&
                                     (_selectedRoleTierCode == null ||
                                         _selectedRoleTierCode!.isEmpty)) {
-                                  showAppSnackBar(context,
-                                      'Vui lòng chọn vị trí trực',
-                                      isError: true);
+                                  showAppSnackBar(
+                                    context,
+                                    'Vui lòng chọn vị trí trực',
+                                    isError: true,
+                                  );
                                   return;
                                 }
                                 setState(() => _saving = true);
                                 try {
                                   final repo = ref.read(
-                                      attendanceRepositoryProvider);
+                                    attendanceRepositoryProvider,
+                                  );
                                   await repo.upsertDutyShift(
                                     employeeId: widget.employeeId,
                                     workDate: widget.workDate,
@@ -1559,13 +1563,19 @@ class _DutyShiftSupplementSheetState
                                     note: _noteController.text,
                                   );
                                   if (!mounted) return;
-                                  showAppSnackBar(context, 'Đã lưu công trực',
-                                      isSuccess: true);
+                                  showAppSnackBar(
+                                    context,
+                                    'Đã lưu công trực',
+                                    isSuccess: true,
+                                  );
                                   Navigator.of(context).maybePop();
                                 } catch (e) {
                                   if (!mounted) return;
-                                  showAppSnackBar(context, e.toString(),
-                                      isError: true);
+                                  showAppSnackBar(
+                                    context,
+                                    e.toString(),
+                                    isError: true,
+                                  );
                                   setState(() => _saving = false);
                                 }
                               },
@@ -1583,7 +1593,6 @@ class _DutyShiftSupplementSheetState
     );
   }
 }
-
 
 class _QuangTrungSupplementSheet extends ConsumerStatefulWidget {
   const _QuangTrungSupplementSheet({
@@ -1699,8 +1708,11 @@ class _QuangTrungSupplementSheetState
                           color: onBrand.withValues(alpha: 0.16),
                           borderRadius: BorderRadius.circular(14),
                         ),
-                        child: Icon(Icons.location_on_rounded,
-                            color: onBrand, size: 22),
+                        child: Icon(
+                          Icons.location_on_rounded,
+                          color: onBrand,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -1740,8 +1752,10 @@ class _QuangTrungSupplementSheetState
                         onPressed: _saving
                             ? null
                             : () => Navigator.of(context).maybePop(),
-                        icon: Icon(Icons.close_rounded,
-                            color: onBrand.withValues(alpha: 0.9)),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: onBrand.withValues(alpha: 0.9),
+                        ),
                       ),
                     ],
                   ),
@@ -1778,8 +1792,11 @@ class _QuangTrungSupplementSheetState
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(Icons.info_outline_rounded,
-                                  size: 18, color: AppColors.info),
+                              const Icon(
+                                Icons.info_outline_rounded,
+                                size: 18,
+                                color: AppColors.info,
+                              ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
@@ -1806,15 +1823,29 @@ class _QuangTrungSupplementSheetState
                         Row(
                           children: [
                             for (final (i, k) in [
-                              (key: 'MORNING_SUPPLEMENT', label: 'Ca sáng', icon: Icons.wb_sunny_rounded),
-                              (key: 'AFTERNOON_SUPPLEMENT', label: 'Ca chiều', icon: Icons.wb_twilight),
-                              (key: 'FULL_DAY_SUPPLEMENT', label: 'Cả ngày', icon: Icons.calendar_view_day_rounded),
+                              (
+                                key: 'MORNING_SUPPLEMENT',
+                                label: 'Ca sáng',
+                                icon: Icons.wb_sunny_rounded,
+                              ),
+                              (
+                                key: 'AFTERNOON_SUPPLEMENT',
+                                label: 'Ca chiều',
+                                icon: Icons.wb_twilight,
+                              ),
+                              (
+                                key: 'FULL_DAY_SUPPLEMENT',
+                                label: 'Cả ngày',
+                                icon: Icons.calendar_view_day_rounded,
+                              ),
                             ].indexed) ...[
                               if (i > 0) const SizedBox(width: 8),
                               Expanded(
                                 child: Material(
                                   color: _updateKind == k.key
-                                      ? AppColors.success.withValues(alpha: 0.12)
+                                      ? AppColors.success.withValues(
+                                          alpha: 0.12,
+                                        )
                                       : AppColors.surface,
                                   borderRadius: AppRadius.brControl,
                                   child: InkWell(
@@ -1823,13 +1854,15 @@ class _QuangTrungSupplementSheetState
                                     borderRadius: AppRadius.brControl,
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 12),
+                                        vertical: 12,
+                                      ),
                                       decoration: BoxDecoration(
                                         borderRadius: AppRadius.brControl,
                                         border: Border.all(
                                           color: _updateKind == k.key
-                                              ? AppColors.success
-                                                  .withValues(alpha: 0.45)
+                                              ? AppColors.success.withValues(
+                                                  alpha: 0.45,
+                                                )
                                               : AppColors.borderSoft,
                                         ),
                                       ),
@@ -1870,8 +1903,7 @@ class _QuangTrungSupplementSheetState
                           morningEnd: _morningEnd,
                           suggestedStart: _suggestedMorningStart,
                           suggestedEnd: _suggestedMorningEnd,
-                          onPickStart: (v) =>
-                              setState(() => _morningStart = v),
+                          onPickStart: (v) => setState(() => _morningStart = v),
                           onPickEnd: (v) => setState(() => _morningEnd = v),
                           pickTime: pickTime,
                         ),
@@ -1885,8 +1917,7 @@ class _QuangTrungSupplementSheetState
                           suggestedEnd: _suggestedAfternoonEnd,
                           onPickStart: (v) =>
                               setState(() => _afternoonStart = v),
-                          onPickEnd: (v) =>
-                              setState(() => _afternoonEnd = v),
+                          onPickEnd: (v) => setState(() => _afternoonEnd = v),
                           pickTime: pickTime,
                         ),
                         const SizedBox(height: 14),
@@ -1911,8 +1942,7 @@ class _QuangTrungSupplementSheetState
                               child: OutlinedButton(
                                 onPressed: _saving
                                     ? null
-                                    : () =>
-                                        Navigator.of(context).maybePop(),
+                                    : () => Navigator.of(context).maybePop(),
                                 style: OutlinedButton.styleFrom(
                                   minimumSize: const Size(0, 48),
                                 ),
@@ -1936,7 +1966,8 @@ class _QuangTrungSupplementSheetState
                                         String? err;
                                         if (_updateKind ==
                                             'FULL_DAY_SUPPLEMENT') {
-                                          ok = _morningStart != null &&
+                                          ok =
+                                              _morningStart != null &&
                                               _morningEnd != null &&
                                               _afternoonStart != null &&
                                               _afternoonEnd != null;
@@ -1944,15 +1975,15 @@ class _QuangTrungSupplementSheetState
                                               'Vui lòng nhập đủ giờ ca sáng và ca chiều';
                                         } else if (_updateKind ==
                                             'MORNING_SUPPLEMENT') {
-                                          ok = _morningStart != null &&
+                                          ok =
+                                              _morningStart != null &&
                                               _morningEnd != null;
-                                          err =
-                                              'Vui lòng nhập đủ giờ ca sáng';
+                                          err = 'Vui lòng nhập đủ giờ ca sáng';
                                         } else {
-                                          ok = _afternoonStart != null &&
+                                          ok =
+                                              _afternoonStart != null &&
                                               _afternoonEnd != null;
-                                          err =
-                                              'Vui lòng nhập đủ giờ ca chiều';
+                                          err = 'Vui lòng nhập đủ giờ ca chiều';
                                         }
                                         if (!ok) {
                                           showAppSnackBar(
@@ -1966,7 +1997,8 @@ class _QuangTrungSupplementSheetState
                                         setState(() => _saving = true);
                                         try {
                                           final repo = ref.read(
-                                              attendanceRepositoryProvider);
+                                            attendanceRepositoryProvider,
+                                          );
                                           String fmt(TimeOfDay t) {
                                             return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:00';
                                           }
@@ -1978,27 +2010,30 @@ class _QuangTrungSupplementSheetState
 
                                           if (_updateKind ==
                                               'FULL_DAY_SUPPLEMENT') {
-                                            requestedStart =
-                                                fmt(_morningStart!);
+                                            requestedStart = fmt(
+                                              _morningStart!,
+                                            );
                                             requestedEnd = fmt(_morningEnd!);
-                                            requestedAfternoonStart =
-                                                fmt(_afternoonStart!);
-                                            requestedAfternoonEnd =
-                                                fmt(_afternoonEnd!);
+                                            requestedAfternoonStart = fmt(
+                                              _afternoonStart!,
+                                            );
+                                            requestedAfternoonEnd = fmt(
+                                              _afternoonEnd!,
+                                            );
                                           } else if (_updateKind ==
                                               'MORNING_SUPPLEMENT') {
-                                            requestedStart =
-                                                fmt(_morningStart!);
+                                            requestedStart = fmt(
+                                              _morningStart!,
+                                            );
                                             requestedEnd = fmt(_morningEnd!);
                                           } else {
-                                            requestedStart =
-                                                fmt(_afternoonStart!);
-                                            requestedEnd =
-                                                fmt(_afternoonEnd!);
+                                            requestedStart = fmt(
+                                              _afternoonStart!,
+                                            );
+                                            requestedEnd = fmt(_afternoonEnd!);
                                           }
 
-                                          await repo
-                                              .applyQuangTrungSupplement(
+                                          await repo.applyQuangTrungSupplement(
                                             employeeId: widget.employeeId,
                                             workDate: widget.workDate,
                                             updateKind: _updateKind,
@@ -2039,9 +2074,7 @@ class _QuangTrungSupplementSheetState
                                         ),
                                       )
                                     : Text(
-                                        _existing == null
-                                            ? 'Lưu'
-                                            : 'Cập nhật',
+                                        _existing == null ? 'Lưu' : 'Cập nhật',
                                         style: AppTypography.style(
                                           fontWeight: FontWeight.w800,
                                           color: Colors.white,
@@ -2060,10 +2093,13 @@ class _QuangTrungSupplementSheetState
     );
   }
 
-  TimeOfDay? get _suggestedMorningStart => _parseHm(widget.schedule?.morningStart);
+  TimeOfDay? get _suggestedMorningStart =>
+      _parseHm(widget.schedule?.morningStart);
   TimeOfDay? get _suggestedMorningEnd => _parseHm(widget.schedule?.morningEnd);
-  TimeOfDay? get _suggestedAfternoonStart => _parseHm(widget.schedule?.afternoonStart);
-  TimeOfDay? get _suggestedAfternoonEnd => _parseHm(widget.schedule?.afternoonEnd);
+  TimeOfDay? get _suggestedAfternoonStart =>
+      _parseHm(widget.schedule?.afternoonStart);
+  TimeOfDay? get _suggestedAfternoonEnd =>
+      _parseHm(widget.schedule?.afternoonEnd);
 
   static TimeOfDay? _parseHm(String? hm) {
     final text = hm?.trim();
@@ -2092,14 +2128,18 @@ class _QuangTrungSupplementSheetState
       });
 
       if (exists) {
-        final morningStartRaw =
-            QuangTrungSupplementView.parseHm(view.morningCheckIn);
-        final morningEndRaw =
-            QuangTrungSupplementView.parseHm(view.morningCheckOut);
-        final afternoonStartRaw =
-            QuangTrungSupplementView.parseHm(view.afternoonCheckIn);
-        final afternoonEndRaw =
-            QuangTrungSupplementView.parseHm(view.afternoonCheckOut);
+        final morningStartRaw = QuangTrungSupplementView.parseHm(
+          view.morningCheckIn,
+        );
+        final morningEndRaw = QuangTrungSupplementView.parseHm(
+          view.morningCheckOut,
+        );
+        final afternoonStartRaw = QuangTrungSupplementView.parseHm(
+          view.afternoonCheckIn,
+        );
+        final afternoonEndRaw = QuangTrungSupplementView.parseHm(
+          view.afternoonCheckOut,
+        );
 
         TimeOfDay? toTime(({int hour, int minute})? raw) {
           if (raw == null) return null;
@@ -2112,7 +2152,9 @@ class _QuangTrungSupplementSheetState
           _afternoonStart = toTime(afternoonStartRaw);
           _afternoonEnd = toTime(afternoonEndRaw);
 
-          _updateKind = view.updateKind.isNotEmpty ? view.updateKind : 'MORNING_SUPPLEMENT';
+          _updateKind = view.updateKind.isNotEmpty
+              ? view.updateKind
+              : 'MORNING_SUPPLEMENT';
           _reason = view.reason ?? '';
           _reasonController.text = _reason;
           _loading = false;
@@ -2139,7 +2181,6 @@ class _QuangTrungSupplementSheetState
   }
 }
 
-
 class _TimeBlock extends StatelessWidget {
   const _TimeBlock({
     required this.title,
@@ -2161,7 +2202,12 @@ class _TimeBlock extends StatelessWidget {
   final TimeOfDay? suggestedEnd;
   final ValueChanged<TimeOfDay> onPickStart;
   final ValueChanged<TimeOfDay> onPickEnd;
-  final Future<TimeOfDay?> Function(TimeOfDay? initial, String title, {TimeOfDay? suggested}) pickTime;
+  final Future<TimeOfDay?> Function(
+    TimeOfDay? initial,
+    String title, {
+    TimeOfDay? suggested,
+  })
+  pickTime;
 
   @override
   Widget build(BuildContext context) {
@@ -2246,15 +2292,14 @@ class _TimeField extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.textTertiary.withValues(alpha: 0.25)),
+          border: Border.all(
+            color: AppColors.textTertiary.withValues(alpha: 0.25),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              label,
-              style: AppTypography.caption(),
-            ),
+            Text(label, style: AppTypography.caption()),
             const SizedBox(height: 4),
             Text(
               value,

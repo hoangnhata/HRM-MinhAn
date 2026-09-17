@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/route_paths.dart';
 import '../../../core/theme/app_tokens.dart';
-import '../../../core/utils/user_role.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/highlight_pulse.dart';
@@ -46,30 +45,25 @@ class _AttendanceMyRequestsTabState
   List<({String value, String label})> get _typeOptions {
     return switch (widget.scope) {
       AttendanceRequestScope.leave => const [
-          (value: 'LEAVE', label: 'Nghỉ phép'),
-          (value: 'UNPAID_LEAVE', label: 'Không lương'),
-        ],
+        (value: 'LEAVE', label: 'Nghỉ phép'),
+        (value: 'UNPAID_LEAVE', label: 'Không lương'),
+        (value: 'PERSONAL_LEAVE', label: 'Nghỉ chế độ'),
+      ],
       AttendanceRequestScope.work => const [
-          (value: 'EXPLANATION', label: 'Giải trình'),
-          (value: 'UPDATE', label: 'Cập nhật công'),
-        ],
+        (value: 'EXPLANATION', label: 'Giải trình'),
+        (value: 'UPDATE', label: 'Cập nhật công'),
+      ],
       AttendanceRequestScope.deployment =>
         const <({String value, String label})>[],
     };
   }
 
-  List<AttendanceWorkRequest> _applyQuick(
-    List<AttendanceWorkRequest> items,
-  ) {
+  List<AttendanceWorkRequest> _applyQuick(List<AttendanceWorkRequest> items) {
     if (_quickStatus == '__pending__') {
-      return items
-          .where((r) => AttendanceEnums.isPending(r.status))
-          .toList();
+      return items.where((r) => AttendanceEnums.isPending(r.status)).toList();
     }
     if (_quickStatus == '__done__') {
-      return items
-          .where((r) => !AttendanceEnums.isPending(r.status))
-          .toList();
+      return items.where((r) => !AttendanceEnums.isPending(r.status)).toList();
     }
     return items;
   }
@@ -93,8 +87,9 @@ class _AttendanceMyRequestsTabState
       return ErrorState(message: state.error!, onRetry: controller.refreshAll);
     }
 
-    final scoped =
-        state.mine.where((r) => scope.matches(r.requestType)).toList();
+    final scoped = state.mine
+        .where((r) => scope.matches(r.requestType))
+        .toList();
     final afterQuick = _applyQuick(scoped);
     var filtered = _filters.apply(afterQuick);
     final highlightId = widget.highlightRequestId;
@@ -125,8 +120,8 @@ class _AttendanceMyRequestsTabState
     }
 
     final auth = ref.watch(authControllerProvider);
-    final canApprove = RoleGroups.canApproveAttendance(
-      auth.role,
+    final canApprove = scope.canApprove(
+      role: auth.role,
       directorApprovalEnabled:
           auth.currentUser?.directorApprovalEnabled ?? false,
     );
@@ -134,18 +129,20 @@ class _AttendanceMyRequestsTabState
     final emptyTitle = switch (scope) {
       AttendanceRequestScope.leave => 'Bạn chưa gửi đơn nghỉ nào',
       AttendanceRequestScope.work => 'Bạn chưa gửi đơn công nào',
-      AttendanceRequestScope.deployment => canApprove
-          ? 'Chưa có đơn điều động gắn hồ sơ bạn'
-          : 'Bạn chưa có đơn điều động nào',
+      AttendanceRequestScope.deployment =>
+        canApprove
+            ? 'Chưa có đơn điều động gắn hồ sơ bạn'
+            : 'Bạn chưa có đơn điều động nào',
     };
     final emptyMessage = switch (scope) {
       AttendanceRequestScope.leave =>
-        'Dùng nút "Xin nghỉ" để gửi đơn nghỉ phép hoặc không lương.',
+        'Dùng nút "Xin nghỉ" để gửi đơn nghỉ phép, không lương hoặc nghỉ chế độ.',
       AttendanceRequestScope.work =>
         'Dùng nút "Tạo đơn" để giải trình muộn/sớm hoặc cập nhật công.',
-      AttendanceRequestScope.deployment => canApprove
-          ? 'Tab này chỉ hiện đơn điều động liên quan đến bạn. Duyệt đơn ở tab Chờ duyệt.'
-          : 'Khi có đơn điều động liên quan đến bạn, chúng sẽ hiện tại đây.',
+      AttendanceRequestScope.deployment =>
+        canApprove
+            ? 'Tab này chỉ hiện đơn điều động liên quan đến bạn. Duyệt đơn ở tab Chờ duyệt.'
+            : 'Khi có đơn điều động liên quan đến bạn, chúng sẽ hiện tại đây.',
     };
 
     return RefreshIndicator(
@@ -242,4 +239,3 @@ class _AttendanceMyRequestsTabState
     );
   }
 }
-

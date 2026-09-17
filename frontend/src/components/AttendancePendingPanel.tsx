@@ -50,6 +50,7 @@ function workRequestSummary(r: att.WorkRequest): string {
   const isRanged =
     r.requestType === 'LEAVE' ||
     r.requestType === 'UNPAID_LEAVE' ||
+    r.requestType === 'PERSONAL_LEAVE' ||
     r.requestType === 'BUSINESS_TRIP';
   if (r.requestType === 'UPDATE') return att.formatRequestedTimes(r);
   if (r.requestType === 'DEPLOYMENT' && r.requestedStart && r.requestedEnd) {
@@ -313,7 +314,6 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
 
   async function hrAct(
     approved: boolean,
-    waiveFine?: boolean,
     deploymentTimes?: {
       requestedStart: string;
       requestedEnd: string;
@@ -328,7 +328,6 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
       await ensureHasSignature();
       await att.hrReviewRequest(selected.id, approved, {
         comment: hrComment || comment,
-        waiveForgotFine: waiveFine,
         ...deploymentTimes,
       });
       reload();
@@ -339,6 +338,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
           selected.requestType === 'EXPLANATION' ||
           selected.requestType === 'LEAVE' ||
           selected.requestType === 'UNPAID_LEAVE' ||
+          selected.requestType === 'PERSONAL_LEAVE' ||
           selected.requestType === 'DEPLOYMENT');
       setMsg(needsDirector ? 'Đã chuyển Giám đốc duyệt.' : 'Đã xử lý đơn.');
       closeDetail();

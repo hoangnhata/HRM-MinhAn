@@ -12,9 +12,17 @@ class AttendanceEnums {
     'UPDATE': 'Cập nhật công (quên chấm công)',
     'LEAVE': 'Nghỉ phép năm',
     'UNPAID_LEAVE': 'Nghỉ không lương',
+    'PERSONAL_LEAVE': 'Nghỉ chế độ',
     'BUSINESS_TRIP': 'Công tác',
     'DEPLOYMENT': 'Điều động / biệt phái',
   };
+
+  /// Chế độ nghỉ việc riêng (Điều 115 BLLĐ 2019) — tối đa 3 ngày.
+  static const personalLeaveKindLabels = {
+    'MARRIAGE': 'NLĐ kết hôn',
+    'BEREAVEMENT': 'Người thân NLĐ mất',
+  };
+  static const personalLeaveMaxDays = 3;
 
   /// Các loại đơn nhân viên tự lập được trên mobile.
   ///
@@ -26,9 +34,10 @@ class AttendanceEnums {
     'UPDATE': 'Cập nhật công (quên chấm công)',
     'LEAVE': 'Nghỉ phép năm',
     'UNPAID_LEAVE': 'Nghỉ không lương',
+    'PERSONAL_LEAVE': 'Nghỉ chế độ',
   };
 
-  static const leaveRequestTypes = {'LEAVE', 'UNPAID_LEAVE'};
+  static const leaveRequestTypes = {'LEAVE', 'UNPAID_LEAVE', 'PERSONAL_LEAVE'};
   static const workRequestTypes = {'EXPLANATION', 'UPDATE'};
   static const deploymentRequestTypes = {'DEPLOYMENT'};
 
@@ -98,6 +107,7 @@ class AttendanceEnums {
     'UPDATE': Icons.touch_app_outlined,
     'LEAVE': Icons.beach_access_outlined,
     'UNPAID_LEAVE': Icons.money_off_outlined,
+    'PERSONAL_LEAVE': Icons.volunteer_activism_outlined,
     'BUSINESS_TRIP': Icons.flight_takeoff_outlined,
     'DEPLOYMENT': Icons.swap_horiz_outlined,
   };
@@ -107,6 +117,7 @@ class AttendanceEnums {
     'UPDATE': AppColors.info,
     'LEAVE': AppColors.primary,
     'UNPAID_LEAVE': AppColors.secondaryDark,
+    'PERSONAL_LEAVE': Color(0xFF7C3AED),
     'BUSINESS_TRIP': AppColors.success,
     'DEPLOYMENT': Color(0xFF7C3AED),
   };
@@ -153,6 +164,12 @@ class AttendanceEnums {
     if (status.endsWith('_REJECTED')) return AppColors.error;
     if (status == 'WITHDRAWN') return AppColors.textSecondary;
     return AppColors.warning;
+  }
+
+  /// Trừ / miễn tiền phạt quên chấm hoặc muộn-sớm: chỉ Giám đốc, đơn UPDATE / EXPLANATION.
+  static bool directorDecidesFine(AttendanceWorkRequest r) {
+    return r.status == 'PENDING_DIRECTOR' &&
+        (r.requestType == 'UPDATE' || r.requestType == 'EXPLANATION');
   }
 
   /// Suy ra endpoint review tuong ung voi trang thai hien tai cua don —
@@ -281,6 +298,18 @@ enum AttendanceRequestScope {
       role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role),
   };
 
+  /// Web `RequestsPage`: Trưởng phòng ĐD không duyệt nghỉ/công — chỉ điều động khối ĐD.
+  bool canApprove({
+    required UserRole role,
+    required bool directorApprovalEnabled,
+  }) {
+    if (this != deployment && role == UserRole.headNursing) return false;
+    return RoleGroups.canApproveAttendance(
+      role,
+      directorApprovalEnabled: directorApprovalEnabled,
+    );
+  }
+
   List<String> get creatableTypes => switch (this) {
     leave => AttendanceEnums.leaveRequestTypes.toList(),
     work => AttendanceEnums.workRequestTypes.toList(),
@@ -300,7 +329,7 @@ enum AttendanceRequestScope {
   };
 
   String get subtitle => switch (this) {
-    leave => 'Nghỉ phép năm và nghỉ không lương.',
+    leave => 'Nghỉ phép năm, nghỉ không lương và nghỉ chế độ.',
     work => 'Giải trình muộn/sớm và cập nhật quên chấm công.',
     deployment =>
       'Điều động: lập bởi Trưởng khoa/ĐD trưởng → duyệt theo luồng.',

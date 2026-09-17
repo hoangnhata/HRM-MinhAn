@@ -77,7 +77,8 @@ class AttendanceDay {
 
   /// Giờ máy dạng `HH:mm` — dùng logic phát hiện muộn/thiếu ca (đồng bộ web).
   String? get morningCheckInHm => DayShiftSchedule.hhmm(raw['morningCheckIn']);
-  String? get morningCheckOutHm => DayShiftSchedule.hhmm(raw['morningCheckOut']);
+  String? get morningCheckOutHm =>
+      DayShiftSchedule.hhmm(raw['morningCheckOut']);
   String? get afternoonCheckInHm =>
       DayShiftSchedule.hhmm(raw['afternoonCheckIn']);
   String? get afternoonCheckOutHm =>
@@ -85,12 +86,14 @@ class AttendanceDay {
   String? get checkInHm => DayShiftSchedule.hhmm(raw['checkIn']);
   String? get checkOutHm => DayShiftSchedule.hhmm(raw['checkOut']);
 
-  double get morningWorkUnits => (raw['morningWorkUnits'] as num?)?.toDouble() ?? 0;
+  double get morningWorkUnits =>
+      (raw['morningWorkUnits'] as num?)?.toDouble() ?? 0;
   double get afternoonWorkUnits =>
       (raw['afternoonWorkUnits'] as num?)?.toDouble() ?? 0;
   double get overtimeWorkUnits =>
       (raw['overtimeWorkUnits'] as num?)?.toDouble() ?? 0;
-  double get totalWorkUnits => (raw['totalWorkUnits'] as num?)?.toDouble() ?? 0.0;
+  double get totalWorkUnits =>
+      (raw['totalWorkUnits'] as num?)?.toDouble() ?? 0.0;
   int get lateMinutes => (raw['lateMinutes'] as num?)?.toInt() ?? 0;
   bool get lateMinutesExempt => raw['lateMinutesExempt'] as bool? ?? false;
   String? get forgotShifts => _emptyToNull(raw['forgotShifts']);
@@ -102,17 +105,16 @@ class AttendanceDay {
   bool get congHo => raw['congHo'] as bool? ?? false;
 
   bool get isLeaveDay =>
-      status == 'LEAVE' || status == 'UNPAID_LEAVE';
+      status == 'LEAVE' ||
+      status == 'UNPAID_LEAVE' ||
+      status == 'PERSONAL_LEAVE';
   bool get isDeploymentDay =>
       deployment || status == 'DEPLOYMENT' || status == 'BUSINESS_TRIP';
 
   List<String> get punchTimes {
     final list = raw['punchTimes'];
     if (list is! List) return const [];
-    return list
-        .map((e) => _time(e))
-        .whereType<String>()
-        .toList();
+    return list.map((e) => _time(e)).whereType<String>().toList();
   }
 
   /// Nhãn trạng thái đồng bộ web WorkPage STATUS_CHIP.
@@ -123,6 +125,7 @@ class AttendanceDay {
       'ABSENT' => 'Vắng',
       'LEAVE' => 'Phép',
       'UNPAID_LEAVE' => 'Không lương',
+      'PERSONAL_LEAVE' => 'Nghỉ chế độ',
       'BUSINESS_TRIP' => 'Công tác',
       'SEMINAR' => 'Hội thảo',
       'DEPLOYMENT' => 'Điều động',
@@ -182,8 +185,7 @@ class DayShiftSchedule {
   String? get splitDayLabel => raw['splitDayLabel'] as String?;
 
   bool get isSplitDay => dayShiftKind == 'SPLIT';
-  bool get isContinuousDay =>
-      continuousShift || dayShiftKind == 'CONTINUOUS';
+  bool get isContinuousDay => continuousShift || dayShiftKind == 'CONTINUOUS';
   bool get youngChild => raw['youngChild'] as bool? ?? false;
   String? get youngChildLabel => raw['youngChildLabel'] as String?;
   num? get morningHours => raw['morningHours'] as num?;
@@ -373,11 +375,11 @@ class ContinuousShiftDayInfo {
   }
 
   Map<String, dynamic> toPayload() => {
-        'date': date,
-        'shiftTypeId': shiftTypeId,
-        'continuousStart': continuousStart,
-        'continuousEnd': continuousEnd,
-      };
+    'date': date,
+    'shiftTypeId': shiftTypeId,
+    'continuousStart': continuousStart,
+    'continuousEnd': continuousEnd,
+  };
 }
 
 class ContinuousShiftMonth {
@@ -410,8 +412,7 @@ class ContinuousShiftMonth {
   factory ContinuousShiftMonth.fromJson(Map<String, dynamic> json) {
     final rawDays = json['days'] as List<dynamic>? ?? const [];
     final rawDates = json['dates'] as List<dynamic>? ?? const [];
-    final rawContinuous =
-        json['continuousDates'] as List<dynamic>? ?? const [];
+    final rawContinuous = json['continuousDates'] as List<dynamic>? ?? const [];
     final rawSplit = json['splitDates'] as List<dynamic>? ?? const [];
     return ContinuousShiftMonth(
       employeeId: (json['employeeId'] as num?)?.toInt() ?? 0,
@@ -419,7 +420,9 @@ class ContinuousShiftMonth {
       periodMonth: (json['periodMonth'] as num?)?.toInt() ?? 0,
       dates: rawDates.map((e) => e.toString()).toList(),
       days: rawDays
-          .map((e) => ContinuousShiftDayInfo.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => ContinuousShiftDayInfo.fromJson(e as Map<String, dynamic>),
+          )
           .toList(),
       continuousDates: rawContinuous.map((e) => e.toString()).toList(),
       splitDates: rawSplit.map((e) => e.toString()).toList(),
@@ -453,7 +456,12 @@ class DutyShiftEntry {
 /// Loại ca trực dùng để hiển thị lựa chọn khi bổ sung / cập nhật công trực.
 /// Mirror `/v1/attendance/duty-shifts/types`.
 class DutyShiftTypeOption {
-  DutyShiftTypeOption({required this.code, required this.label, this.grantsWorkUnits = false, required this.roleTiers});
+  DutyShiftTypeOption({
+    required this.code,
+    required this.label,
+    this.grantsWorkUnits = false,
+    required this.roleTiers,
+  });
 
   final String code;
   final String label;
@@ -464,9 +472,13 @@ class DutyShiftTypeOption {
     final roleTiersRaw = json['roleTiers'];
     final roleTiers = roleTiersRaw is List
         ? roleTiersRaw
-            .whereType<Map>()
-            .map((e) => DutyShiftRoleTierOption.fromJson(Map<String, dynamic>.from(e)))
-            .toList()
+              .whereType<Map>()
+              .map(
+                (e) => DutyShiftRoleTierOption.fromJson(
+                  Map<String, dynamic>.from(e),
+                ),
+              )
+              .toList()
         : <DutyShiftRoleTierOption>[];
 
     return DutyShiftTypeOption(
@@ -531,10 +543,20 @@ class AttendanceWorkRequest {
   String? get department => raw['department'] as String?;
   String get requestType => raw['requestType'] as String? ?? '';
   DateTime? get workDate => DateTime.tryParse(raw['workDate'] as String? ?? '');
-  DateTime? get endDate =>
-      raw['endDate'] != null ? DateTime.tryParse(raw['endDate'] as String) : null;
+  DateTime? get endDate => raw['endDate'] != null
+      ? DateTime.tryParse(raw['endDate'] as String)
+      : null;
   double? get leaveDays => (raw['leaveDays'] as num?)?.toDouble();
   double? get tripDays => (raw['tripDays'] as num?)?.toDouble();
+
+  /// Nghỉ chế độ: MARRIAGE (kết hôn) hoặc BEREAVEMENT (người thân mất).
+  String? get personalLeaveKind => raw['personalLeaveKind'] as String?;
+  String? get personalLeaveKindLabel =>
+      raw['personalLeaveKindLabel'] as String?;
+
+  /// `true` hưởng lương cơ bản (chính thức), `false` không lương (thử việc),
+  /// `null` khi không phải đơn nghỉ chế độ.
+  bool? get personalLeavePaid => raw['personalLeavePaid'] as bool?;
   String? get shiftScope {
     final v = raw['shiftScope']?.toString().trim();
     return (v == null || v.isEmpty) ? null : v;
@@ -555,6 +577,7 @@ class AttendanceWorkRequest {
     final v = raw['explanationKind']?.toString().trim();
     return (v == null || v.isEmpty) ? null : v;
   }
+
   String get status => raw['status'] as String? ?? '';
   String? get headComment => raw['headComment'] as String?;
   String? get nursingHeadComment => raw['nursingHeadComment'] as String?;
@@ -565,8 +588,7 @@ class AttendanceWorkRequest {
       _emptyToNull(raw['nursingHeadSignatureUrl']);
   String? get hrSignatureUrl => _emptyToNull(raw['hrSignatureUrl']);
   String? get directorSignatureUrl => _emptyToNull(raw['directorSignatureUrl']);
-  String? get headReviewerUsername =>
-      _emptyToNull(raw['headReviewerUsername']);
+  String? get headReviewerUsername => _emptyToNull(raw['headReviewerUsername']);
   String? get nursingHeadReviewerUsername =>
       _emptyToNull(raw['nursingHeadReviewerUsername']);
   String? get hrReviewerUsername => _emptyToNull(raw['hrReviewerUsername']);
@@ -576,12 +598,10 @@ class AttendanceWorkRequest {
   String? get nursingHeadReviewerName =>
       _emptyToNull(raw['nursingHeadReviewerName']);
   String? get hrReviewerName => _emptyToNull(raw['hrReviewerName']);
-  String? get directorReviewerName =>
-      _emptyToNull(raw['directorReviewerName']);
+  String? get directorReviewerName => _emptyToNull(raw['directorReviewerName']);
   String? get flowSubmitterName => _emptyToNull(raw['flowSubmitterName']);
   String? get flowHeadName => _emptyToNull(raw['flowHeadName']);
-  String? get flowNursingHeadName =>
-      _emptyToNull(raw['flowNursingHeadName']);
+  String? get flowNursingHeadName => _emptyToNull(raw['flowNursingHeadName']);
   String? get flowHrName => _emptyToNull(raw['flowHrName']);
   String? get flowDirectorName => _emptyToNull(raw['flowDirectorName']);
   String? get requestedByUsername => _emptyToNull(raw['requestedByUsername']);
@@ -627,7 +647,8 @@ class AttendanceWorkRequest {
   bool get deploymentInsideShift =>
       raw['deploymentInsideShift'] as bool? ?? false;
 
-  bool get canWithdraw => false; // Đơn đã gửi: người gửi không thu hồi (chỉ ADMIN trên web)
+  bool get canWithdraw =>
+      false; // Đơn đã gửi: người gửi không thu hồi (chỉ ADMIN trên web)
 
   /// Chỉnh sửa đơn đang chờ duyệt — khớp quyền backend `ensureCanEditWorkRequest`.
   bool canEditPending({
@@ -644,6 +665,7 @@ class AttendanceWorkRequest {
     }
     if (requestType == 'LEAVE' ||
         requestType == 'UNPAID_LEAVE' ||
+        requestType == 'PERSONAL_LEAVE' ||
         requestType == 'EXPLANATION' ||
         requestType == 'UPDATE') {
       return myEmployeeId != null && employeeId == myEmployeeId;
@@ -684,8 +706,8 @@ class AttendanceMonthMatrix {
   int? get departmentId => (raw['departmentId'] as num?)?.toInt();
   String get departmentName =>
       (raw['departmentName'] as String?)?.trim().isNotEmpty == true
-          ? (raw['departmentName'] as String).trim()
-          : 'Toàn bệnh viện';
+      ? (raw['departmentName'] as String).trim()
+      : 'Toàn bệnh viện';
 
   List<AttendanceMatrixRow> get rows {
     final list = raw['rows'];
@@ -791,7 +813,10 @@ class AttendanceMatrixDay {
   String? get afternoonCheckOut => _hm(raw['afternoonCheckOut']);
 
   bool get isLeave =>
-      status == 'LEAVE' || status == 'UNPAID_LEAVE' || status == 'ABSENT';
+      status == 'LEAVE' ||
+      status == 'UNPAID_LEAVE' ||
+      status == 'PERSONAL_LEAVE' ||
+      status == 'ABSENT';
 
   String? get morningRange => _range(morningCheckIn, morningCheckOut);
   String? get afternoonRange => _range(afternoonCheckIn, afternoonCheckOut);
@@ -835,9 +860,10 @@ class AttendanceMatrixDutyDay {
       'tc1' => 'Trực cọc 1',
       'tcc' => 'Trực đa khoa',
       'tk' => 'Trực kèm',
-      _ => shiftTypeLabel.isNotEmpty
-          ? shiftTypeLabel
-          : (shiftTypeCode.isEmpty ? 'Ca trực' : shiftTypeCode),
+      _ =>
+        shiftTypeLabel.isNotEmpty
+            ? shiftTypeLabel
+            : (shiftTypeCode.isEmpty ? 'Ca trực' : shiftTypeCode),
     };
   }
 }

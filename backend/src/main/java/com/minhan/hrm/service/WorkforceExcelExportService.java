@@ -23,7 +23,6 @@ import org.apache.poi.xssf.usermodel.XSSFCellStyle;
 import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFFont;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -107,7 +106,16 @@ public class WorkforceExcelExportService {
 
     @Transactional(readOnly = true)
     public byte[] exportWorkforceExcel() {
-        List<Employee> all = employeeRepository.findAll(Sort.by(Sort.Direction.ASC, "fullName"));
+        return exportWorkforceExcel(false);
+    }
+
+    /**
+     * @param nursingHeadScopeOnly true = chỉ nhân sự khối Trưởng phòng Điều dưỡng quản lý
+     *                             (ĐD–KTV–HS–Thư ký–Y sĩ; Dược sĩ YHCT; Nhân viên YHCT/KKB)
+     */
+    @Transactional(readOnly = true)
+    public byte[] exportWorkforceExcel(boolean nursingHeadScopeOnly) {
+        List<Employee> all = employeeRepository.findAllWithDepartment();
         Map<Long, EmployeeWorkforceDetails> detailsById = all.isEmpty()
                 ? Map.of()
                 : workforceDetailsRepository.findByEmployeeIn(all).stream()
@@ -119,19 +127,31 @@ public class WorkforceExcelExportService {
             if (e.getStatus() == EmployeeStatus.TERMINATED) {
                 continue;
             }
+            if (nursingHeadScopeOnly && !NursingBlockClassifier.matchesNursingHeadScope(e)) {
+                continue;
+            }
             if (isTrialRecord(e)) {
                 trial.add(e);
             } else {
                 official.add(e);
             }
         }
-        official.sort(Comparator.comparing(Employee::getFullName, String.CASE_INSENSITIVE_ORDER));
-        trial.sort(Comparator.comparing(Employee::getFullName, String.CASE_INSENSITIVE_ORDER));
+        Comparator<Employee> byName = Comparator.comparing(Employee::getFullName, String.CASE_INSENSITIVE_ORDER);
+        if (nursingHeadScopeOnly) {
+            Comparator<Employee> byDeptThenName = Comparator
+                    .comparing(WorkforceExcelExportService::departmentName, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(byName);
+            official.sort(byDeptThenName);
+            trial.sort(byDeptThenName);
+        } else {
+            official.sort(byName);
+            trial.sort(byName);
+        }
 
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Styles styles = new Styles(wb);
-            writeOfficialSheet(wb, styles, official, detailsById);
-            writeTrialSheet(wb, styles, trial, detailsById);
+            writeOfficialSheet(wb, styles, official, detailsById, nursingHeadScopeOnly);
+            writeTrialSheet(wb, styles, trial, detailsById, nursingHeadScopeOnly);
             wb.write(out);
             return out.toByteArray();
         } catch (Exception ex) {
@@ -139,15 +159,25 @@ public class WorkforceExcelExportService {
         }
     }
 
+    private static String departmentName(Employee e) {
+        return e.getDepartment() != null && e.getDepartment().getName() != null
+                ? e.getDepartment().getName()
+                : "";
+    }
+
     private void writeOfficialSheet(
             Workbook wb,
             Styles styles,
             List<Employee> employees,
-            Map<Long, EmployeeWorkforceDetails> detailsById) {
+            Map<Long, EmployeeWorkforceDetails> detailsById,
+            boolean nursingHeadScopeOnly) {
         Sheet sheet = wb.createSheet("Danh sách NV chính thức");
         Row title = sheet.createRow(0);
+        title.setHeightInPoints(22);
         Cell titleCell = title.createCell(0);
-        titleCell.setCellValue("DANH SÁCH NHÂN VIÊN CHÍNH THỨC — BỆNH VIỆN MINH AN (xuất từ hệ thống HRM)");
+        titleCell.setCellValue(nursingHeadScopeOnly
+                ? "DANH SÁCH NHÂN VIÊN CHÍNH THỨC — KHỐI ĐIỀU DƯỠNG BỆNH VIỆN MINH AN (xuất từ hệ thống HRM)"
+                : "DANH SÁCH NHÂN VIÊN CHÍNH THỨC — BỆNH VIỆN MINH AN (xuất từ hệ thống HRM)");
         titleCell.setCellStyle(styles.title);
         sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, OFFICIAL_HEADERS.length - 1));
 
@@ -217,11 +247,15 @@ public class WorkforceExcelExportService {
             Workbook wb,
             Styles styles,
             List<Employee> employees,
-            Map<Long, EmployeeWorkforceDetails> detailsById) {
+            Map<Long, EmployeeWorkforceDetails> detailsById,
+            boolean nursingHeadScopeOnly) {
         Sheet sheet = wb.createSheet("Thử việcThực tập");
         Row title = sheet.createRow(0);
+        title.setHeightInPoints(22);
         Cell titleCell = title.createCell(0);
-        titleCell.setCellValue("DANH SÁCH NHÂN VIÊN THỬ VIỆC/ THỰC TẬP/ TRẢI NGHIỆM (xuất từ hệ thống HRM)");
+        titleCell.setCellValue(nursingHeadScopeOnly
+                ? "DANH SÁCH THỬ VIỆC/THỰC TẬP — KHỐI ĐIỀU DƯỠNG BỆNH VIỆN MINH AN (xuất từ hệ thống HRM)"
+                : "DANH SÁCH NHÂN VIÊN THỬ VIỆC/ THỰC TẬP/ TRẢI NGHIỆM (xuất từ hệ thống HRM)");
         titleCell.setCellStyle(styles.title);
         sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, TRIAL_HEADERS.length - 1));
 

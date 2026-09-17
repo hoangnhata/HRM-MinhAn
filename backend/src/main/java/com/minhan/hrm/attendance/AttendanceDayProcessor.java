@@ -46,6 +46,7 @@ public class AttendanceDayProcessor {
         // (Điều động làm thêm không khóa ngày — vẫn cho chấm công chính)
         if ("LEAVE".equals(rec.getStatus())
                 || "UNPAID_LEAVE".equals(rec.getStatus())
+                || "PERSONAL_LEAVE".equals(rec.getStatus())
                 || "BUSINESS_TRIP".equals(rec.getStatus())
                 || ("SEMINAR".equals(rec.getStatus()) && seminar == null)) {
             return;

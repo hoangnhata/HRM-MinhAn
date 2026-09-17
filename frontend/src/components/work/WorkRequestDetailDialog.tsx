@@ -7,6 +7,7 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import EditCalendarOutlinedIcon from '@mui/icons-material/EditCalendarOutlined';
 import GavelIcon from '@mui/icons-material/Gavel';
 import MoneyOffOutlinedIcon from '@mui/icons-material/MoneyOffOutlined';
+import VolunteerActivismOutlinedIcon from '@mui/icons-material/VolunteerActivismOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
@@ -42,6 +43,7 @@ import { DeploymentRequestDialog } from '../DeploymentRequestDialog';
 import { LeaveRequestDialog } from '../LeaveRequestDialog';
 import { RequestOwnerActions } from '../requests/RequestOwnerActions';
 import { UnpaidLeaveRequestDialog } from '../UnpaidLeaveRequestDialog';
+import { PersonalLeaveRequestDialog } from '../PersonalLeaveRequestDialog';
 import { dateTimeFieldSx, TimePickerField } from '../ui/DateTimeFields';
 import { canEditWorkRequest } from '../../utils/requestEditAccess';
 import {
@@ -85,7 +87,6 @@ type ReviewActions = {
   ) => void;
   onHrReview?: (
     approved: boolean,
-    waiveFine?: boolean,
     deploymentTimes?: {
       requestedStart: string;
       requestedEnd: string;
@@ -327,6 +328,8 @@ export function WorkRequestDetailDialog({
         ? theme.palette.secondary.main
         : request.requestType === 'UNPAID_LEAVE'
           ? theme.palette.error.dark
+          : request.requestType === 'PERSONAL_LEAVE'
+            ? '#7c3aed'
           : request.requestType === 'BUSINESS_TRIP'
             ? theme.palette.warning.dark
             : request.requestType === 'DEPLOYMENT'
@@ -399,6 +402,7 @@ export function WorkRequestDetailDialog({
   const isRanged =
     request.requestType === 'LEAVE' ||
     request.requestType === 'UNPAID_LEAVE' ||
+    request.requestType === 'PERSONAL_LEAVE' ||
     request.requestType === 'BUSINESS_TRIP';
   const hasReviewHistory =
     request.headComment ||
@@ -442,7 +446,7 @@ export function WorkRequestDetailDialog({
   );
 
   function approveDeploymentAsHr() {
-    approveDeploymentTimes((times) => review?.onHrReview?.(true, undefined, times));
+    approveDeploymentTimes((times) => review?.onHrReview?.(true, times));
   }
 
   function approveDeploymentAsNursingHead() {
@@ -494,6 +498,8 @@ export function WorkRequestDetailDialog({
       <BeachAccessOutlinedIcon />
     ) : request.requestType === 'UNPAID_LEAVE' ? (
       <MoneyOffOutlinedIcon />
+    ) : request.requestType === 'PERSONAL_LEAVE' ? (
+      <VolunteerActivismOutlinedIcon />
     ) : request.requestType === 'BUSINESS_TRIP' ? (
       <BusinessCenterOutlinedIcon />
     ) : request.requestType === 'DEPLOYMENT' ? (
@@ -700,6 +706,7 @@ export function WorkRequestDetailDialog({
                 )}
                 {(request.requestType === 'LEAVE' ||
                   request.requestType === 'UNPAID_LEAVE' ||
+                  request.requestType === 'PERSONAL_LEAVE' ||
                   request.requestType === 'DEPLOYMENT') && (
                   <Button
                     variant="contained"
@@ -717,7 +724,9 @@ export function WorkRequestDetailDialog({
                       ? 'Duyệt và áp dụng điều động'
                       : request.requestType === 'UNPAID_LEAVE'
                         ? 'Duyệt nghỉ không lương'
-                        : 'Duyệt nghỉ phép'}
+                        : request.requestType === 'PERSONAL_LEAVE'
+                          ? 'Duyệt nghỉ chế độ'
+                          : 'Duyệt nghỉ phép'}
                   </Button>
                 )}
               </>
@@ -801,6 +810,16 @@ export function WorkRequestDetailDialog({
               size="small"
               variant="outlined"
               label={`${request.leaveDays ?? 1} ngày phép`}
+              sx={detailHeaderChipSx.outlined}
+            />
+          )}
+          {request.requestType === 'PERSONAL_LEAVE' && (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={`${request.personalLeaveKindLabel ?? 'Nghỉ chế độ'} · ${request.leaveDays ?? 1} ngày${
+                request.personalLeavePaid === false ? ' không lương' : ' hưởng lương'
+              }`}
               sx={detailHeaderChipSx.outlined}
             />
           )}
@@ -917,6 +936,22 @@ export function WorkRequestDetailDialog({
         <InfoBanner>
           Sau khi HCNS duyệt, các ngày trong khoảng ghi <strong>Không lương</strong> với <strong>0 công</strong> —
           không trừ hạn mức phép năm.
+        </InfoBanner>
+      )}
+
+      {request.requestType === 'PERSONAL_LEAVE' && (
+        <InfoBanner>
+          Nghỉ chế độ <strong>{request.personalLeaveKindLabel ?? ''}</strong> theo Điều 115 Bộ luật Lao động.{' '}
+          {request.personalLeavePaid === false ? (
+            <>
+              Nhân viên thử việc: các ngày được duyệt ghi <strong>0 công, không lương</strong>.
+            </>
+          ) : (
+            <>
+              Nhân viên chính thức: các ngày được duyệt ghi <strong>đủ công hưởng lương cơ bản</strong>,{' '}
+              <strong>không trừ phép năm</strong>.
+            </>
+          )}
         </InfoBanner>
       )}
 
@@ -1090,7 +1125,16 @@ export function WorkRequestDetailDialog({
               icon={<CalendarMonthOutlinedIcon sx={{ fontSize: 16 }} />}
             />
           )}
-          {(request.requestType === 'LEAVE' || request.requestType === 'UNPAID_LEAVE') && (
+          {request.requestType === 'PERSONAL_LEAVE' && (
+            <DetailField
+              label="Chế độ nghỉ"
+              value={request.personalLeaveKindLabel ?? '—'}
+              icon={<VolunteerActivismOutlinedIcon sx={{ fontSize: 16 }} />}
+            />
+          )}
+          {(request.requestType === 'LEAVE' ||
+            request.requestType === 'UNPAID_LEAVE' ||
+            request.requestType === 'PERSONAL_LEAVE') && (
             <DetailField
               label="Số ngày"
               value={`${request.leaveDays ?? 1} ngày`}
@@ -1399,6 +1443,14 @@ export function WorkRequestDetailDialog({
     )}
     {request.requestType === 'UNPAID_LEAVE' && (
       <UnpaidLeaveRequestDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onSubmitted={handleEditSaved}
+        editRequest={request}
+      />
+    )}
+    {request.requestType === 'PERSONAL_LEAVE' && (
+      <PersonalLeaveRequestDialog
         open={editOpen}
         onClose={() => setEditOpen(false)}
         onSubmitted={handleEditSaved}

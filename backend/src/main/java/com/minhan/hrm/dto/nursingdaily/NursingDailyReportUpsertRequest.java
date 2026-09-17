@@ -39,8 +39,18 @@ public class NursingDailyReportUpsertRequest {
     @NotNull @Min(0)
     private Integer externalMission;
 
-    @NotNull @Min(0)
+    /** Tổng NB nội trú — server ưu tiên tính lại từ 3 cấp chăm sóc nếu có gửi. */
+    @Min(0)
     private Integer inpatients;
+
+    @Min(0)
+    private Integer inpatientsCareLevel1;
+
+    @Min(0)
+    private Integer inpatientsCareLevel2;
+
+    @Min(0)
+    private Integer inpatientsCareLevel3;
 
     @NotNull @Min(0)
     private Integer outpatients;

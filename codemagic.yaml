@@ -7,6 +7,8 @@
 # 3. Đặt APP_STORE_APPLE_ID = số Apple ID của app trên App Store Connect (App Information)
 # 4. Đặt GoogleService-Info.plist vào mobile/ios/Runner/ (hoặc Codemagic env/file)
 # 5. Ghim đúng phiên bản Flutter đang dùng local (flutter --version)
+#
+# Android AAB không build trên Codemagic — build local rồi tải lên Play Console.
 
 workflows:
   ios-testflight:
@@ -43,8 +45,8 @@ workflows:
       - name: Build IPA
         script: |
           cd mobile
-          # Phiên bản lấy từ pubspec.yaml (dòng "version: 1.0.5+6"): tên bản = 1.0.5,
-          # số build = 6. Không ghim cứng --build-name nữa, mỗi lần tăng version trong
+          # Phiên bản lấy từ pubspec.yaml (dòng "version: 1.0.6+2"): tên bản = 1.0.6,
+          # số build = 2. Không ghim cứng --build-name nữa, mỗi lần tăng version trong
           # pubspec là Codemagic tự theo.
           VERSION_LINE=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
           BUILD_NAME=${VERSION_LINE%%+*}

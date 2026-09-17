@@ -476,7 +476,7 @@ export function NursingDailyReportViewDialog({ open, onClose, onEdit, onRecalled
         <KpiCard
           label="Nội trú"
           value={String(report.inpatients)}
-          hint={`Ngoại trú ${report.outpatients} · CLS ${report.paraclinical}`}
+          hint={`Cấp 1: ${report.inpatientsCareLevel1 ?? 0} · Cấp 2: ${report.inpatientsCareLevel2 ?? 0} · Cấp 3: ${report.inpatientsCareLevel3 ?? 0}`}
           tone="#0369a1"
           icon={<PeopleOutlinedIcon sx={{ fontSize: 18 }} />}
         />
@@ -533,7 +533,10 @@ export function NursingDailyReportViewDialog({ open, onClose, onEdit, onRecalled
           >
             <MetricRows
               rows={[
-                { label: 'Nội trú', value: report.inpatients, emphasize: true },
+                { label: 'Nội trú (tổng)', value: report.inpatients, emphasize: true },
+                { label: 'NB chăm sóc cấp 1', value: report.inpatientsCareLevel1 ?? 0 },
+                { label: 'NB chăm sóc cấp 2', value: report.inpatientsCareLevel2 ?? 0 },
+                { label: 'NB chăm sóc cấp 3', value: report.inpatientsCareLevel3 ?? 0 },
                 { label: 'Ngoại trú', value: report.outpatients },
                 { label: 'CLS', value: report.paraclinical },
                 { label: 'Phẫu thuật', value: report.surgery },

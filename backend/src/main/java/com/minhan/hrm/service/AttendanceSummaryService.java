@@ -238,7 +238,7 @@ public class AttendanceSummaryService {
             BigDecimal dayDeployment = nzUnits(r.getOvertimeWorkUnits());
             shiftUnits = shiftUnits.add(dayShift);
             deploymentUnits = deploymentUnits.add(dayDeployment);
-            if ("LEAVE".equals(r.getStatus())) {
+            if ("LEAVE".equals(r.getStatus()) || "PERSONAL_LEAVE".equals(r.getStatus())) {
                 leaveUnits = leaveUnits.add(dayShift);
             }
             if (!r.isLateMinutesExempt()) {
@@ -393,6 +393,7 @@ public class AttendanceSummaryService {
             // Ngày nghỉ phép / công tác không tính phụ cấp phần ăn tại viện
             if ("LEAVE".equals(r.getStatus())
                     || "UNPAID_LEAVE".equals(r.getStatus())
+                    || "PERSONAL_LEAVE".equals(r.getStatus())
                     || "BUSINESS_TRIP".equals(r.getStatus())
                     || "SEMINAR".equals(r.getStatus())) {
                 continue;

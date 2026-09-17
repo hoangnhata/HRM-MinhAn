@@ -782,10 +782,6 @@ class _ApprovalTimeline extends StatelessWidget {
             );
 
     final isMainDuty = config.key == 'main-duty-authorization';
-    final hrTouched =
-        status.contains('_HR') ||
-        status.startsWith('HR_') ||
-        raw['hrReviewedAt'] != null;
     final headTouched = raw['headReviewedAt'] != null ||
         status == 'PENDING_HEAD' ||
         status == 'HEAD_REJECTED';
@@ -794,9 +790,6 @@ class _ApprovalTimeline extends StatelessWidget {
       for (final stage in config.stages)
         if (isNursingHeadStageLabel(stage.label))
           ...[if (showNursing) stage]
-        else if (isMainDuty && stage.reviewSlug == 'hr-review')
-          // Web: trực chính không qua HCNS; chỉ hiện nếu đơn thực sự đã qua.
-          ...[if (hrTouched) stage]
         else if (isMainDuty &&
             showNursing &&
             stage.reviewSlug == 'head-review')

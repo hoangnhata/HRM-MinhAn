@@ -68,6 +68,18 @@ public class AttendanceWorkRequest {
     @Column(name = "explanation_kind", length = 24)
     private ExplanationKind explanationKind;
 
+    /** Chế độ nghỉ (PERSONAL_LEAVE): kết hôn hay người thân mất. */
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "personal_leave_kind", length = 24)
+    private PersonalLeaveKind personalLeaveKind;
+
+    /**
+     * Nghỉ chế độ có hưởng lương hay không, chốt tại lúc nộp theo trạng thái
+     * nhân viên (chính thức → có lương; thử việc / thực tập → không lương).
+     */
+    @Column(name = "personal_leave_paid")
+    private Boolean personalLeavePaid;
+
     @Column(name = "explained_time")
     private LocalTime explainedTime;
 

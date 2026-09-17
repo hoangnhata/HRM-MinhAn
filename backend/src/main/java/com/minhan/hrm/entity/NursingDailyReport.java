@@ -67,6 +67,19 @@ public class NursingDailyReport {
     @Builder.Default
     private int inpatients = 0;
 
+    /** NB nội trú theo cấp chăm sóc — tổng 3 cấp = {@link #inpatients}. */
+    @Column(name = "inpatients_care_level1", nullable = false)
+    @Builder.Default
+    private int inpatientsCareLevel1 = 0;
+
+    @Column(name = "inpatients_care_level2", nullable = false)
+    @Builder.Default
+    private int inpatientsCareLevel2 = 0;
+
+    @Column(name = "inpatients_care_level3", nullable = false)
+    @Builder.Default
+    private int inpatientsCareLevel3 = 0;
+
     @Column(nullable = false)
     @Builder.Default
     private int outpatients = 0;

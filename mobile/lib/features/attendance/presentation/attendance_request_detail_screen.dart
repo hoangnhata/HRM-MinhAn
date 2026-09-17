@@ -61,7 +61,9 @@ class _AttendanceRequestDetailScreenState
     if (r.requestType == 'DEPLOYMENT') {
       final ok = await showDeploymentEditSheet(context, request: r);
       if (ok == true && mounted) {
-        await ref.read(attendanceRequestsControllerProvider.notifier).refreshQuietly();
+        await ref
+            .read(attendanceRequestsControllerProvider.notifier)
+            .refreshQuietly();
       }
       return;
     }
@@ -71,7 +73,9 @@ class _AttendanceRequestDetailScreenState
       extra: AttendanceRequestPrefill.edit(r),
     );
     if (!mounted) return;
-    await ref.read(attendanceRequestsControllerProvider.notifier).refreshQuietly();
+    await ref
+        .read(attendanceRequestsControllerProvider.notifier)
+        .refreshQuietly();
   }
 
   Future<void> _withdraw(AttendanceWorkRequest r) async {
@@ -106,13 +110,8 @@ class _AttendanceRequestDetailScreenState
     }
   }
 
-  bool _canWaiveFine(AttendanceWorkRequest r) {
-    final atFineStage =
-        r.status == 'PENDING_HR' || r.status == 'PENDING_DIRECTOR';
-    final finableType =
-        r.requestType == 'UPDATE' || r.requestType == 'EXPLANATION';
-    return atFineStage && finableType;
-  }
+  bool _canWaiveFine(AttendanceWorkRequest r) =>
+      AttendanceEnums.directorDecidesFine(r);
 
   Future<void> _review(AttendanceWorkRequest r, bool approved) async {
     String? comment;
@@ -127,12 +126,19 @@ class _AttendanceRequestDetailScreenState
         keepOriginalPunchTimes = decision.keepOriginalPunchTimes;
         comment = decision.comment;
       } else {
+        final toDirector = r.status == 'PENDING_HR' &&
+            r.requestType != 'BUSINESS_TRIP';
+        final isHrWorkConfirm = r.status == 'PENDING_HR' &&
+            (r.requestType == 'UPDATE' || r.requestType == 'EXPLANATION');
         final confirm = await showConfirmDialog(
           context,
           title: 'Duyệt đơn',
-          message:
-              'Đơn sẽ được chuyển sang bước tiếp theo kèm chữ ký của bạn. Xác nhận duyệt?',
-          confirmLabel: 'Duyệt',
+          message: isHrWorkConfirm
+              ? 'HCNS chỉ xác nhận hồ sơ. Sau khi duyệt, đơn chuyển Giám đốc — người quyết định trừ tiền hay miễn phạt.'
+              : toDirector
+                  ? 'Đơn sẽ được chuyển Giám đốc kèm chữ ký của bạn. Xác nhận duyệt?'
+                  : 'Đơn sẽ được chuyển sang bước tiếp theo kèm chữ ký của bạn. Xác nhận duyệt?',
+          confirmLabel: toDirector ? 'Duyệt — chuyển Giám đốc' : 'Duyệt',
           icon: Icons.check_circle_outline_rounded,
         );
         if (!confirm) return;
@@ -185,7 +191,7 @@ class _AttendanceRequestDetailScreenState
     final r = _find(ref.read(attendanceRequestsControllerProvider));
     if (r == null) return 'Chi tiết đơn';
     return switch (r.requestType) {
-      'LEAVE' || 'UNPAID_LEAVE' => 'Chi tiết đơn nghỉ',
+      'LEAVE' || 'UNPAID_LEAVE' || 'PERSONAL_LEAVE' => 'Chi tiết đơn nghỉ',
       'DEPLOYMENT' => 'Chi tiết điều động',
       _ => 'Chi tiết đơn công',
     };
@@ -203,7 +209,8 @@ class _AttendanceRequestDetailScreenState
         request.canWithdraw &&
         request.employeeId == myEmployeeId &&
         _findInMine(state) != null;
-    final canEdit = request != null &&
+    final canEdit =
+        request != null &&
         request.canEditPending(
           myEmployeeId: myEmployeeId,
           myUsername: auth.currentUser?.username,
@@ -240,8 +247,7 @@ class _AttendanceRequestDetailScreenState
                             color: AppColors.primary,
                             onRefresh: () => ref
                                 .read(
-                                  attendanceRequestsControllerProvider
-                                      .notifier,
+                                  attendanceRequestsControllerProvider.notifier,
                                 )
                                 .refreshQuietly(),
                             child: _Body(request: request),
@@ -390,12 +396,12 @@ class _HeroHeader extends StatelessWidget {
     final statusLabel = AttendanceEnums.statusLabel(request.status);
     final statusIcon =
         request.status == 'APPROVED' || request.status == 'APPROVED_NO_FINE'
-            ? Icons.check_circle_outline_rounded
-            : request.status.endsWith('_REJECTED')
-                ? Icons.cancel_outlined
-                : request.status == 'WITHDRAWN'
-                    ? Icons.undo_rounded
-                    : Icons.hourglass_top_rounded;
+        ? Icons.check_circle_outline_rounded
+        : request.status.endsWith('_REJECTED')
+        ? Icons.cancel_outlined
+        : request.status == 'WITHDRAWN'
+        ? Icons.undo_rounded
+        : Icons.hourglass_top_rounded;
 
     return Padding(
       padding: AppSpacing.pageH,
@@ -461,8 +467,10 @@ class _HeroHeader extends StatelessWidget {
               const SizedBox(height: 10),
               Container(
                 width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.7),
                   borderRadius: AppRadius.brSm,
@@ -643,10 +651,30 @@ class _ContentCard extends StatelessWidget {
             if (hasRange)
               _KV(label: 'Đến ngày', value: AppFormat.date(r.endDate)),
             // Chỉ hiện field đúng loại đơn (web WorkRequestDetailDialog).
-            if (type == 'LEAVE' || type == 'UNPAID_LEAVE')
+            if (type == 'PERSONAL_LEAVE') ...[
+              _KV(
+                label: 'Chế độ nghỉ',
+                value:
+                    r.personalLeaveKindLabel ??
+                    AttendanceEnums
+                        .personalLeaveKindLabels[r.personalLeaveKind ?? ''] ??
+                    '—',
+              ),
+              _KV(
+                label: 'Hưởng lương',
+                value: r.personalLeavePaid == false
+                    ? 'Không lương (thử việc)'
+                    : 'Lương cơ bản, không trừ phép năm',
+              ),
+            ],
+            if (type == 'LEAVE' ||
+                type == 'UNPAID_LEAVE' ||
+                type == 'PERSONAL_LEAVE')
               _KV(
                 label: type == 'UNPAID_LEAVE'
                     ? 'Số ngày không lương'
+                    : type == 'PERSONAL_LEAVE'
+                    ? 'Số ngày nghỉ chế độ'
                     : 'Số ngày phép',
                 value: '${AppFormat.compactNumber(r.leaveDays ?? 1)} ngày',
               ),
@@ -655,7 +683,8 @@ class _ContentCard extends StatelessWidget {
                 label: 'Số ngày công tác',
                 value: '${AppFormat.compactNumber(r.tripDays ?? 1)} ngày',
               ),
-              if (r.location != null) _KV(label: 'Địa điểm', value: r.location!),
+              if (r.location != null)
+                _KV(label: 'Địa điểm', value: r.location!),
             ],
             if (type == 'UPDATE' && r.updateKind != null)
               _KV(
@@ -769,9 +798,7 @@ class _TimeBlock extends StatelessWidget {
             : 'Khung giờ đề nghị',
         icon: Icons.schedule_outlined,
         child: Column(
-          children: [
-            for (final row in rows) _KV(label: row.$1, value: row.$2),
-          ],
+          children: [for (final row in rows) _KV(label: row.$1, value: row.$2)],
         ),
       ),
     );
@@ -950,7 +977,9 @@ class _ActionBar extends StatelessWidget {
                             style: OutlinedButton.styleFrom(
                               foregroundColor: AppColors.primary,
                               side: BorderSide(
-                                color: AppColors.primary.withValues(alpha: 0.45),
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.45,
+                                ),
                               ),
                               minimumSize: const Size.fromHeight(46),
                             ),

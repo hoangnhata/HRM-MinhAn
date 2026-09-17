@@ -225,7 +225,7 @@ public class NursingDailyReportService {
         report.setLongLeave(req.getLongLeave());
         report.setDutyAfternoonOff(req.getDutyAfternoonOff());
         report.setExternalMission(req.getExternalMission());
-        report.setInpatients(req.getInpatients());
+        applyInpatients(report, req);
         report.setOutpatients(req.getOutpatients());
         report.setParaclinical(req.getParaclinical());
         report.setSurgery(req.getSurgery());
@@ -237,6 +237,35 @@ public class NursingDailyReportService {
         report.setNewPressureUlcers(req.getNewPressureUlcers());
         report.setIdMixups(req.getIdMixups());
         report.setMedicationErrors(req.getMedicationErrors());
+    }
+
+    /**
+     * Ưu tiên 3 cấp chăm sóc nếu client gửi; tổng {@code inpatients} = cấp 1+2+3.
+     * Client cũ chỉ gửi tổng → giữ tổng, cấp để 0.
+     */
+    private static void applyInpatients(NursingDailyReport report, NursingDailyReportUpsertRequest req) {
+        boolean levelsSent = req.getInpatientsCareLevel1() != null
+                || req.getInpatientsCareLevel2() != null
+                || req.getInpatientsCareLevel3() != null;
+        if (levelsSent) {
+            int l1 = nz(req.getInpatientsCareLevel1());
+            int l2 = nz(req.getInpatientsCareLevel2());
+            int l3 = nz(req.getInpatientsCareLevel3());
+            report.setInpatientsCareLevel1(l1);
+            report.setInpatientsCareLevel2(l2);
+            report.setInpatientsCareLevel3(l3);
+            report.setInpatients(l1 + l2 + l3);
+            return;
+        }
+        int total = nz(req.getInpatients());
+        report.setInpatients(total);
+        report.setInpatientsCareLevel1(0);
+        report.setInpatientsCareLevel2(0);
+        report.setInpatientsCareLevel3(0);
+    }
+
+    private static int nz(Integer v) {
+        return v == null || v < 0 ? 0 : v;
     }
 
     private Map<String, Object> toDayRow(UserAccount actor, Department d, LocalDate date, NursingDailyReport report) {
@@ -362,6 +391,9 @@ public class NursingDailyReportService {
         m.put("dutyAfternoonOff", r.getDutyAfternoonOff());
         m.put("externalMission", r.getExternalMission());
         m.put("inpatients", r.getInpatients());
+        m.put("inpatientsCareLevel1", r.getInpatientsCareLevel1());
+        m.put("inpatientsCareLevel2", r.getInpatientsCareLevel2());
+        m.put("inpatientsCareLevel3", r.getInpatientsCareLevel3());
         m.put("outpatients", r.getOutpatients());
         m.put("paraclinical", r.getParaclinical());
         m.put("surgery", r.getSurgery());

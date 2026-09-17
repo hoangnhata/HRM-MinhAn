@@ -18,7 +18,7 @@ void main() {
   });
 
   group('Nursing daily report contract', () {
-    test('maps all 20 numeric fields returned by the shared backend', () {
+    test('maps all numeric fields returned by the shared backend', () {
       final report = NursingDailyReport.fromJson({
         'id': 9,
         'departmentId': 3,
@@ -34,6 +34,9 @@ void main() {
         'dutyAfternoonOff': 2,
         'externalMission': 1,
         'inpatients': 34,
+        'inpatientsCareLevel1': 10,
+        'inpatientsCareLevel2': 14,
+        'inpatientsCareLevel3': 10,
         'outpatients': 8,
         'paraclinical': 5,
         'surgery': 2,
@@ -47,10 +50,11 @@ void main() {
         'medicationErrors': 1,
       });
 
-      expect(report.values, hasLength(20));
+      expect(report.values, hasLength(23));
       expect(report.staffAccounted, 20);
       expect(report.safetyIncidents, 4);
       expect(report.values['inpatients'], 34);
+      expect(report.values['inpatientsCareLevel1'], 10);
       expect(report.values['inpatientTreatmentDays'], 19);
     });
 

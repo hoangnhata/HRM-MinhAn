@@ -3,6 +3,7 @@ package com.minhan.hrm.controller;
 import com.minhan.hrm.dto.salary.SalaryImportResultDto;
 import com.minhan.hrm.dto.attendance.CheckInOutSyncStatusDto;
 import com.minhan.hrm.dto.attendance.ChamcongSyncScheduleUpdateRequest;
+import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.service.AccompanyingDutyImportService;
 import com.minhan.hrm.service.AttendanceCodeSyncService;
 import com.minhan.hrm.service.CheckInOutImportService;
@@ -16,9 +17,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -66,11 +69,21 @@ public class WorkforceImportController {
     }
 
     @GetMapping("/workforce/export")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
-    @Operation(summary = "Xuất Excel nhân lực theo cấu trúc file nhập (chính thức + thử việc/thực tập)")
-    public ResponseEntity<byte[]> exportWorkforce() {
-        byte[] body = workforceExcelExportService.exportWorkforceExcel();
-        String filename = "NHAN-LUC-BENH-VIEN-MINH-AN-"
+    @PreAuthorize("hasAnyRole('ADMIN','HR','HEAD_NURSING')")
+    @Operation(summary = "Xuất Excel nhân lực (chính thức + thử việc). scope=HOSPITAL (mặc định) hoặc NURSING (khối Trưởng phòng ĐD)")
+    public ResponseEntity<byte[]> exportWorkforce(
+            @RequestParam(name = "scope", defaultValue = "HOSPITAL") String scope,
+            Authentication authentication) {
+        boolean nursing = "NURSING".equalsIgnoreCase(scope);
+        boolean adminOrHr = authentication.getAuthorities().stream().anyMatch(a -> {
+            String role = a.getAuthority();
+            return "ROLE_ADMIN".equals(role) || "ROLE_HR".equals(role);
+        });
+        if (!nursing && !adminOrHr) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Trưởng phòng Điều dưỡng chỉ xuất Excel khối điều dưỡng.");
+        }
+        byte[] body = workforceExcelExportService.exportWorkforceExcel(nursing);
+        String filename = (nursing ? "NHAN-LUC-KHOI-DIEU-DUONG-" : "NHAN-LUC-BENH-VIEN-MINH-AN-")
                 + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmm"))
                 + ".xlsx";
         ContentDisposition cd = ContentDisposition.attachment()

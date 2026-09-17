@@ -220,7 +220,14 @@ function insideDeploymentUnits(
 function isOffOrEmptyDay(status?: string | null): boolean {
   if (status == null || status === '') return true;
   const s = status.toUpperCase();
-  return s === 'ABSENT' || s === 'LEAVE' || s === 'UNPAID_LEAVE' || s === 'BUSINESS_TRIP' || s === 'SEMINAR';
+  return (
+    s === 'ABSENT' ||
+    s === 'LEAVE' ||
+    s === 'UNPAID_LEAVE' ||
+    s === 'PERSONAL_LEAVE' ||
+    s === 'BUSINESS_TRIP' ||
+    s === 'SEMINAR'
+  );
 }
 
 function isWorkedDay(status?: string | null): boolean {

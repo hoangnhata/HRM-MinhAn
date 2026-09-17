@@ -263,10 +263,7 @@ class AttendanceRequestsController
         final applyWaive =
             approved &&
             waiveForgotFine != null &&
-            (request.status == 'PENDING_HR' ||
-                request.status == 'PENDING_DIRECTOR') &&
-            (request.requestType == 'UPDATE' ||
-                request.requestType == 'EXPLANATION');
+            AttendanceEnums.directorDecidesFine(request);
         final applyKeep =
             approved &&
             keepOriginalPunchTimes == true &&

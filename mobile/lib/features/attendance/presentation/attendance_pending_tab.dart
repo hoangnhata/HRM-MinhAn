@@ -62,6 +62,7 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
       AttendanceRequestScope.leave => const [
         (value: 'LEAVE', label: 'Nghỉ phép'),
         (value: 'UNPAID_LEAVE', label: 'Không lương'),
+        (value: 'PERSONAL_LEAVE', label: 'Nghỉ chế độ'),
       ],
       AttendanceRequestScope.work => const [
         (value: 'EXPLANATION', label: 'Giải trình'),

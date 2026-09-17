@@ -15,6 +15,9 @@ export type NursingDailyReport = {
   dutyAfternoonOff: number;
   externalMission: number;
   inpatients: number;
+  inpatientsCareLevel1: number;
+  inpatientsCareLevel2: number;
+  inpatientsCareLevel3: number;
   outpatients: number;
   paraclinical: number;
   surgery: number;
@@ -66,6 +69,9 @@ export type NursingDailyReportPayload = {
   dutyAfternoonOff: number;
   externalMission: number;
   inpatients: number;
+  inpatientsCareLevel1: number;
+  inpatientsCareLevel2: number;
+  inpatientsCareLevel3: number;
   outpatients: number;
   paraclinical: number;
   surgery: number;
@@ -95,6 +101,9 @@ export const emptyNursingDailyPayload = (
   dutyAfternoonOff: 0,
   externalMission: 0,
   inpatients: 0,
+  inpatientsCareLevel1: 0,
+  inpatientsCareLevel2: 0,
+  inpatientsCareLevel3: 0,
   outpatients: 0,
   paraclinical: 0,
   surgery: 0,
@@ -121,6 +130,9 @@ export function payloadFromReport(r: NursingDailyReport): NursingDailyReportPayl
     dutyAfternoonOff: r.dutyAfternoonOff,
     externalMission: r.externalMission,
     inpatients: r.inpatients,
+    inpatientsCareLevel1: r.inpatientsCareLevel1 ?? 0,
+    inpatientsCareLevel2: r.inpatientsCareLevel2 ?? 0,
+    inpatientsCareLevel3: r.inpatientsCareLevel3 ?? 0,
     outpatients: r.outpatients,
     paraclinical: r.paraclinical,
     surgery: r.surgery,

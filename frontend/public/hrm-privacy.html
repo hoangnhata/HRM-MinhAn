@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="index,follow" />
+    <title>Chính sách quyền riêng tư — HRM Minh An</title>
+    <style>
+      :root {
+        --primary: #087a75;
+        --primary-dark: #045b57;
+        --gold: #b98716;
+        --ink: #172033;
+        --muted: #5c697c;
+        --canvas: #f5f8f8;
+        --line: rgba(23, 32, 51, 0.1);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+        color: var(--ink);
+        background: var(--canvas);
+        line-height: 1.65;
+      }
+      header {
+        background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+        color: #fff;
+        padding: 40px 20px 36px;
+      }
+      header .wrap, main, footer .wrap {
+        max-width: 760px;
+        margin: 0 auto;
+      }
+      .brand {
+        display: inline-block;
+        font-size: 13px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        opacity: 0.85;
+        border-bottom: 2px solid var(--gold);
+        padding-bottom: 4px;
+        margin-bottom: 12px;
+      }
+      h1 { margin: 0 0 8px; font-size: 28px; font-weight: 700; }
+      .updated { margin: 0; opacity: 0.9; font-size: 14px; }
+      main {
+        background: #fff;
+        margin: -16px auto 40px;
+        padding: 32px 28px 40px;
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(23, 32, 51, 0.06);
+        border: 1px solid var(--line);
+      }
+      h2 {
+        color: var(--primary-dark);
+        font-size: 18px;
+        margin: 28px 0 10px;
+      }
+      p, li { color: var(--ink); }
+      ul { padding-left: 20px; }
+      a { color: var(--primary); }
+      footer {
+        padding: 8px 20px 32px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <div class="brand">Bệnh viện Minh An</div>
+        <h1>Chính sách quyền riêng tư</h1>
+        <p class="updated">Ứng dụng HRM Minh An · Cập nhật: 17/09/2026</p>
+      </div>
+    </header>
+    <main>
+      <p>
+        Ứng dụng di động <strong>HRM Minh An</strong> (package
+        <code>com.minhan.hrm.hrm_mobile</code>) do Bệnh viện Minh An cung cấp
+        cho cán bộ, nhân viên để quản lý nhân sự nội bộ: đăng nhập, hồ sơ,
+        chấm công / phép, đơn từ, thông báo và xem thông tin lương.
+      </p>
+      <p>
+        Đây là ứng dụng nội bộ, không dành cho bệnh nhân và không cung cấp
+        dịch vụ khám chữa bệnh trên cửa hàng ứng dụng.
+      </p>
+
+      <h2>1. Dữ liệu chúng tôi thu thập</h2>
+      <ul>
+        <li>Tài khoản đăng nhập, họ tên, email, số điện thoại.</li>
+        <li>Ảnh đại diện, chữ ký điện tử (vẽ tay hoặc ảnh).</li>
+        <li>Đơn từ, bảng công, phép, ghi chú do người dùng tạo.</li>
+        <li>Thông tin lương / thang lương liên quan đến việc làm.</li>
+        <li>
+          Mã thông báo thiết bị (FCM) để gửi thông báo đẩy khi có đơn,
+          duyệt hoặc thông báo hệ thống.
+        </li>
+      </ul>
+      <p>Ứng dụng không thu thập vị trí GPS, danh bạ, micro hay dữ liệu sức khỏe từ Health Connect.</p>
+
+      <h2>2. Mục đích sử dụng</h2>
+      <ul>
+        <li>Xác thực và phân quyền nhân sự.</li>
+        <li>Thực hiện nghiệp vụ nhân sự, công, phép, đơn từ, lương.</li>
+        <li>Gửi thông báo liên quan đến công việc.</li>
+      </ul>
+      <p>Chúng tôi không bán dữ liệu người dùng và không dùng dữ liệu cho quảng cáo.</p>
+
+      <h2>3. Lưu trữ và bảo mật</h2>
+      <p>
+        Dữ liệu được lưu trên máy chủ của Bệnh viện Minh An và truyền qua
+        HTTPS. Thông báo đẩy sử dụng Firebase Cloud Messaging (Google) với
+        tư cách nhà cung cấp dịch vụ, chỉ để chuyển thông báo đến thiết bị
+        của người dùng.
+      </p>
+
+      <h2>4. Chia sẻ dữ liệu</h2>
+      <p>
+        Dữ liệu chỉ phục vụ hoạt động nội bộ bệnh viện. Không chia sẻ cho
+        bên thứ ba vì mục đích tiếp thị. Có thể cung cấp khi pháp luật yêu cầu.
+      </p>
+
+      <h2>5. Thời gian lưu và quyền của người dùng</h2>
+      <p>
+        Dữ liệu được lưu theo thời gian phục vụ quản trị nhân sự và quy định
+        nội bộ. Nhân viên có quyền yêu cầu xem, chỉnh sửa hoặc xóa tài khoản
+        ứng dụng bằng cách liên hệ phòng Công nghệ thông tin Bệnh viện Minh An.
+      </p>
+
+      <h2>6. Liên hệ</h2>
+      <p>
+        Phòng Công nghệ thông tin — Bệnh viện Minh An<br />
+        Website hệ thống:
+        <a href="https://erp.benhvienminhan.com">https://erp.benhvienminhan.com</a>
+      </p>
+    </main>
+    <footer>
+      <div class="wrap">© 2026 Bệnh viện Minh An. Mọi quyền được bảo lưu.</div>
+    </footer>
+  </body>
+</html>

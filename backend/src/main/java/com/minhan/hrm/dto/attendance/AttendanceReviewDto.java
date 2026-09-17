@@ -13,7 +13,7 @@ public class AttendanceReviewDto {
 
     private String comment;
 
-    /** HR / Giám đốc: true = không trừ tiền (quên chấm hoặc phạt muộn/sớm) */
+    /** Giám đốc: true = không trừ tiền (quên chấm hoặc phạt muộn/sớm). HCNS bỏ qua. */
     private Boolean waiveForgotFine;
 
     /**

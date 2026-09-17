@@ -43,7 +43,16 @@ class _AttendanceRequestFormScreenState
   bool _submitting = false;
   String? _validationMessage;
 
-  bool get _isLeave => _type == 'LEAVE' || _type == 'UNPAID_LEAVE';
+  /// Chế độ nghỉ (chỉ với PERSONAL_LEAVE): MARRIAGE / BEREAVEMENT.
+  String? _personalLeaveKind;
+
+  bool get _isLeave => AttendanceEnums.isLeaveRequestType(_type);
+  bool get _isPersonal => _type == 'PERSONAL_LEAVE';
+
+  /// Chính thức hưởng lương cơ bản; thử việc / thực tập nghỉ không lương.
+  /// Backend chốt lại theo hồ sơ, đây chỉ để báo trước cho người gửi.
+  bool get _personalLeavePaid =>
+      ref.read(authControllerProvider).currentUser?.employeeStatus == 'ACTIVE';
 
   bool get _isEditing => widget.prefill?.editRequest != null;
 
@@ -73,6 +82,7 @@ class _AttendanceRequestFormScreenState
     final edit = prefill?.editRequest;
     if (edit != null) {
       _type = edit.requestType;
+      _personalLeaveKind = edit.personalLeaveKind;
       _workDate = edit.workDate ?? DateTime.now();
       _endDate = edit.endDate ?? _workDate;
       _reasonController.text = edit.reason?.trim() ?? '';
@@ -86,7 +96,11 @@ class _AttendanceRequestFormScreenState
     _type = prefill?.requestType ?? (preferLeave ? 'LEAVE' : 'EXPLANATION');
     _workDate = prefill?.workDate ?? DateTime.now();
     if (_leaveFormMode) {
-      _endDate = _workDate;
+      _endDate = _isPersonal
+          ? _workDate.add(
+              const Duration(days: AttendanceEnums.personalLeaveMaxDays - 1),
+            )
+          : _workDate;
       _loadLeaveBalance();
     }
   }
@@ -134,6 +148,12 @@ class _AttendanceRequestFormScreenState
           _endDate = picked;
         }
         _endDate ??= picked;
+        if (_isPersonal) {
+          // Nghỉ chế độ mặc định trọn 3 ngày từ ngày bắt đầu.
+          _endDate = picked.add(
+            const Duration(days: AttendanceEnums.personalLeaveMaxDays - 1),
+          );
+        }
       } else {
         _endDate = picked.isBefore(_workDate) ? _workDate : picked;
       }
@@ -143,10 +163,20 @@ class _AttendanceRequestFormScreenState
 
   /// Kiểm tra tại chỗ đúng theo ràng buộc của backend để tránh lỗi 400.
   String? _validate() {
+    if (_isPersonal && _personalLeaveKind == null) {
+      return 'Vui lòng chọn chế độ nghỉ: NLĐ kết hôn hoặc người thân NLĐ mất';
+    }
     if (_reasonController.text.trim().isEmpty) {
       return _type == 'UNPAID_LEAVE'
           ? 'Vui lòng nhập lý do nghỉ không lương'
+          : _isPersonal
+          ? 'Vui lòng nhập lý do / thông tin sự việc'
           : 'Vui lòng nhập lý do nghỉ phép';
+    }
+    if (_isPersonal &&
+        _requestedLeaveDays > AttendanceEnums.personalLeaveMaxDays) {
+      return 'Nghỉ chế độ tối đa ${AttendanceEnums.personalLeaveMaxDays} ngày, '
+          'đơn đang xin $_requestedLeaveDays ngày.';
     }
     if (_type == 'LEAVE' && _leaveBalance != null) {
       final days = _requestedLeaveDays;
@@ -200,6 +230,7 @@ class _AttendanceRequestFormScreenState
       'reason': _reasonController.text.trim(),
       // Backend đánh dấu shiftScope là @NotNull cho mọi loại đơn.
       'shiftScope': 'FULL_DAY',
+      if (_isPersonal) 'personalLeaveKind': _personalLeaveKind,
     };
 
     setState(() => _submitting = true);
@@ -241,21 +272,31 @@ class _AttendanceRequestFormScreenState
 
   Widget _buildLeaveScaffold() {
     final unpaid = _type == 'UNPAID_LEAVE';
+    final personal = _isPersonal;
+    final personalPaid = _personalLeavePaid;
     final title = _isEditing
         ? 'Chỉnh sửa đơn nghỉ'
+        : personal
+        ? 'Nghỉ chế độ'
         : (unpaid ? 'Nghỉ không lương' : 'Nghỉ phép năm');
-    final subtitle = unpaid
+    final subtitle = personal
+        ? 'Kết hôn / người thân mất · tối đa 3 ngày · không trừ phép năm'
+        : unpaid
         ? 'Ngày duyệt ghi 0 công · không trừ phép năm'
         : 'Trừ vào số ngày phép còn lại trong năm';
     final submitLabel = _isEditing
         ? 'Lưu thay đổi'
+        : personal
+        ? 'Gửi đơn nghỉ chế độ'
         : (unpaid ? 'Gửi đơn nghỉ không lương' : 'Gửi đơn nghỉ phép');
     final auth = ref.watch(authControllerProvider);
     final me = auth.currentUser;
     final name = me?.displayName ?? auth.fullName ?? '—';
     final department = me?.departmentName?.trim();
     final days = _requestedLeaveDays;
-    final overLimit = unpaid
+    final overLimit = personal
+        ? days > AttendanceEnums.personalLeaveMaxDays
+        : unpaid
         ? false
         : (_leaveBalance != null && days > _leaveBalance!.remainingDays);
 
@@ -270,7 +311,9 @@ class _AttendanceRequestFormScreenState
                 dense: true,
                 title: title,
                 subtitle: subtitle,
-                icon: unpaid
+                icon: personal
+                    ? Icons.volunteer_activism_rounded
+                    : unpaid
                     ? Icons.money_off_rounded
                     : Icons.beach_access_rounded,
                 onBack: () => Navigator.of(context).maybePop(),
@@ -293,8 +336,9 @@ class _AttendanceRequestFormScreenState
                           ? const SizedBox.shrink()
                           : Padding(
                               key: ValueKey(_validationMessage),
-                              padding:
-                                  const EdgeInsets.only(bottom: AppSpacing.sm),
+                              padding: const EdgeInsets.only(
+                                bottom: AppSpacing.sm,
+                              ),
                               child: NoticeBanner.error(
                                 title: 'Kiểm tra lại thông tin',
                                 message: _validationMessage!,
@@ -303,24 +347,56 @@ class _AttendanceRequestFormScreenState
                     ),
                     AppSegmentedControl(
                       enabled: !_isEditing,
-                      selectedIndex: _type == 'UNPAID_LEAVE' ? 1 : 0,
+                      selectedIndex: switch (_type) {
+                        'UNPAID_LEAVE' => 1,
+                        'PERSONAL_LEAVE' => 2,
+                        _ => 0,
+                      },
                       onChanged: (i) => setState(() {
-                        _type = i == 1 ? 'UNPAID_LEAVE' : 'LEAVE';
+                        _type = switch (i) {
+                          1 => 'UNPAID_LEAVE',
+                          2 => 'PERSONAL_LEAVE',
+                          _ => 'LEAVE',
+                        };
                         _validationMessage = null;
+                        if (_type == 'PERSONAL_LEAVE') {
+                          // Mặc định trọn 3 ngày chế độ, người dùng có thể rút ngắn.
+                          _endDate = _workDate.add(
+                            const Duration(
+                              days: AttendanceEnums.personalLeaveMaxDays - 1,
+                            ),
+                          );
+                        }
                       }),
                       items: const [
                         AppSegmentItem(
-                          label: 'Nghỉ phép năm',
+                          label: 'Phép năm',
                           icon: Icons.beach_access_rounded,
                         ),
                         AppSegmentItem(
                           label: 'Không lương',
                           icon: Icons.money_off_rounded,
                         ),
+                        AppSegmentItem(
+                          label: 'Chế độ',
+                          icon: Icons.volunteer_activism_rounded,
+                        ),
                       ],
                     ),
                     const SizedBox(height: AppSpacing.sm),
-                    if (!unpaid) ...[
+                    if (personal) ...[
+                      _PersonalLeaveKindCard(
+                        selected: _personalLeaveKind,
+                        enabled: !_isEditing,
+                        onSelect: (kind) => setState(() {
+                          _personalLeaveKind = kind;
+                          _validationMessage = null;
+                        }),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      _PersonalLeaveRegimeBanner(paid: personalPaid),
+                      const SizedBox(height: AppSpacing.sm),
+                    ] else if (!unpaid) ...[
                       _LeaveBalancePanel(
                         balance: _leaveBalance,
                         loading: _loadingBalance,
@@ -408,6 +484,8 @@ class _AttendanceRequestFormScreenState
                                 child: Text(
                                   days <= 0
                                       ? 'Chọn ngày'
+                                      : personal
+                                      ? 'Xin $days/${AttendanceEnums.personalLeaveMaxDays} ngày'
                                       : 'Xin $days ngày',
                                   style: AppTypography.style(
                                     fontSize: 12,
@@ -436,14 +514,30 @@ class _AttendanceRequestFormScreenState
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            unpaid
+                            personal
+                                ? (personalPaid
+                                      ? 'Ghi đủ công hưởng lương cơ bản · không trừ phép năm · tối đa 3 ngày.'
+                                      : 'Thử việc: ngày duyệt ghi 0 công (không lương) · tối đa 3 ngày.')
+                                : unpaid
                                 ? 'Ngày duyệt ghi 0 công · không trừ phép năm.'
                                 : 'Đơn nghỉ tính cả ngày theo quy định.',
                             style: AppTypography.caption(
                               color: AppColors.textTertiary,
                             ),
                           ),
-                          if (overLimit) ...[
+                          if (overLimit && personal) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Nghỉ chế độ tối đa ${AttendanceEnums.personalLeaveMaxDays} ngày, '
+                              'đơn đang xin $days ngày.',
+                              style: AppTypography.style(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.error,
+                                height: 1.35,
+                              ),
+                            ),
+                          ] else if (overLimit) ...[
                             const SizedBox(height: 8),
                             Text(
                               'Đơn xin $days ngày nhưng chỉ còn '
@@ -467,7 +561,11 @@ class _AttendanceRequestFormScreenState
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            unpaid ? 'Lý do nghỉ không lương' : 'Lý do nghỉ phép',
+                            personal
+                                ? 'Lý do / thông tin sự việc'
+                                : unpaid
+                                ? 'Lý do nghỉ không lương'
+                                : 'Lý do nghỉ phép',
                             style: AppTypography.style(
                               fontSize: 14,
                               fontWeight: FontWeight.w800,
@@ -485,12 +583,16 @@ class _AttendanceRequestFormScreenState
                               }
                             },
                             decoration: InputDecoration(
-                              hintText: unpaid
+                              hintText: personal
+                                  ? (_personalLeaveKind == 'BEREAVEMENT'
+                                        ? 'Ví dụ: Bố đẻ mất ngày 12/09, lo hậu sự tại quê…'
+                                        : 'Ví dụ: Đăng ký kết hôn ngày 20/09, tổ chức lễ cưới…')
+                                  : unpaid
                                   ? 'Ví dụ: Việc riêng, không dùng phép năm…'
                                   : 'Ví dụ: Nghỉ phép năm, việc gia đình…',
-                              errorText: (_validationMessage != null &&
-                                      _validationMessage!
-                                          .contains('lý do'))
+                              errorText:
+                                  (_validationMessage != null &&
+                                      _validationMessage!.contains('lý do'))
                                   ? _validationMessage
                                   : null,
                               errorMaxLines: 2,
@@ -520,33 +622,20 @@ class _AttendanceRequestFormScreenState
       ),
     );
   }
-
 }
 
 class _LeaveFlowStrip extends StatefulWidget {
   const _LeaveFlowStrip();
 
   static const _steps = [
-    (
-      Icons.send_rounded,
-      'Gửi đơn',
-      'Bạn lập và gửi phiếu',
-    ),
+    (Icons.send_rounded, 'Gửi đơn', 'Bạn lập và gửi phiếu'),
     (
       Icons.supervisor_account_rounded,
       'Lãnh đạo duyệt',
       'Trưởng khoa / ĐD trưởng',
     ),
-    (
-      Icons.apartment_rounded,
-      'HCNS duyệt',
-      'Hành chính nhân sự',
-    ),
-    (
-      Icons.verified_rounded,
-      'Giám đốc duyệt',
-      'Duyệt cuối cùng',
-    ),
+    (Icons.apartment_rounded, 'HCNS duyệt', 'Hành chính nhân sự'),
+    (Icons.verified_rounded, 'Giám đốc duyệt', 'Duyệt cuối cùng'),
   ];
 
   @override
@@ -962,6 +1051,244 @@ class _LeaveFlowStep extends StatelessWidget {
   }
 }
 
+/// Chọn chế độ nghỉ: hai thẻ lớn, chạm để chọn, hiện dấu tick khi được chọn.
+class _PersonalLeaveKindCard extends StatelessWidget {
+  const _PersonalLeaveKindCard({
+    required this.selected,
+    required this.enabled,
+    required this.onSelect,
+  });
+
+  final String? selected;
+  final bool enabled;
+  final ValueChanged<String> onSelect;
+
+  static const _accent = Color(0xFF7C3AED);
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      accentColor: _accent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Chế độ nghỉ',
+                style: AppTypography.style(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                'Điều 115 BLLĐ 2019',
+                style: AppTypography.style(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textTertiary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _KindOption(
+            kind: 'MARRIAGE',
+            title: 'Người lao động kết hôn',
+            hint: 'Bản thân nhân viên đăng ký kết hôn',
+            icon: Icons.favorite_border_rounded,
+            selected: selected == 'MARRIAGE',
+            enabled: enabled,
+            onTap: () => onSelect('MARRIAGE'),
+          ),
+          const SizedBox(height: 8),
+          _KindOption(
+            kind: 'BEREAVEMENT',
+            title: 'Người thân NLĐ mất',
+            hint: 'Bố, mẹ, vợ, chồng, con hoặc bố mẹ bên vợ/chồng',
+            icon: Icons.local_florist_outlined,
+            selected: selected == 'BEREAVEMENT',
+            enabled: enabled,
+            onTap: () => onSelect('BEREAVEMENT'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KindOption extends StatelessWidget {
+  const _KindOption({
+    required this.kind,
+    required this.title,
+    required this.hint,
+    required this.icon,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String kind;
+  final String title;
+  final String hint;
+  final IconData icon;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  static const _accent = Color(0xFF7C3AED);
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: enabled,
+      selected: selected,
+      label: title,
+      child: AnimatedContainer(
+        duration: AppDurations.fast,
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: selected ? _accent.withValues(alpha: 0.07) : AppColors.surface,
+          borderRadius: AppRadius.brMd,
+          border: Border.all(
+            color: selected ? _accent : AppColors.border,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: enabled ? onTap : null,
+            borderRadius: AppRadius.brMd,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: _accent.withValues(alpha: selected ? 0.16 : 0.09),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(icon, size: 20, color: _accent),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: AppTypography.style(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            height: 1.25,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          hint,
+                          style: AppTypography.style(
+                            fontSize: 11.5,
+                            color: AppColors.textSecondary,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedSwitcher(
+                    duration: AppDurations.fast,
+                    child: selected
+                        ? const Icon(
+                            Icons.check_circle_rounded,
+                            key: ValueKey('on'),
+                            color: _accent,
+                            size: 22,
+                          )
+                        : Icon(
+                            Icons.radio_button_unchecked_rounded,
+                            key: const ValueKey('off'),
+                            color: AppColors.textTertiary,
+                            size: 22,
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Báo trước chế độ hưởng lương theo trạng thái nhân viên; backend chốt lại khi nộp.
+class _PersonalLeaveRegimeBanner extends StatelessWidget {
+  const _PersonalLeaveRegimeBanner({required this.paid});
+
+  final bool paid;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = paid ? AppColors.success : AppColors.warning;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+      decoration: BoxDecoration(
+        color: paid ? AppColors.successLight : AppColors.warningLight,
+        borderRadius: AppRadius.brMd,
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            paid ? Icons.verified_rounded : Icons.info_outline_rounded,
+            size: 18,
+            color: paid ? AppColors.successDark : AppColors.warningText,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  paid
+                      ? 'Nhân viên chính thức · 3 ngày hưởng lương cơ bản'
+                      : 'Nhân viên thử việc / thực tập · 3 ngày không lương',
+                  style: AppTypography.style(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                    color: paid ? AppColors.successDark : AppColors.warningText,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  paid
+                      ? 'Không trừ vào phép năm. Ngày được duyệt ghi đủ công trên bảng công.'
+                      : 'Ngày được duyệt ghi 0 công. Không trừ vào phép năm.',
+                  style: AppTypography.style(
+                    fontSize: 11.5,
+                    height: 1.35,
+                    color:
+                        (paid ? AppColors.successDark : AppColors.warningText)
+                            .withValues(alpha: 0.85),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _LeaveBalancePanel extends StatelessWidget {
   const _LeaveBalancePanel({
     required this.balance,
@@ -982,8 +1309,9 @@ class _LeaveBalancePanel extends StatelessWidget {
     final used = balance?.usedDays ?? 0;
     final pending = balance?.pendingDays ?? 0;
     final year = balance?.year ?? DateTime.now().year;
-    final ratio =
-        entitlement == 0 ? 0.0 : (remaining / entitlement).clamp(0.0, 1.0);
+    final ratio = entitlement == 0
+        ? 0.0
+        : (remaining / entitlement).clamp(0.0, 1.0);
     final accent = overLimit ? AppColors.error : AppColors.primary;
 
     return Container(
@@ -1122,10 +1450,7 @@ class _LeaveBalancePanel extends StatelessWidget {
                           _MiniPill(label: 'Đã dùng $used'),
                           if (pending > 0) ...[
                             const SizedBox(width: 6),
-                            _MiniPill(
-                              label: 'Chờ $pending',
-                              warn: true,
-                            ),
+                            _MiniPill(label: 'Chờ $pending', warn: true),
                           ],
                         ],
                       ),

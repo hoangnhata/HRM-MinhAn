@@ -157,10 +157,15 @@ export type WorkRequest = {
   employeeName: string;
   positionTitle?: string | null;
   department: string;
-  requestType: 'EXPLANATION' | 'UPDATE' | 'LEAVE' | 'UNPAID_LEAVE' | 'BUSINESS_TRIP' | 'DEPLOYMENT';
+  requestType: WorkRequestType;
   workDate: string;
   endDate?: string;
   leaveDays?: number;
+  /** Nghỉ chế độ: kết hôn hay người thân mất. */
+  personalLeaveKind?: PersonalLeaveKind | null;
+  personalLeaveKindLabel?: string | null;
+  /** Nghỉ chế độ có hưởng lương (chính thức) hay không (thử việc), chốt lúc nộp. */
+  personalLeavePaid?: boolean | null;
   tripDays?: number;
   shiftScope: string;
   updateKind: string;
@@ -607,8 +612,29 @@ export async function recalculateEmployeeMonth(employeeId: number, year: number,
   return data;
 }
 
+export type WorkRequestType =
+  | 'EXPLANATION'
+  | 'UPDATE'
+  | 'LEAVE'
+  | 'UNPAID_LEAVE'
+  | 'PERSONAL_LEAVE'
+  | 'BUSINESS_TRIP'
+  | 'DEPLOYMENT';
+
+export type PersonalLeaveKind = 'MARRIAGE' | 'BEREAVEMENT';
+
+export const PERSONAL_LEAVE_KIND_LABEL: Record<PersonalLeaveKind, string> = {
+  MARRIAGE: 'NLĐ kết hôn',
+  BEREAVEMENT: 'Người thân NLĐ mất',
+};
+
+/** Nghỉ chế độ tối đa 3 ngày (Điều 115 Bộ luật Lao động 2019). */
+export const PERSONAL_LEAVE_MAX_DAYS = 3;
+
 export type SubmitWorkRequest = {
-  requestType: 'EXPLANATION' | 'UPDATE' | 'LEAVE' | 'UNPAID_LEAVE' | 'BUSINESS_TRIP' | 'DEPLOYMENT';
+  requestType: WorkRequestType;
+  /** Bắt buộc với PERSONAL_LEAVE. */
+  personalLeaveKind?: PersonalLeaveKind;
   /** Nhân viên mục tiêu (DEPLOYMENT hoặc EXPLANATION do ADMIN tạo). */
   employeeId?: number;
   workDate: string;
@@ -678,7 +704,6 @@ export async function hrReviewRequest(
   approved: boolean,
   options?: {
     comment?: string;
-    waiveForgotFine?: boolean;
     requestedStart?: string;
     requestedEnd?: string;
     requestedAfternoonStart?: string;
@@ -688,7 +713,6 @@ export async function hrReviewRequest(
   const { data } = await api.post<WorkRequest>(`/v1/attendance/requests/${id}/hr-review`, {
     approved,
     comment: options?.comment,
-    waiveForgotFine: options?.waiveForgotFine ?? false,
     requestedStart: options?.requestedStart,
     requestedEnd: options?.requestedEnd,
     requestedAfternoonStart: options?.requestedAfternoonStart,
@@ -983,7 +1007,13 @@ export function requestStatusLabel(
   requestType?: WorkRequest['requestType'],
   explanationKeepOriginalTimes?: boolean,
 ): string {
-  if (requestType === 'LEAVE' || requestType === 'UNPAID_LEAVE' || requestType === 'BUSINESS_TRIP' || requestType === 'DEPLOYMENT') {
+  if (
+    requestType === 'LEAVE' ||
+    requestType === 'UNPAID_LEAVE' ||
+    requestType === 'PERSONAL_LEAVE' ||
+    requestType === 'BUSINESS_TRIP' ||
+    requestType === 'DEPLOYMENT'
+  ) {
     if (status === 'APPROVED' || status === 'APPROVED_NO_FINE') return 'Đã duyệt';
   }
   if (requestType === 'EXPLANATION') {
@@ -1000,6 +1030,7 @@ export function requestTypeLabel(type: WorkRequest['requestType']): string {
   if (type === 'EXPLANATION') return 'Giải trình công';
   if (type === 'LEAVE') return 'Nghỉ phép';
   if (type === 'UNPAID_LEAVE') return 'Nghỉ không lương';
+  if (type === 'PERSONAL_LEAVE') return 'Nghỉ chế độ';
   if (type === 'BUSINESS_TRIP') return 'Công tác';
   if (type === 'DEPLOYMENT') return 'Điều động';
   return 'Cập nhật công';
@@ -1443,6 +1474,7 @@ const ATTENDANCE_STATUS_LABEL: Record<string, string> = {
   ABSENT: 'Vắng / chưa chấm',
   LEAVE: 'Phép',
   UNPAID_LEAVE: 'Không lương',
+  PERSONAL_LEAVE: 'Nghỉ chế độ',
   BUSINESS_TRIP: 'Công tác',
   SEMINAR: 'Hội thảo',
   DEPLOYMENT: 'Điều động',
@@ -1555,7 +1587,13 @@ export async function fetchEmployeeLeaveBalance(employeeId: number, year?: numbe
 }
 
 export function formatLeaveRange(r: WorkRequest): string {
-  if (r.requestType !== 'LEAVE' && r.requestType !== 'UNPAID_LEAVE' && r.requestType !== 'BUSINESS_TRIP') return '';
+  if (
+    r.requestType !== 'LEAVE' &&
+    r.requestType !== 'UNPAID_LEAVE' &&
+    r.requestType !== 'PERSONAL_LEAVE' &&
+    r.requestType !== 'BUSINESS_TRIP'
+  )
+    return '';
   const end = r.endDate && r.endDate !== r.workDate ? r.endDate : '';
   const from = formatWorkDate(r.workDate);
   if (!end) return from;
