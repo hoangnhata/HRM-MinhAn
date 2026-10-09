@@ -38,7 +38,7 @@ public class AttendanceRecord {
     @Column(nullable = false, length = 32)
     private String status;
 
-    @Column(length = 500)
+    @Column(columnDefinition = "TEXT")
     private String note;
 
     @Column(name = "morning_check_in")

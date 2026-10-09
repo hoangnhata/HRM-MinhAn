@@ -48,6 +48,28 @@ public class ContinuousShiftService {
                 .orElse(false);
     }
 
+    /**
+     * Ngày đã gắn ca sáng–chiều: chấm đủ vào/ra từng buổi, không áp phân quyền 2 mốc.
+     */
+    @Transactional(readOnly = true)
+    public boolean isSplitDay(Long employeeId, LocalDate date) {
+        if (employeeId == null || date == null) {
+            return false;
+        }
+        return findDay(employeeId, date)
+                .map(row -> row.getShiftTypeId() != null
+                        && shiftTypeRepository.findById(row.getShiftTypeId())
+                                .map(ContinuousShiftType::isSplit)
+                                .orElse(false))
+                .orElse(false);
+    }
+
+    /** Phân quyền công theo ngày — tắt khi ngày đó xếp ca sáng–chiều. */
+    @Transactional(readOnly = true)
+    public boolean isTwoPunchAttendance(Long employeeId, LocalDate date) {
+        return isTwoPunchAttendance(employeeId) && !isSplitDay(employeeId, date);
+    }
+
     @Transactional(readOnly = true)
     public boolean isContinuousShift(Long employeeId, LocalDate date) {
         if (employeeId == null || date == null) {

@@ -390,12 +390,20 @@ public class AttendanceSummaryService {
             boolean hasMorning = hasMorningPunch(r);
             boolean hasAfternoon = hasAfternoonPunch(r);
             // Tính theo công thực tế — tránh trạng thái cũ còn sót sau khi xóa bổ sung QT
-            // Ngày nghỉ phép / công tác không tính phụ cấp phần ăn tại viện
+            // Ngày nghỉ phép / công tác không tính phụ cấp phần ăn tại viện.
+            // Hội thảo không ăn tại viện, trừ ca đã đi làm thật (có giờ chấm) — không lấy công hội thảo gán thêm.
             if ("LEAVE".equals(r.getStatus())
                     || "UNPAID_LEAVE".equals(r.getStatus())
                     || "PERSONAL_LEAVE".equals(r.getStatus())
-                    || "BUSINESS_TRIP".equals(r.getStatus())
-                    || "SEMINAR".equals(r.getStatus())) {
+                    || "BUSINESS_TRIP".equals(r.getStatus())) {
+                continue;
+            }
+            if ("SEMINAR".equals(r.getStatus())) {
+                switch (seminarMealCredit(r)) {
+                    case FULL -> presentDays++;
+                    case MORNING -> morningDays++;
+                    case NONE -> { }
+                }
                 continue;
             }
             if (totalUnits.compareTo(new BigDecimal("0.99")) >= 0) {
@@ -408,6 +416,21 @@ public class AttendanceSummaryService {
         int totalUnits = presentDays + morningDays + dutyUnits;
         BigDecimal amount = MEAL_ALLOWANCE_PER_UNIT.multiply(BigDecimal.valueOf(totalUnits));
         return new MealAllowanceTotals(presentDays, morningDays, dutyShiftCount, dutyUnits, totalUnits, amount);
+    }
+
+    /** Hội thảo không đè phần ăn của ca đã chấm công tại viện. */
+    enum SeminarMealCredit { NONE, MORNING, FULL }
+
+    static SeminarMealCredit seminarMealCredit(AttendanceRecord r) {
+        boolean workedMorning = r.getMorningCheckIn() != null;
+        boolean workedAfternoon = r.getAfternoonCheckIn() != null || r.getAfternoonCheckOut() != null;
+        if (workedMorning && workedAfternoon) {
+            return SeminarMealCredit.FULL;
+        }
+        if (workedMorning) {
+            return SeminarMealCredit.MORNING;
+        }
+        return SeminarMealCredit.NONE;
     }
 
     private static boolean hasMorningPunch(AttendanceRecord r) {
@@ -442,7 +465,7 @@ public class AttendanceSummaryService {
         for (AttendanceWorkRequest r : approved) {
             boolean continuousOrTwoPunch = continuousShiftService.isContinuousShift(
                     employeeId, r.getWorkDate())
-                    || continuousShiftService.isTwoPunchAttendance(employeeId);
+                    || continuousShiftService.isTwoPunchAttendance(employeeId, r.getWorkDate());
             units += AttendancePenaltyCalculator.forgotFineUnitsForWorkRequest(r, continuousOrTwoPunch);
         }
         return units;

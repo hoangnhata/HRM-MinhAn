@@ -75,6 +75,7 @@ public class TrainingProposalService {
                 .proposingDepartment(req.getProposingDepartment().trim())
                 .courseName(req.getCourseName().trim())
                 .location(req.getLocation().trim())
+                .learningMode(parseLearningMode(req.getLearningMode()))
                 .plannedPeriod(plannedPeriod)
                 .startDate(range.start())
                 .endDate(range.end())
@@ -86,6 +87,8 @@ public class TrainingProposalService {
                 .status(TrainingProposalStatus.PENDING_HR)
                 .requestedBy(actor)
                 .build();
+        row = proposalRepository.save(row);
+        stampRequesterSignature(row, actor, true);
         row = proposalRepository.save(row);
 
         notifyHrPending(row);
@@ -127,6 +130,7 @@ public class TrainingProposalService {
         row.setProposingDepartment(req.getProposingDepartment().trim());
         row.setCourseName(req.getCourseName().trim());
         row.setLocation(req.getLocation().trim());
+        row.setLearningMode(parseLearningMode(req.getLearningMode()));
         row.setPlannedPeriod(plannedPeriod);
         row.setStartDate(range.start());
         row.setEndDate(range.end());
@@ -135,6 +139,7 @@ public class TrainingProposalService {
         row.setReason(req.getReason().trim());
         row.setEmployeeCommitmentAck(true);
         row.setDepartmentCommitmentAck(true);
+        stampRequesterSignature(row, actor, false);
         row = proposalRepository.save(row);
         return toMap(row);
     }
@@ -525,6 +530,15 @@ public class TrainingProposalService {
         return employeeLinkService.findLinkedEmployee(actor).map(Employee::getId).orElse(null);
     }
 
+    private void stampRequesterSignature(TrainingProposalRequest row, UserAccount actor, boolean force) {
+        boolean owner = row.getRequestedBy() != null && row.getRequestedBy().getId().equals(actor.getId());
+        if (!force && !owner && row.getRequesterSignaturePath() != null && !row.getRequesterSignaturePath().isBlank()) {
+            return;
+        }
+        row.setRequesterSignaturePath(approvalSignatureService.stampRequester(
+                actor, "training", row.getId(), row.getRequesterSignaturePath()));
+    }
+
     private Map<String, Object> toMap(TrainingProposalRequest r) {
         Employee e = r.getEmployee();
         Map<String, Object> m = new LinkedHashMap<>();
@@ -538,6 +552,7 @@ public class TrainingProposalService {
         m.put("proposingDepartment", r.getProposingDepartment());
         m.put("courseName", r.getCourseName());
         m.put("location", r.getLocation());
+        m.put("learningMode", r.getLearningMode() != null ? r.getLearningMode().name() : null);
         m.put("plannedPeriod", r.getPlannedPeriod());
         m.put("startDate", r.getStartDate() != null ? r.getStartDate().toString() : null);
         m.put("endDate", r.getEndDate() != null ? r.getEndDate().toString() : null);
@@ -550,6 +565,8 @@ public class TrainingProposalService {
         m.put("departmentCommitmentAck", r.isDepartmentCommitmentAck());
         m.put("status", r.getStatus().name());
         m.put("requestedByUsername", r.getRequestedBy() != null ? r.getRequestedBy().getUsername() : null);
+        m.put("requesterSignatureUrl", ApprovalSignatureService.requesterSignatureUrl(
+                "training", r.getId(), r.getRequesterSignaturePath()));
         m.put("hrReviewerUsername", r.getHrReviewer() != null ? r.getHrReviewer().getUsername() : null);
         m.put("hrComment", r.getHrComment());
         m.put("hrReviewedAt", r.getHrReviewedAt() != null ? r.getHrReviewedAt().toString() : null);
@@ -565,6 +582,18 @@ public class TrainingProposalService {
                         ? "/j1-api/v1/approval-signatures/training/" + r.getId() + "/director" : null);
         m.put("createdAt", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
         return m;
+    }
+
+    private static TrainingLearningMode parseLearningMode(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Chọn hình thức học (online / offline / kết hợp)");
+        }
+        try {
+            return TrainingLearningMode.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Hình thức học không hợp lệ. Chọn ONLINE, OFFLINE hoặc HYBRID");
+        }
     }
 
     private static String blankToNull(String s) {

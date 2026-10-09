@@ -312,6 +312,14 @@ public class DutyShiftService {
         }
         Employee self = employeeLinkService.findLinkedEmployee(current)
                 .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "Tài khoản chưa gắn hồ sơ nhân viên"));
+        // Trưởng phòng Điều dưỡng tự bổ sung công trực cho chính mình (tab «Công của tôi»).
+        if (current.getRole() == UserRole.HEAD_NURSING) {
+            if (self.getId().equals(target.getId())) {
+                return;
+            }
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Trưởng phòng Điều dưỡng chỉ bổ sung công trực cho chính mình");
+        }
         if (!EmployeeService.isHeadRole(current)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Chỉ trưởng phòng/Điều dưỡng trưởng được nhập ca trực");
         }

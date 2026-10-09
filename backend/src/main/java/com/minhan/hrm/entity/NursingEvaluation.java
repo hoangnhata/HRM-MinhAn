@@ -41,6 +41,14 @@ public class NursingEvaluation {
     @Column(name = "scores_json", nullable = false, columnDefinition = "TEXT")
     private String scoresJson;
 
+    /** Phiên bản mẫu tại thời điểm chấm. */
+    @Column(name = "template_version")
+    private Integer templateVersion;
+
+    /** Bản chụp mẫu tại thời điểm chấm — phiếu cũ vẫn hiển thị đúng sau khi mẫu bị sửa. */
+    @Column(name = "template_snapshot_json", columnDefinition = "MEDIUMTEXT")
+    private String templateSnapshotJson;
+
     @Column(name = "total_self", precision = 8, scale = 2)
     private BigDecimal totalSelf;
 

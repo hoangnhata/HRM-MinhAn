@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Locale;
 
 /**
@@ -38,6 +39,34 @@ public class ApprovalSignatureService {
     /**
      * Copy chữ ký hiện tại của user vào thư mục đơn (audit nếu user đổi chữ ký sau này).
      */
+    /**
+     * Chữ ký người lập phiếu. Thiếu chữ ký thì báo trước khi gửi, không dùng câu chữ của bước duyệt.
+     * {@code previousPath} được xóa nếu snapshot mới khác file cũ.
+     */
+    public String stampRequester(UserAccount user, String requestKind, long requestId, String previousPath) {
+        String next;
+        try {
+            next = snapshotForApproval(user, requestKind, requestId, "requester");
+        } catch (ApiException ex) {
+            if (ex.getStatus() == HttpStatus.BAD_REQUEST) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "Bạn chưa có chữ ký số. Vào menu tài khoản → Chữ ký số để tạo trước khi gửi phiếu.");
+            }
+            throw ex;
+        }
+        if (previousPath != null && !previousPath.isBlank() && !previousPath.equals(next)) {
+            fileStorageService.deleteStoredFile(previousPath);
+        }
+        return next;
+    }
+
+    public static String requesterSignatureUrl(String kind, long id, String path) {
+        if (path == null || path.isBlank()) {
+            return null;
+        }
+        return "/j1-api/v1/approval-signatures/" + kind + "/" + id + "/requester";
+    }
+
     public String snapshotForApproval(UserAccount user, String requestKind, long requestId, String role) {
         requireUserHasSignature(user);
         Path src = fileStorageService.resolveStoredPath(user.getSignaturePath());
@@ -54,6 +83,44 @@ public class ApprovalSignatureService {
         } catch (Exception ex) {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Không lưu được chữ ký duyệt đơn");
         }
+    }
+
+    /**
+     * Snapshot chữ ký cho bước tự hoàn tất lúc lập phiếu (người lập chính là người duyệt bước đó,
+     * vd. Trưởng khoa lập phiếu điều động). Người đó chưa có chữ ký thì để trống, không chặn luồng.
+     */
+    public String snapshotIfAvailable(UserAccount user, String requestKind, long requestId, String role) {
+        if (user == null || user.getSignaturePath() == null || user.getSignaturePath().isBlank()) {
+            return null;
+        }
+        try {
+            return snapshotForApproval(user, requestKind, requestId, role);
+        } catch (ApiException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Chữ ký hiệu lực của một bước duyệt: snapshot đã lưu; thiếu snapshot mà bước đã có người duyệt
+     * (bước tự hoàn tất / bỏ qua ở phiếu cũ) thì dùng chữ ký hồ sơ hiện tại của chính người đó.
+     */
+    public static String effectiveStagePath(String snapshotPath, UserAccount reviewer, Instant reviewedAt) {
+        if (snapshotPath != null && !snapshotPath.isBlank()) {
+            return snapshotPath;
+        }
+        if (reviewer == null || reviewedAt == null) {
+            return null;
+        }
+        String profile = reviewer.getSignaturePath();
+        return profile != null && !profile.isBlank() ? profile : null;
+    }
+
+    /** URL xem ảnh chữ ký của bước, {@code null} khi bước chưa có chữ ký hiệu lực. */
+    public static String stageSignatureUrl(
+            String kind, long id, String role, String snapshotPath, UserAccount reviewer, Instant reviewedAt) {
+        return effectiveStagePath(snapshotPath, reviewer, reviewedAt) == null
+                ? null
+                : "/j1-api/v1/approval-signatures/" + kind + "/" + id + "/" + role;
     }
 
     public SignatureFile readRelative(String relativePath) {

@@ -82,6 +82,8 @@ public class DepartmentTransferService {
                 .requestedBy(actor)
                 .build();
         row = transferRepository.save(row);
+        stampRequesterSignature(row, actor, true);
+        row = transferRepository.save(row);
 
         notifyDirectorsPending(row);
         notificationService.notifyDepartmentTransferSubmittedToEmployee(row);
@@ -124,6 +126,7 @@ public class DepartmentTransferService {
         row.setToPosition(toPos);
         row.setEffectiveDate(req.getEffectiveDate());
         row.setReason(req.getReason().trim());
+        stampRequesterSignature(row, actor, false);
         row = transferRepository.save(row);
         return toMap(row);
     }
@@ -329,6 +332,15 @@ public class DepartmentTransferService {
         return employeeLinkService.findLinkedEmployee(actor).map(Employee::getId).orElse(null);
     }
 
+    private void stampRequesterSignature(DepartmentTransferRequest row, UserAccount actor, boolean force) {
+        boolean owner = row.getRequestedBy() != null && row.getRequestedBy().getId().equals(actor.getId());
+        if (!force && !owner && row.getRequesterSignaturePath() != null && !row.getRequesterSignaturePath().isBlank()) {
+            return;
+        }
+        row.setRequesterSignaturePath(approvalSignatureService.stampRequester(
+                actor, "transfer", row.getId(), row.getRequesterSignaturePath()));
+    }
+
     private Map<String, Object> toMap(DepartmentTransferRequest r) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", r.getId());
@@ -347,6 +359,8 @@ public class DepartmentTransferService {
         m.put("reason", r.getReason());
         m.put("status", r.getStatus().name());
         m.put("requestedByUsername", r.getRequestedBy() != null ? r.getRequestedBy().getUsername() : null);
+        m.put("requesterSignatureUrl", ApprovalSignatureService.requesterSignatureUrl(
+                "transfer", r.getId(), r.getRequesterSignaturePath()));
         m.put("directorReviewerUsername",
                 r.getDirectorReviewer() != null ? r.getDirectorReviewer().getUsername() : null);
         m.put("directorComment", r.getDirectorComment());

@@ -67,6 +67,7 @@ public class AttendanceReportExcelService {
                     : String.valueOf(rows.get(0).get("department"));
             writeSummarySheet(wb, styles, rows, year, month, deptName);
             writeCalendarSheet(wb, styles, rows, year, month, deptName);
+            writeSymbolCalendarSheet(wb, styles, rows, year, month, deptName);
             writeDutyCalendarSheet(wb, styles, rows, year, month, deptName);
             writeLeaveCalendarSheet(wb, styles, rows, year, month, deptName);
             writeQuangTrungCalendarSheet(wb, styles, rows, year, month, deptName);
@@ -361,6 +362,200 @@ public class AttendanceReportExcelService {
                 + "Công phép xem riêng tại sheet «Bảng công phép».");
         noteCell.setCellStyle(s.footnote);
         sheet.addMergedRegion(new CellRangeAddress(r, r, 0, lastCol));
+    }
+
+    // ----------------------------------------------------------------- Sheet chấm công ký hiệu (S/C/X)
+
+    /**
+     * Bảng chấm công theo ký hiệu — chỉ công chấm máy, KHÔNG gồm công điều động (làm thêm / trong ca)
+     * và không gồm ngày nghỉ phép: X = đủ cả ngày, S = chỉ ca sáng, C = chỉ ca chiều.
+     */
+    private void writeSymbolCalendarSheet(
+            XSSFWorkbook wb, Styles s, List<Map<String, Object>> rows, int year, int month, String deptName) {
+        Sheet sheet = wb.createSheet("Bảng công ký hiệu");
+        sheet.setDisplayGridlines(false);
+
+        java.time.YearMonth ym = java.time.YearMonth.of(year, month);
+        int daysInMonth = ym.lengthOfMonth();
+        int fixedCols = 4; // STT, Mã NV, Họ tên, Chức vụ
+        int firstDayCol = fixedCols;
+        int xCol = firstDayCol + daysInMonth;
+        int sCol = xCol + 1;
+        int cCol = xCol + 2;
+        int unitsCol = xCol + 3;
+        int lastCol = unitsCol;
+
+        int r = 0;
+        r = title(sheet, s, r, lastCol, "BẢNG CHẤM CÔNG THÁNG " + String.format("%02d/%d", month, year));
+        r = meta(sheet, s, r, lastCol, "Phạm vi: " + deptName
+                + "     •     X = cả ngày   •   S = ca sáng   •   C = ca chiều"
+                + "     •     Không tính công điều động, không gồm ngày phép");
+        r++;
+
+        int headerTop = r;
+        Row top = sheet.createRow(r++);
+        top.setHeightInPoints(20f);
+        int headerBottom = r;
+        Row bottom = sheet.createRow(r++);
+        bottom.setHeightInPoints(24f);
+
+        String[] fixed = {"TT", "Mã NV", "Họ và tên", "Chức vụ"};
+        for (int c = 0; c < fixedCols; c++) {
+            Cell t = top.createCell(c);
+            t.setCellValue(fixed[c]);
+            t.setCellStyle(s.header);
+            bottom.createCell(c).setCellStyle(s.header);
+            sheet.addMergedRegion(new CellRangeAddress(headerTop, headerBottom, c, c));
+        }
+
+        Cell groupCell = top.createCell(firstDayCol);
+        groupCell.setCellValue("Ngày trong tháng");
+        groupCell.setCellStyle(s.header);
+        sheet.addMergedRegion(new CellRangeAddress(headerTop, headerTop, firstDayCol, firstDayCol + daysInMonth - 1));
+
+        for (int d = 1; d <= daysInMonth; d++) {
+            int col = firstDayCol + d - 1;
+            LocalDate date = ym.atDay(d);
+            boolean weekend = date.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
+                    || date.getDayOfWeek() == java.time.DayOfWeek.SUNDAY;
+            Cell dayHead = bottom.createCell(col);
+            dayHead.setCellValue(d);
+            dayHead.setCellStyle(weekend ? s.dayHeaderWeekend : s.dayHeader);
+        }
+
+        Cell sumGroup = top.createCell(xCol);
+        sumGroup.setCellValue("Tổng hợp");
+        sumGroup.setCellStyle(s.header);
+        sheet.addMergedRegion(new CellRangeAddress(headerTop, headerTop, xCol, unitsCol));
+        String[] sumHeads = {"Cả ngày (X)", "Sáng (S)", "Chiều (C)", "Công chấm"};
+        for (int i = 0; i < sumHeads.length; i++) {
+            Cell h = bottom.createCell(xCol + i);
+            h.setCellValue(sumHeads[i]);
+            h.setCellStyle(s.header);
+        }
+
+        long sumX = 0;
+        long sumS = 0;
+        long sumC = 0;
+        BigDecimal sumUnits = BigDecimal.ZERO;
+
+        int idx = 1;
+        for (Map<String, Object> emp : rows) {
+            boolean zebra = idx % 2 == 0;
+            Row dr = sheet.createRow(r++);
+            dr.setHeightInPoints(17f);
+
+            setCell(dr, 0, idx, zebra ? s.centerZebra : s.center);
+            setCell(dr, 1, str(emp.get("employeeCode")), zebra ? s.centerZebra : s.center);
+            setCell(dr, 2, str(emp.get("fullName")), zebra ? s.textZebra : s.text);
+            setCell(dr, 3, str(emp.get("position")), zebra ? s.textZebra : s.text);
+
+            // ngày -> ký hiệu (chỉ công ca sáng/chiều từ chấm công; bỏ qua ngày phép và công điều động)
+            Map<Integer, String> symbolByDay = new java.util.HashMap<>();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> days = (List<Map<String, Object>>) emp.get("days");
+            if (days != null) {
+                for (Map<String, Object> day : days) {
+                    String symbol = attendanceSymbol(day);
+                    if (symbol == null) {
+                        continue;
+                    }
+                    LocalDate date = LocalDate.parse(str(day.get("workDate")));
+                    symbolByDay.put(date.getDayOfMonth(), symbol);
+                }
+            }
+
+            long countX = 0;
+            long countS = 0;
+            long countC = 0;
+            for (int d = 1; d <= daysInMonth; d++) {
+                int col = firstDayCol + d - 1;
+                LocalDate date = ym.atDay(d);
+                boolean weekend = date.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
+                        || date.getDayOfWeek() == java.time.DayOfWeek.SUNDAY;
+                String symbol = symbolByDay.get(d);
+                Cell cell = dr.createCell(col);
+                CellStyle style = weekend
+                        ? (zebra ? s.symWeekendZebra : s.symWeekend)
+                        : (zebra ? s.symZebra : s.sym);
+                if ("X".equals(symbol)) {
+                    countX++;
+                } else if ("S".equals(symbol)) {
+                    countS++;
+                } else if ("C".equals(symbol)) {
+                    countC++;
+                }
+                if (symbol != null) {
+                    cell.setCellValue(symbol);
+                }
+                cell.setCellStyle(style);
+            }
+
+            BigDecimal clocked = clockedWorkUnits(emp);
+            setCell(dr, xCol, countX, zebra ? s.centerZebra : s.center);
+            setCell(dr, sCol, countS, zebra ? s.centerZebra : s.center);
+            setCell(dr, cCol, countC, zebra ? s.centerZebra : s.center);
+            setCell(dr, unitsCol, clocked, zebra ? s.num2BoldZebra : s.num2Bold);
+            sumX += countX;
+            sumS += countS;
+            sumC += countC;
+            sumUnits = sumUnits.add(clocked);
+            idx++;
+        }
+
+        Row totalRow = sheet.createRow(r++);
+        totalRow.setHeightInPoints(20f);
+        setCell(totalRow, 0, "TỔNG CỘNG", s.totalText);
+        for (int c = 1; c < xCol; c++) {
+            setCell(totalRow, c, "", s.totalText);
+        }
+        setCell(totalRow, xCol, sumX, s.totalCenter);
+        setCell(totalRow, sCol, sumS, s.totalCenter);
+        setCell(totalRow, cCol, sumC, s.totalCenter);
+        setCell(totalRow, unitsCol, sumUnits, s.totalNum2);
+
+        sheet.setColumnWidth(0, 1400);
+        sheet.setColumnWidth(1, 2600);
+        sheet.setColumnWidth(2, 6200);
+        sheet.setColumnWidth(3, 5000);
+        for (int d = 1; d <= daysInMonth; d++) {
+            sheet.setColumnWidth(firstDayCol + d - 1, 1150);
+        }
+        sheet.setColumnWidth(xCol, 2600);
+        sheet.setColumnWidth(sCol, 2300);
+        sheet.setColumnWidth(cCol, 2300);
+        sheet.setColumnWidth(unitsCol, 2800);
+
+        sheet.createFreezePane(fixedCols, headerBottom + 1);
+
+        r++;
+        Row noteRow = sheet.createRow(r);
+        Cell noteCell = noteRow.createCell(0);
+        noteCell.setCellValue("Ghi chú: X = có công cả ca sáng và ca chiều; S = chỉ có công ca sáng; C = chỉ có công ca chiều; "
+                + "ô trống = không có công chấm. Bảng này KHÔNG tính công điều động (làm thêm / trong ca) và không gồm ngày nghỉ phép "
+                + "— xem sheet «Bảng chấm công», «Bảng công phép» và «Tổng hợp». "
+                + "«Công chấm» = công ca sáng + ca chiều theo chấm công, đã trừ ngày phép.");
+        noteCell.setCellStyle(s.footnote);
+        sheet.addMergedRegion(new CellRangeAddress(r, r, 0, lastCol));
+    }
+
+    /** Ký hiệu chấm công của một ngày: X / S / C theo công ca máy chấm; null nếu nghỉ phép hoặc không có công. */
+    private static String attendanceSymbol(Map<String, Object> day) {
+        if (isPaidLeave(day)) {
+            return null;
+        }
+        boolean morning = num(day.get("morningWorkUnits")).compareTo(BigDecimal.ZERO) > 0;
+        boolean afternoon = num(day.get("afternoonWorkUnits")).compareTo(BigDecimal.ZERO) > 0;
+        if (morning && afternoon) {
+            return "X";
+        }
+        if (morning) {
+            return "S";
+        }
+        if (afternoon) {
+            return "C";
+        }
+        return null;
     }
 
     // ----------------------------------------------------------------- Sheet công trực (lịch)
@@ -1096,6 +1291,11 @@ public class AttendanceReportExcelService {
         final CellStyle dayCellWeekend;
         final CellStyle dayCellWeekendZebra;
 
+        final CellStyle sym;
+        final CellStyle symZebra;
+        final CellStyle symWeekend;
+        final CellStyle symWeekendZebra;
+
         Styles(XSSFWorkbook wb) {
             DataFormat fmt = wb.createDataFormat();
             short money = fmt.getFormat("#,##0");
@@ -1155,6 +1355,13 @@ public class AttendanceReportExcelService {
             this.dayCellZebra = body(wb, dayFont, HorizontalAlignment.CENTER, ZEBRA, dayFmt);
             this.dayCellWeekend = body(wb, dayFont, HorizontalAlignment.CENTER, "FEF3C7", dayFmt);
             this.dayCellWeekendZebra = body(wb, dayFont, HorizontalAlignment.CENTER, "FDE9B8", dayFmt);
+
+            // Bảng công ký hiệu: X/S/C đậm màu thương hiệu
+            XSSFFont symFont = font(wb, 9, true, BRAND);
+            this.sym = body(wb, symFont, HorizontalAlignment.CENTER, null, (short) 0);
+            this.symZebra = body(wb, symFont, HorizontalAlignment.CENTER, ZEBRA, (short) 0);
+            this.symWeekend = body(wb, symFont, HorizontalAlignment.CENTER, "FEF3C7", (short) 0);
+            this.symWeekendZebra = body(wb, symFont, HorizontalAlignment.CENTER, "FDE9B8", (short) 0);
         }
 
         private static XSSFFont font(XSSFWorkbook wb, int size, boolean bold, String hex) {

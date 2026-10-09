@@ -60,17 +60,25 @@ public class AttendanceDayProcessor {
         }
         AttendanceShiftSchedule schedule = shiftScheduleService.forEmployee(
                 rec.getEmployee() != null ? rec.getEmployee().getId() : null, rec.getWorkDate());
+        // Công Quang Trung: giờ bổ sung lưu trong ghi chú — áp lại sau mỗi lần đồng bộ máy chấm công
+        // (đồng bộ ghi đè log giờ chấm) hoặc tính lại, để công không bị mất.
+        ensureQuangTrungMarker(rec);
+        QuangTrungTimes quangTrung = extractQuangTrungTimes(rec.getNote());
+        if (quangTrung != null) {
+            punches = overlayQuangTrung(punches, quangTrung, schedule, isContinuousShift(rec));
+        }
 
         if (isContinuousShift(rec) && (seminar == null || seminar.scope() == AttendanceShiftScope.FULL_DAY)) {
+            BigDecimal inShiftDeployment;
             if (isContinuousStyleDeployment(insideDeployment)) {
-                applyContinuousInsideDeployment(
+                inShiftDeployment = applyContinuousInsideDeployment(
                         rec, punches, schedule, insideDeployment, deployment);
             } else {
                 applyContinuousShift(rec, punches, schedule);
                 rec.setOvertimeWorkUnits(BigDecimal.ZERO);
-                applyDeploymentBonuses(rec, deployment);
+                inShiftDeployment = applyDeploymentBonuses(rec, deployment);
             }
-            applyHolidayWorkMultiplier(rec);
+            applyHolidayWorkMultiplier(rec, inShiftDeployment);
             applySeminarProtection(rec, schedule, seminar);
             return;
         }
@@ -88,27 +96,31 @@ public class AttendanceDayProcessor {
         rec.setAfternoonCheckIn(twoPunch ? null : shifts.afternoonIn());
         rec.setAfternoonCheckOut(shifts.afternoonOut());
 
-        boolean morningOk = twoPunch ? shifts.morningIn() != null : shifts.morningCredited();
-        boolean afternoonOk = twoPunch ? shifts.afternoonOut() != null : shifts.afternoonCredited();
+        // PQ công: vào sáng + ra chiều = đủ cả ngày. Thiếu một mốc → 0 công ca (không cộng nửa ngày).
+        boolean twoPunchPairOk = twoPunch
+                && shifts.morningIn() != null
+                && shifts.afternoonOut() != null;
+        boolean morningOk = twoPunch ? twoPunchPairOk : shifts.morningCredited();
+        boolean afternoonOk = twoPunch ? twoPunchPairOk : shifts.afternoonCredited();
         rec.setMorningWorkUnits(morningOk ? schedule.morningUnits() : BigDecimal.ZERO);
         rec.setAfternoonWorkUnits(afternoonOk ? schedule.afternoonUnits() : BigDecimal.ZERO);
         // Luôn reset ngoài giờ trước khi áp bonus từ ghi chú — tránh OT “dính” sau khi thu hồi/từ chối điều động
         rec.setOvertimeWorkUnits(BigDecimal.ZERO);
-        applyDeploymentBonuses(rec, deployment);
-        applyHolidayWorkMultiplier(rec);
+        BigDecimal inShiftDeployment = applyDeploymentBonuses(rec, deployment);
+        applyHolidayWorkMultiplier(rec, inShiftDeployment);
 
         if (twoPunch) {
             List<String> forgot = new ArrayList<>();
-            if (!morningOk && !protectsMorning(seminar)) {
+            if (shifts.morningIn() == null && !protectsMorning(seminar)) {
                 forgot.add("MORNING");
             }
-            if (!afternoonOk && !protectsAfternoon(seminar)) {
+            if (shifts.afternoonOut() == null && !protectsAfternoon(seminar)) {
                 forgot.add("AFTERNOON");
             }
-            if (insideDeployment.hasMorning() && !morningOk && !forgot.contains("MORNING")) {
+            if (insideDeployment.hasMorning() && shifts.morningIn() == null && !forgot.contains("MORNING")) {
                 forgot.add("MORNING");
             }
-            if (insideDeployment.hasAfternoon() && !afternoonOk && !forgot.contains("AFTERNOON")) {
+            if (insideDeployment.hasAfternoon() && shifts.afternoonOut() == null && !forgot.contains("AFTERNOON")) {
                 forgot.add("AFTERNOON");
             }
             rec.setForgotShifts(forgot.isEmpty() ? null : String.join(",", forgot));
@@ -226,7 +238,8 @@ public class AttendanceDayProcessor {
         if (rec.getEmployee() == null || rec.getEmployee().getId() == null) {
             return false;
         }
-        return continuousShiftService.isTwoPunchAttendance(rec.getEmployee().getId());
+        return continuousShiftService.isTwoPunchAttendance(
+                rec.getEmployee().getId(), rec.getWorkDate());
     }
 
     private boolean isContinuousShift(AttendanceRecord rec) {
@@ -266,8 +279,137 @@ public class AttendanceDayProcessor {
         }
     }
 
+    /* ------------------------------------------------------------------ công Quang Trung */
+
+    private static final java.util.regex.Pattern QUANG_TRUNG_TIMES = java.util.regex.Pattern.compile(
+            "\\[QT:(FULL_DAY|MORNING|AFTERNOON)=([0-9:,]*)]");
+
+    /** Giờ bổ sung Quang Trung lưu trong ghi chú: phạm vi ca + các mốc giờ đã bổ sung. */
+    public record QuangTrungTimes(AttendanceShiftScope scope, List<LocalTime> times) {
+    }
+
+    /** {@code [QT:FULL_DAY=06:10,12:00,14:00,17:00]} — gắn vào dòng ghi chú "Bổ sung công Quang Trung". */
+    public static String quangTrungMarker(AttendanceShiftScope scope, List<LocalTime> times) {
+        StringBuilder sb = new StringBuilder("[QT:").append(scope.name()).append('=');
+        List<LocalTime> sorted = times.stream().sorted().distinct().toList();
+        for (int i = 0; i < sorted.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(sorted.get(i).withNano(0));
+        }
+        return sb.append(']').toString();
+    }
+
+    public static String stripQuangTrungMarker(String text) {
+        return text == null ? null : QUANG_TRUNG_TIMES.matcher(text).replaceAll("").replaceAll("\\s{2,}", " ").trim();
+    }
+
+    static QuangTrungTimes extractQuangTrungTimes(String note) {
+        if (note == null || !note.contains(com.minhan.hrm.service.AttendanceService.QUANG_TRUNG_NOTE_MARKER)) {
+            return null;
+        }
+        java.util.regex.Matcher m = QUANG_TRUNG_TIMES.matcher(note);
+        if (!m.find()) {
+            return null;
+        }
+        List<LocalTime> times = new ArrayList<>();
+        for (String t : m.group(2).split(",")) {
+            if (!t.isBlank()) {
+                try {
+                    times.add(LocalTime.parse(t.trim()));
+                } catch (Exception ignored) {
+                    // mốc lỗi định dạng — bỏ qua
+                }
+            }
+        }
+        return times.isEmpty() ? null : new QuangTrungTimes(AttendanceShiftScope.valueOf(m.group(1)), times);
+    }
+
+    /** Gắn / thay mốc giờ vào đúng dòng ghi chú Quang Trung. */
+    public static String withQuangTrungMarker(String note, String marker) {
+        if (note == null || note.isBlank()) {
+            return note;
+        }
+        String qt = com.minhan.hrm.service.AttendanceService.QUANG_TRUNG_NOTE_MARKER;
+        List<String> parts = new ArrayList<>();
+        for (String part : note.split(";")) {
+            String p = part.trim();
+            if (p.isEmpty()) {
+                continue;
+            }
+            if (p.contains(qt)) {
+                p = stripQuangTrungMarker(p) + " " + marker;
+            }
+            parts.add(p);
+        }
+        return String.join("; ", parts);
+    }
+
+    /**
+     * Ngày có ghi chú Quang Trung nhưng chưa lưu mốc giờ (bổ sung trước bản sửa lỗi) và đang có công:
+     * lưu giờ đang hiển thị làm mốc Quang Trung — từ đây đồng bộ máy chấm công không làm mất công nữa.
+     */
+    private static void ensureQuangTrungMarker(AttendanceRecord rec) {
+        String note = rec.getNote();
+        if (note == null || !note.contains(com.minhan.hrm.service.AttendanceService.QUANG_TRUNG_NOTE_MARKER)
+                || QUANG_TRUNG_TIMES.matcher(note).find()) {
+            return;
+        }
+        if (nz(rec.getMorningWorkUnits()).add(nz(rec.getAfternoonWorkUnits())).compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        boolean morning = rec.getMorningCheckIn() != null || rec.getMorningCheckOut() != null;
+        boolean afternoon = rec.getAfternoonCheckIn() != null || rec.getAfternoonCheckOut() != null;
+        if (!morning && !afternoon) {
+            return;
+        }
+        List<LocalTime> times = new ArrayList<>();
+        for (LocalTime t : new LocalTime[] {
+                rec.getMorningCheckIn(), rec.getMorningCheckOut(),
+                rec.getAfternoonCheckIn(), rec.getAfternoonCheckOut()}) {
+            if (t != null) {
+                times.add(t);
+            }
+        }
+        AttendanceShiftScope scope = morning && afternoon
+                ? AttendanceShiftScope.FULL_DAY
+                : morning ? AttendanceShiftScope.MORNING : AttendanceShiftScope.AFTERNOON;
+        rec.setNote(withQuangTrungMarker(note, quangTrungMarker(scope, times)));
+    }
+
+    /** Cả ngày: chỉ dùng giờ Quang Trung. Một ca: giờ Quang Trung + log máy của ca còn lại. */
+    private static List<LocalTime> overlayQuangTrung(
+            List<LocalTime> machine,
+            QuangTrungTimes quangTrung,
+            AttendanceShiftSchedule schedule,
+            boolean continuous) {
+        List<LocalTime> out = new ArrayList<>(quangTrung.times());
+        if (quangTrung.scope() != AttendanceShiftScope.FULL_DAY) {
+            for (LocalTime t : machine) {
+                boolean keep = continuous
+                        || (quangTrung.scope() == AttendanceShiftScope.MORNING
+                                ? !isMorningPunch(t, schedule)
+                                : isMorningPunch(t, schedule));
+                if (keep) {
+                    out.add(t);
+                }
+            }
+        }
+        return out.stream().sorted().distinct().toList();
+    }
+
     /** Ngày lễ đi làm: nhân đôi công ca (sáng + chiều). */
     private void applyHolidayWorkMultiplier(AttendanceRecord rec) {
+        applyHolidayWorkMultiplier(rec, BigDecimal.ZERO);
+    }
+
+    /**
+     * Ngày lễ đi làm: nhân đôi công ca. {@code inShiftDeployment} = phần công điều động trong ca
+     * đã tách khỏi công chấm sang công điều động — trước đây nằm trong công ca nên cũng được nhân đôi,
+     * nay cộng thêm một lần vào công điều động để tổng công ngày lễ không đổi.
+     */
+    private void applyHolidayWorkMultiplier(AttendanceRecord rec, BigDecimal inShiftDeployment) {
         if (rec.getWorkDate() == null) {
             return;
         }
@@ -285,6 +427,9 @@ public class AttendanceDayProcessor {
         }
         rec.setMorningWorkUnits(morning.multiply(TWO));
         rec.setAfternoonWorkUnits(afternoon.multiply(TWO));
+        if (inShiftDeployment != null && inShiftDeployment.compareTo(BigDecimal.ZERO) > 0) {
+            rec.setOvertimeWorkUnits(nz(rec.getOvertimeWorkUnits()).add(inShiftDeployment));
+        }
     }
 
     /** Ca thông tầm: chỉ cần giờ vào (đầu ngày) và giờ ra (cuối ngày), không bắt buộc chấm giữa trưa. */
@@ -346,17 +491,69 @@ public class AttendanceDayProcessor {
     }
 
     /**
-     * Điều động trong ca thông tầm: một khung vào–ra cả ngày (DDTC chỉ có S=…;A=-),
-     * khớp punch bằng cửa sổ vào sáng / ra chiều của ca thông tầm.
+     * Điều động trong ca thông tầm (DDTC chỉ có S=…;A=-).
+     *
+     * <p>Luôn tính ca thông tầm bình thường trước (giờ vào đầu ca / giờ ra cuối ca theo lịch ca).
+     * Trước đây chỉ dò log quanh mốc của khung điều động — điều động một phần ca (vd 12:30–13:30
+     * hoặc 05:30–07:00 trên ca 05:30–13:30) khiến giờ vào/ra thật của ca bị bỏ, mất cả ngày công.
+     * <ul>
+     *   <li>Đủ vào/ra theo ca → công chấm 1 ngày; phần chênh ×1,5 của giờ điều động (trọn ca: 0,5)
+     *       nằm ở công điều động.</li>
+     *   <li>Không đủ theo ca nhưng khớp đúng khung điều động (chỉ làm giờ điều động) → khớp theo khung.</li>
+     * </ul>
+     * Ngoài giờ của đơn (phần sau/trước ca) luôn được cộng vào công điều động.
+     *
+     * @return phần công điều động trong ca (đã nằm trong công điều động).
      */
-    private void applyContinuousInsideDeployment(
+    private BigDecimal applyContinuousInsideDeployment(
             AttendanceRecord rec,
             List<LocalTime> punches,
             AttendanceShiftSchedule schedule,
             InsideDeploymentRequirement requirement,
             DeploymentBonusSplit deployment) {
+        applyContinuousShift(rec, punches, schedule);
+        LocalTime regularIn = rec.getMorningCheckIn();
+        LocalTime regularOut = rec.getAfternoonCheckOut();
+        if (regularIn != null && regularOut != null) {
+            BigDecimal inShift = insideDeploymentExtra(deployment.morning())
+                    .add(insideDeploymentExtra(deployment.afternoon()));
+            rec.setOvertimeWorkUnits(nz(deployment.overtime()).add(inShift));
+            finalizeStatus(rec, regularIn, null, regularOut);
+            return inShift;
+        }
+
         DeploymentPunches deploymentPunches =
                 resolveContinuousInsideDeploymentPunches(punches, schedule, requirement);
+        if (!deploymentPunches.morningCredited()) {
+            // Chưa đủ giờ cả theo ca lẫn theo khung điều động: giữ kết quả ca (thiếu chấm),
+            // vẫn cộng phần ngoài giờ đã duyệt.
+            rec.setOvertimeWorkUnits(nz(deployment.overtime()));
+            finalizeStatus(rec, regularIn, null, regularOut);
+            return BigDecimal.ZERO;
+        }
+        return applyContinuousDeploymentWindowOnly(rec, schedule, requirement, deployment, deploymentPunches);
+    }
+
+    /**
+     * Phần công thêm của giờ điều động trong ca: ghi chú lưu công đã nhân hệ số (vd ×1,5);
+     * ngày công thường đã tính 1× nên chỉ cộng phần chênh {@code công × (1 − 1/hệ số)}.
+     */
+    private static BigDecimal insideDeploymentExtra(BigDecimal creditedUnits) {
+        if (creditedUnits == null || creditedUnits.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal coefficient = com.minhan.hrm.service.AttendanceWorkRequestService.DEPLOYMENT_COEFFICIENT;
+        BigDecimal baseShare = creditedUnits.divide(coefficient, 8, java.math.RoundingMode.HALF_UP);
+        return creditedUnits.subtract(baseShare).max(BigDecimal.ZERO);
+    }
+
+    /** Chỉ làm đúng khung điều động (không đủ vào/ra của ca): khớp log theo khung điều động. */
+    private BigDecimal applyContinuousDeploymentWindowOnly(
+            AttendanceRecord rec,
+            AttendanceShiftSchedule schedule,
+            InsideDeploymentRequirement requirement,
+            DeploymentBonusSplit deployment,
+            DeploymentPunches deploymentPunches) {
         LocalTime dayIn = deploymentPunches.morningIn();
         LocalTime dayOut = deploymentPunches.morningOut();
 
@@ -399,8 +596,10 @@ public class AttendanceDayProcessor {
 
         rec.setOvertimeWorkUnits(BigDecimal.ZERO);
         // Ca thông tầm: cả sáng+chiều trong ghi chú chỉ áp khi đủ cặp vào đầu ngày / ra cuối ngày
-        applyDeploymentBonuses(rec, filterContinuousDeploymentBonuses(deployment, deploymentPunches));
+        BigDecimal inShift = applyDeploymentBonuses(
+                rec, filterContinuousDeploymentBonuses(deployment, deploymentPunches));
         finalizeStatus(rec, dayIn, null, dayOut);
+        return inShift;
     }
 
     private static DeploymentBonusSplit filterContinuousDeploymentBonuses(
@@ -1207,19 +1406,43 @@ public class AttendanceDayProcessor {
                 deployment.overtime());
     }
 
-    private static void applyDeploymentBonuses(AttendanceRecord rec, DeploymentBonusSplit deployment) {
-        if (deployment.replaceMorning() && deployment.morning().compareTo(BigDecimal.ZERO) > 0) {
-            rec.setMorningWorkUnits(deployment.morning());
-        } else if (deployment.morning().compareTo(BigDecimal.ZERO) > 0) {
-            rec.setMorningWorkUnits(nz(rec.getMorningWorkUnits()).add(deployment.morning()));
-        }
-        if (deployment.replaceAfternoon() && deployment.afternoon().compareTo(BigDecimal.ZERO) > 0) {
-            rec.setAfternoonWorkUnits(deployment.afternoon());
-        } else if (deployment.afternoon().compareTo(BigDecimal.ZERO) > 0) {
-            rec.setAfternoonWorkUnits(nz(rec.getAfternoonWorkUnits()).add(deployment.afternoon()));
-        }
+    /**
+     * Áp công điều động từ ghi chú — công chấm (ca sáng/chiều) chỉ giữ công ca thường theo vân tay,
+     * mọi phần công do điều động đều nằm ở công điều động ({@code overtimeWorkUnits}):
+     * <ul>
+     *   <li>{@code =X} (điều động trong ca, X đã nhân hệ số): công ca = X / hệ số (phần ca thường),
+     *       phần chênh X − X / hệ số → công điều động.</li>
+     *   <li>{@code +X} (ghi chú cũ cộng thêm vào ca) → toàn bộ X vào công điều động.</li>
+     *   <li>Ngoài giờ → công điều động.</li>
+     * </ul>
+     * Tổng công trong ngày giữ nguyên như trước khi tách.
+     *
+     * @return phần công điều động phát sinh trong ca (để nhân đôi ngày lễ như công ca trước đây).
+     */
+    private static BigDecimal applyDeploymentBonuses(AttendanceRecord rec, DeploymentBonusSplit deployment) {
+        BigDecimal inShift = moveShiftDeploymentToOvertime(rec, true, deployment.morning(), deployment.replaceMorning())
+                .add(moveShiftDeploymentToOvertime(rec, false, deployment.afternoon(), deployment.replaceAfternoon()));
         // Gán cả khi = 0 để gỡ ngoài giờ sau khi bỏ ghi chú điều động
-        rec.setOvertimeWorkUnits(nz(deployment.overtime()));
+        rec.setOvertimeWorkUnits(nz(deployment.overtime()).add(inShift));
+        return inShift;
+    }
+
+    private static BigDecimal moveShiftDeploymentToOvertime(
+            AttendanceRecord rec, boolean morning, BigDecimal amount, boolean replace) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        if (!replace) {
+            return amount;
+        }
+        BigDecimal extra = insideDeploymentExtra(amount);
+        BigDecimal base = amount.subtract(extra);
+        if (morning) {
+            rec.setMorningWorkUnits(base);
+        } else {
+            rec.setAfternoonWorkUnits(base);
+        }
+        return extra;
     }
 
     private static BigDecimal nz(BigDecimal v) {

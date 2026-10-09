@@ -6,6 +6,7 @@ import com.minhan.hrm.dto.attendance.ChamcongSyncScheduleUpdateRequest;
 import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.service.AccompanyingDutyImportService;
 import com.minhan.hrm.service.AttendanceCodeSyncService;
+import com.minhan.hrm.service.BirthdayExcelExportService;
 import com.minhan.hrm.service.CheckInOutImportService;
 import com.minhan.hrm.service.CheckInOutSyncService;
 import com.minhan.hrm.service.SalaryImportService;
@@ -37,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -49,6 +51,7 @@ public class WorkforceImportController {
     private final WorkforceExcelImportService workforceExcelImportService;
     private final AccompanyingDutyImportService accompanyingDutyImportService;
     private final WorkforceExcelExportService workforceExcelExportService;
+    private final BirthdayExcelExportService birthdayExcelExportService;
     private final CheckInOutImportService checkInOutImportService;
     private final CheckInOutSyncService checkInOutSyncService;
     private final AttendanceCodeSyncService attendanceCodeSyncService;
@@ -66,6 +69,21 @@ public class WorkforceImportController {
     @Operation(summary = "Import danh sách nhân viên trực kèm (.xlsx) — NV trong file chỉ được ca TK; còn lại được trực bình thường")
     public Map<String, Object> importAccompanyingDuty(@RequestPart("file") MultipartFile file) {
         return accompanyingDutyImportService.importAccompanyingDutyList(file);
+    }
+
+    @GetMapping("/workforce/export/birthdays")
+    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @Operation(summary = "Xuất Excel danh sách CB-NV toàn viện có sinh nhật trong các tháng đã chọn (months=9&months=10)")
+    public ResponseEntity<byte[]> exportBirthdays(@RequestParam("months") List<Integer> months) {
+        byte[] body = birthdayExcelExportService.export(months);
+        ContentDisposition cd = ContentDisposition.attachment()
+                .filename(BirthdayExcelExportService.filename(months), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(body);
     }
 
     @GetMapping("/workforce/export")

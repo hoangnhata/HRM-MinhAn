@@ -86,6 +86,9 @@ public class ProbationConversionRequest {
     @JoinColumn(name = "requested_by_user_id", nullable = false)
     private UserAccount requestedBy;
 
+    @Column(name = "requester_signature_path", length = 500)
+    private String requesterSignaturePath;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "nursing_head_reviewer_id")
     private UserAccount nursingHeadReviewer;

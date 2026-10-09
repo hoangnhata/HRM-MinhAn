@@ -23,6 +23,11 @@ public class TrainingProposalCreateRequest {
     @Size(max = 500)
     private String location;
 
+    /** ONLINE | OFFLINE | HYBRID */
+    @NotBlank
+    @Size(max = 20)
+    private String learningMode;
+
     @NotBlank
     @Size(max = 255)
     private String plannedPeriod;

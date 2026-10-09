@@ -21,6 +21,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -43,6 +44,8 @@ public class ApprovalSignatureController {
 
     @GetMapping("/{kind}/{id}/{role}")
     @Operation(summary = "Ảnh chữ ký snapshot theo loại đơn / bước duyệt")
+    // Cần session để đọc chữ ký hồ sơ của người duyệt (quan hệ LAZY, open-in-view tắt).
+    @Transactional(readOnly = true)
     public ResponseEntity<byte[]> get(
             @PathVariable String kind,
             @PathVariable long id,
@@ -63,9 +66,13 @@ public class ApprovalSignatureController {
                 ProbationConversionRequest row = probationRepo.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn"));
                 yield switch (r) {
-                    case "nursing-head" -> row.getNursingHeadSignaturePath();
-                    case "hr" -> row.getHrSignaturePath();
-                    case "director" -> row.getDirectorSignaturePath();
+                    case "requester" -> row.getRequesterSignaturePath();
+                    case "nursing-head" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getNursingHeadSignaturePath(), row.getNursingHeadReviewer(), row.getNursingHeadReviewedAt());
+                    case "hr" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getHrSignaturePath(), row.getHrReviewer(), row.getHrReviewedAt());
+                    case "director" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getDirectorSignaturePath(), row.getDirectorReviewer(), row.getDirectorReviewedAt());
                     default -> throw badRole();
                 };
             }
@@ -73,41 +80,50 @@ public class ApprovalSignatureController {
                 AttendanceWorkRequest row = attendanceRepo.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn"));
                 yield switch (r) {
-                    case "head" -> row.getHeadSignaturePath();
-                    case "nursing-head" -> row.getNursingHeadSignaturePath();
-                    case "hr" -> row.getHrSignaturePath();
-                    case "director" -> row.getDirectorSignaturePath();
+                    case "requester" -> row.getRequesterSignaturePath();
+                    case "head" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getHeadSignaturePath(), row.getHeadReviewer(), row.getHeadReviewedAt());
+                    case "nursing-head" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getNursingHeadSignaturePath(), row.getNursingHeadReviewer(), row.getNursingHeadReviewedAt());
+                    case "hr" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getHrSignaturePath(), row.getHrReviewer(), row.getHrReviewedAt());
+                    case "director" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getDirectorSignaturePath(), row.getDirectorReviewer(), row.getDirectorReviewedAt());
                     default -> throw badRole();
                 };
             }
             case "transfer" -> {
                 DepartmentTransferRequest row = transferRepo.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn"));
-                if (!"director".equals(r)) {
-                    throw badRole();
-                }
-                yield row.getDirectorSignaturePath();
+                yield switch (r) {
+                    case "requester" -> row.getRequesterSignaturePath();
+                    case "director" -> row.getDirectorSignaturePath();
+                    default -> throw badRole();
+                };
             }
             case "young-child" -> {
                 YoungChildRequest row = youngChildRepo.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn"));
-                if (!"hr".equals(r)) {
-                    throw badRole();
-                }
-                yield row.getHrSignaturePath();
+                yield switch (r) {
+                    case "requester" -> row.getRequesterSignaturePath();
+                    case "hr" -> row.getHrSignaturePath();
+                    default -> throw badRole();
+                };
             }
             case "shift-config-change" -> {
                 ShiftConfigChangeRequest row = shiftConfigChangeRepo.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn"));
-                if (!"hr".equals(r)) {
-                    throw badRole();
-                }
-                yield row.getHrSignaturePath();
+                yield switch (r) {
+                    case "requester" -> row.getRequesterSignaturePath();
+                    case "hr" -> row.getHrSignaturePath();
+                    default -> throw badRole();
+                };
             }
             case "training" -> {
                 TrainingProposalRequest row = trainingRepo.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn"));
                 yield switch (r) {
+                    case "requester" -> row.getRequesterSignaturePath();
                     case "hr" -> row.getHrSignaturePath();
                     case "director" -> row.getDirectorSignaturePath();
                     default -> throw badRole();
@@ -117,6 +133,7 @@ public class ApprovalSignatureController {
                 SeminarProposalRequest row = seminarRepo.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn"));
                 yield switch (r) {
+                    case "requester" -> row.getRequesterSignaturePath();
                     case "hr" -> row.getHrSignaturePath();
                     case "director" -> row.getDirectorSignaturePath();
                     default -> throw badRole();
@@ -126,10 +143,15 @@ public class ApprovalSignatureController {
                 var row = mainDutyRepo.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn"));
                 yield switch (r) {
-                    case "head" -> row.getHeadSignaturePath();
-                    case "nursing-head" -> row.getNursingHeadSignaturePath();
-                    case "hr" -> row.getHrSignaturePath();
-                    case "director" -> row.getDirectorSignaturePath();
+                    case "requester" -> row.getRequesterSignaturePath();
+                    case "head" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getHeadSignaturePath(), row.getHeadReviewer(), row.getHeadReviewedAt());
+                    case "nursing-head" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getNursingHeadSignaturePath(), row.getNursingHeadReviewer(), row.getNursingHeadReviewedAt());
+                    case "hr" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getHrSignaturePath(), row.getHrReviewer(), row.getHrReviewedAt());
+                    case "director" -> ApprovalSignatureService.effectiveStagePath(
+                            row.getDirectorSignaturePath(), row.getDirectorReviewer(), row.getDirectorReviewedAt());
                     default -> throw badRole();
                 };
             }

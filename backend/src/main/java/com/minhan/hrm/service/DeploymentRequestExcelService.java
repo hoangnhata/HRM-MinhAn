@@ -172,6 +172,9 @@ public class DeploymentRequestExcelService {
     }
 
     private static String formLabel(Map<String, Object> row) {
+        if (row.get("deploymentMixedShift") instanceof Boolean mixed && mixed) {
+            return "Trong ca & ngoài ca";
+        }
         Object inside = row.get("deploymentInsideShift");
         if (inside instanceof Boolean b) {
             return b ? "Trong ca" : "Ngoài ca";

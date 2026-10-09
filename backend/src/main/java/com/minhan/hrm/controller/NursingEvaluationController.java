@@ -2,13 +2,20 @@ package com.minhan.hrm.controller;
 
 import com.minhan.hrm.dto.evaluation.NursingEvaluationReviewRequest;
 import com.minhan.hrm.dto.evaluation.NursingEvaluationSubmitRequest;
+import com.minhan.hrm.dto.evaluation.NursingEvaluationTemplateSaveRequest;
+import com.minhan.hrm.service.NursingEvaluationExcelService;
 import com.minhan.hrm.service.NursingEvaluationService;
+import com.minhan.hrm.service.NursingEvaluationTemplateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -25,11 +32,62 @@ import java.util.Map;
 public class NursingEvaluationController {
 
     private final NursingEvaluationService nursingEvaluationService;
+    private final NursingEvaluationTemplateService templateService;
+    private final NursingEvaluationExcelService excelService;
 
     @GetMapping("/templates/{code}")
     @Operation(summary = "Lấy mẫu tiêu chí (để hiển thị form)")
     public Map<String, Object> template(@PathVariable String code) {
         return nursingEvaluationService.getTemplateForUi(code);
+    }
+
+    @GetMapping("/templates/{code}/editor")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Operation(summary = "Mẫu đang dùng + thông tin phiên bản (màn hình chỉnh sửa mẫu)")
+    public Map<String, Object> templateEditor(@PathVariable String code) {
+        return templateService.editorState(code);
+    }
+
+    @PutMapping("/templates/{code}")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Operation(summary = "Lưu mẫu đánh giá (tạo phiên bản mới) — ADMIN / Trưởng phòng ĐD")
+    public Map<String, Object> saveTemplate(
+            @PathVariable String code,
+            @Valid @RequestBody NursingEvaluationTemplateSaveRequest body) {
+        return templateService.save(code, body);
+    }
+
+    @GetMapping("/templates/{code}/revisions")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Operation(summary = "Lịch sử phiên bản mẫu đánh giá")
+    public List<Map<String, Object>> templateRevisions(@PathVariable String code) {
+        return templateService.listRevisions(code);
+    }
+
+    @GetMapping("/templates/{code}/revisions/{revisionId}")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Operation(summary = "Nội dung một phiên bản mẫu (xem trước)")
+    public Map<String, Object> templateRevision(@PathVariable String code, @PathVariable Long revisionId) {
+        return templateService.revisionTemplate(code, revisionId);
+    }
+
+    @PostMapping("/templates/{code}/revisions/{revisionId}/restore")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Operation(summary = "Khôi phục một phiên bản cũ (tạo phiên bản mới)")
+    public Map<String, Object> restoreTemplateRevision(
+            @PathVariable String code,
+            @PathVariable Long revisionId,
+            @Valid @RequestBody NursingEvaluationTemplateSaveRequest body) {
+        return templateService.restoreRevision(code, revisionId, body);
+    }
+
+    @PostMapping("/templates/{code}/reset")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Operation(summary = "Khôi phục mẫu gốc (tạo phiên bản mới)")
+    public Map<String, Object> resetTemplate(
+            @PathVariable String code,
+            @Valid @RequestBody NursingEvaluationTemplateSaveRequest body) {
+        return templateService.resetToDefault(code, body);
     }
 
     @GetMapping("/employees/{employeeId}")
@@ -56,6 +114,25 @@ public class NursingEvaluationController {
             @RequestParam int month,
             @RequestParam String templateCode) {
         return nursingEvaluationService.listMonthlySummary(year, month, templateCode);
+    }
+
+    @GetMapping("/summary/excel")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    @Operation(summary = "Xuất Excel thống kê xếp loại tháng — phiếu Trưởng phòng ĐD đã duyệt (ADMIN / Trưởng phòng ĐD)")
+    public ResponseEntity<byte[]> monthlySummaryExcel(
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam String templateCode) {
+        byte[] body = excelService.buildMonthlyRanking(year, month, templateCode);
+        ContentDisposition cd = ContentDisposition.attachment()
+                .filename(String.format("thong-ke-xep-loai-dieu-duong-%d-%02d.xlsx", year, month),
+                        java.nio.charset.StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(body);
     }
 
     @GetMapping("/pending")

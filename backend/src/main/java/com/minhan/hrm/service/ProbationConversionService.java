@@ -113,11 +113,18 @@ public class ProbationConversionService {
                         : ProbationConversionStatus.PENDING_HR)
                 .requestedBy(actor)
                 .build();
+        skipSelfApprovalHrStage(row, actor);
         row = conversionRepository.save(row);
-        if (nursingBlock) {
+        stampRequesterSignature(row, actor, true);
+        stampSkippedHrSignature(row);
+        row = conversionRepository.save(row);
+        if (row.getStatus() == ProbationConversionStatus.PENDING_NURSING_HEAD) {
             notifyNursingHeadPending(row);
-        } else {
+        } else if (row.getStatus() == ProbationConversionStatus.PENDING_HR) {
             notifyHrPending(row);
+        } else if (row.getStatus() == ProbationConversionStatus.PENDING_DIRECTOR) {
+            notifyDirectorsPending(row);
+            notificationService.notifyProbationConversionForwardedToDirector(row);
         }
         notificationService.notifyProbationConversionSubmittedToEmployee(row);
         return toMap(row);
@@ -164,6 +171,7 @@ public class ProbationConversionService {
         row.setTotalScore(score.totalScore());
         row.setMaxScore(score.maxScore());
         row.setGradeLabel(score.gradeLabel());
+        stampRequesterSignature(row, actor, false);
         row = conversionRepository.save(row);
         return toMap(row);
     }
@@ -316,10 +324,15 @@ public class ProbationConversionService {
         if (previousStatus == ProbationConversionStatus.PENDING_NURSING_HEAD
                 || previousStatus == ProbationConversionStatus.NURSING_HEAD_REJECTED) {
             row.setStatus(ProbationConversionStatus.PENDING_HR);
+            skipSelfApprovalHrStage(row, row.getRequestedBy());
+            stampSkippedHrSignature(row);
         }
         conversionRepository.save(row);
         if (row.getStatus() == ProbationConversionStatus.PENDING_HR) {
             notifyHrPending(row);
+        } else if (row.getStatus() == ProbationConversionStatus.PENDING_DIRECTOR) {
+            notifyDirectorsPending(row);
+            notificationService.notifyProbationConversionForwardedToDirector(row);
         }
         return toMap(row);
     }
@@ -506,6 +519,39 @@ public class ProbationConversionService {
         }
     }
 
+    /**
+     * Người lập phiếu (hoặc chính nhân viên trong phiếu) là người duyệt bước HCNS thì bỏ qua bước đó —
+     * không ai tự duyệt phiếu của mình. Giám đốc vẫn là người quyết định cuối.
+     */
+    private void skipSelfApprovalHrStage(ProbationConversionRequest row, UserAccount requester) {
+        if (row.getStatus() != ProbationConversionStatus.PENDING_HR) {
+            return;
+        }
+        UserAccount self = null;
+        if (EmployeeService.isHrApprover(requester)) {
+            self = requester;
+        } else if (EmployeeService.isHrApprover(row.getEmployee().getUser())) {
+            self = row.getEmployee().getUser();
+        }
+        if (self == null) {
+            return;
+        }
+        row.setHrReviewer(self);
+        row.setHrReviewedAt(Instant.now());
+        row.setHrComment("Bỏ qua — người lập phiếu là HCNS duyệt bước này");
+        row.setHrProposal(ProbationHrProposal.KY_HD);
+        row.setStatus(ProbationConversionStatus.PENDING_DIRECTOR);
+    }
+
+    /** Bước HCNS bỏ qua không đi qua API duyệt — snapshot chữ ký người HCNS đó (cần id, gọi sau lần lưu đầu). */
+    private void stampSkippedHrSignature(ProbationConversionRequest row) {
+        if (row.getHrReviewer() != null && row.getHrReviewedAt() != null
+                && (row.getHrSignaturePath() == null || row.getHrSignaturePath().isBlank())) {
+            row.setHrSignaturePath(approvalSignatureService.snapshotIfAvailable(
+                    row.getHrReviewer(), "probation", row.getId(), "hr"));
+        }
+    }
+
     private void notifyHrPending(ProbationConversionRequest row) {
         List<UserAccount> hrs = userAccountRepository.findByRoleIn(List.of(UserRole.HR2, UserRole.HEAD_HR, UserRole.ADMIN));
         for (UserAccount u : hrs) {
@@ -644,6 +690,15 @@ public class ProbationConversionService {
         };
     }
 
+    private void stampRequesterSignature(ProbationConversionRequest row, UserAccount actor, boolean force) {
+        boolean owner = row.getRequestedBy() != null && row.getRequestedBy().getId().equals(actor.getId());
+        if (!force && !owner && row.getRequesterSignaturePath() != null && !row.getRequesterSignaturePath().isBlank()) {
+            return;
+        }
+        row.setRequesterSignaturePath(approvalSignatureService.stampRequester(
+                actor, "probation", row.getId(), row.getRequesterSignaturePath()));
+    }
+
     private Map<String, Object> toMap(ProbationConversionRequest r) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", r.getId());
@@ -678,25 +733,26 @@ public class ProbationConversionService {
         m.put("hrProposal", r.getHrProposal() != null ? r.getHrProposal().name() : null);
         m.put("status", r.getStatus().name());
         m.put("requestedByUsername", r.getRequestedBy() != null ? r.getRequestedBy().getUsername() : null);
+        m.put("requesterSignatureUrl", ApprovalSignatureService.requesterSignatureUrl(
+                "probation", r.getId(), r.getRequesterSignaturePath()));
         m.put("nursingHeadReviewerUsername",
                 r.getNursingHeadReviewer() != null ? r.getNursingHeadReviewer().getUsername() : null);
         m.put("nursingHeadComment", r.getNursingHeadComment());
         m.put("nursingHeadReviewedAt",
                 r.getNursingHeadReviewedAt() != null ? r.getNursingHeadReviewedAt().toString() : null);
-        m.put("nursingHeadSignatureUrl",
-                r.getNursingHeadSignaturePath() != null && !r.getNursingHeadSignaturePath().isBlank()
-                        ? "/j1-api/v1/approval-signatures/probation/" + r.getId() + "/nursing-head" : null);
+        m.put("nursingHeadSignatureUrl", ApprovalSignatureService.stageSignatureUrl("probation", r.getId(), "nursing-head",
+                r.getNursingHeadSignaturePath(), r.getNursingHeadReviewer(), r.getNursingHeadReviewedAt()));
         m.put("hrReviewerUsername", r.getHrReviewer() != null ? r.getHrReviewer().getUsername() : null);
         m.put("hrComment", r.getHrComment());
         m.put("hrReviewedAt", r.getHrReviewedAt() != null ? r.getHrReviewedAt().toString() : null);
-        m.put("hrSignatureUrl", r.getHrSignaturePath() != null && !r.getHrSignaturePath().isBlank()
-                ? "/j1-api/v1/approval-signatures/probation/" + r.getId() + "/hr" : null);
+        m.put("hrSignatureUrl", ApprovalSignatureService.stageSignatureUrl("probation", r.getId(), "hr",
+                r.getHrSignaturePath(), r.getHrReviewer(), r.getHrReviewedAt()));
         m.put("directorReviewerUsername",
                 r.getDirectorReviewer() != null ? r.getDirectorReviewer().getUsername() : null);
         m.put("directorComment", r.getDirectorComment());
         m.put("directorReviewedAt", r.getDirectorReviewedAt() != null ? r.getDirectorReviewedAt().toString() : null);
-        m.put("directorSignatureUrl", r.getDirectorSignaturePath() != null && !r.getDirectorSignaturePath().isBlank()
-                ? "/j1-api/v1/approval-signatures/probation/" + r.getId() + "/director" : null);
+        m.put("directorSignatureUrl", ApprovalSignatureService.stageSignatureUrl("probation", r.getId(), "director",
+                r.getDirectorSignaturePath(), r.getDirectorReviewer(), r.getDirectorReviewedAt()));
         m.put("appliedAt", r.getAppliedAt() != null ? r.getAppliedAt().toString() : null);
         m.put("createdAt", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
         return m;

@@ -2,6 +2,7 @@ package com.minhan.hrm.service;
 
 import com.minhan.hrm.attendance.LeaveEntitlement;
 import com.minhan.hrm.dto.attendance.ManualLeaveAttachDto;
+import com.minhan.hrm.dto.attendance.ManualLeaveUpdateDto;
 import com.minhan.hrm.entity.AttendanceRequestStatus;
 import com.minhan.hrm.entity.AttendanceRequestType;
 import com.minhan.hrm.entity.AttendanceShiftScope;
@@ -102,6 +103,52 @@ public class ManualLeaveAdjustmentService {
                 !Boolean.FALSE.equals(dto.getApplyAttendance()));
         Map<String, Object> m = toMap(saved);
         m.put("balance", workRequestService.leaveBalanceSnapshot(emp, dto.getFromDate().getYear()));
+        return m;
+    }
+
+    /**
+     * Sửa khoảng ngày / ghi chú của phép đã gắn: gỡ đánh dấu bảng công khoảng cũ, lưu khoảng mới
+     * rồi đánh dấu lại. Nhân viên và người gắn ban đầu giữ nguyên.
+     */
+    @Transactional
+    public Map<String, Object> update(Long id, ManualLeaveUpdateDto dto) {
+        AttendanceWorkRequest r = requestRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không tìm thấy bản ghi phép"));
+        if (!isManual(r)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Bản ghi này không phải phép gắn ngoài hệ thống");
+        }
+        Employee emp = r.getEmployee();
+        validateRange(dto.getFromDate(), dto.getToDate());
+        List<AttendanceWorkRequest> conflicts =
+                workRequestService.findLeaveConflicts(emp.getId(), dto.getFromDate(), dto.getToDate()).stream()
+                        .filter(c -> !c.getId().equals(r.getId()))
+                        .toList();
+        if (!conflicts.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, conflictMessage(conflicts));
+        }
+        int oldYear = r.getWorkDate().getYear();
+        workRequestService.revertManualLeaveDays(r);
+
+        String actor = actorOf(r.getReason());
+        if (actor.isBlank()) {
+            actor = employeeService.currentUser().getUsername();
+        }
+        r.setWorkDate(dto.getFromDate());
+        r.setEndDate(dto.getToDate());
+        r.setReason(buildReason(emp, dto.getFromDate(), dto.getToDate(), actor, dto.getNote()));
+        AttendanceWorkRequest saved = requestRepository.saveAndFlush(r);
+        int marked = !Boolean.FALSE.equals(dto.getApplyAttendance())
+                ? workRequestService.applyManualLeaveOnEmptyDays(saved)
+                : 0;
+        log.info("Manual leave #{} sửa thành {} → {} ({}) bởi {}, đánh dấu bảng công {} ngày",
+                id, dto.getFromDate(), dto.getToDate(), emp.getFullName(),
+                employeeService.currentUser().getUsername(), marked);
+
+        Map<String, Object> m = toMap(saved);
+        m.put("balance", workRequestService.leaveBalanceSnapshot(emp, dto.getFromDate().getYear()));
+        if (oldYear != dto.getFromDate().getYear()) {
+            m.put("previousYearBalance", workRequestService.leaveBalanceSnapshot(emp, oldYear));
+        }
         return m;
     }
 
@@ -400,10 +447,7 @@ public class ManualLeaveAdjustmentService {
     private AttendanceWorkRequest create(Employee emp, LocalDate from, LocalDate to, String note,
                                          boolean applyAttendance) {
         String actor = employeeService.currentUser().getUsername();
-        String reason = REASON_MARKER + " " + emp.getFullName() + " nghỉ phép " + DMY.format(from)
-                + (to.equals(from) ? "" : " → " + DMY.format(to))
-                + " (ghi nhận bởi " + actor + ")"
-                + (note != null && !note.isBlank() ? ": " + note.trim() : "");
+        String reason = buildReason(emp, from, to, actor, note);
         AttendanceWorkRequest req = AttendanceWorkRequest.builder()
                 .employee(emp)
                 .requestType(AttendanceRequestType.LEAVE)
@@ -424,6 +468,14 @@ public class ManualLeaveAdjustmentService {
                 LeaveEntitlement.calendarDaysInclusive(from, to), emp.getFullName(),
                 emp.getEmployeeCode(), from, to, actor, marked);
         return saved;
+    }
+
+    /** Lý do lưu trong đơn: marker + khoảng ngày + người gắn + ghi chú (đọc lại bằng noteOf / actorOf). */
+    private static String buildReason(Employee emp, LocalDate from, LocalDate to, String actor, String note) {
+        return REASON_MARKER + " " + emp.getFullName() + " nghỉ phép " + DMY.format(from)
+                + (to.equals(from) ? "" : " → " + DMY.format(to))
+                + " (ghi nhận bởi " + actor + ")"
+                + (note != null && !note.isBlank() ? ": " + note.trim() : "");
     }
 
     private static void validateRange(LocalDate from, LocalDate to) {

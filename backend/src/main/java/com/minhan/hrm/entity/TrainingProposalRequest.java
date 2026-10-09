@@ -34,6 +34,10 @@ public class TrainingProposalRequest {
     @Column(nullable = false, length = 500)
     private String location;
 
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "learning_mode", length = 20)
+    private TrainingLearningMode learningMode;
+
     @Column(name = "planned_period", nullable = false, length = 255)
     private String plannedPeriod;
 
@@ -73,6 +77,9 @@ public class TrainingProposalRequest {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "requested_by_user_id", nullable = false)
     private UserAccount requestedBy;
+
+    @Column(name = "requester_signature_path", length = 500)
+    private String requesterSignaturePath;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "hr_reviewer_id")

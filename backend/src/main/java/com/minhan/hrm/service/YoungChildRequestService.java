@@ -92,6 +92,8 @@ public class YoungChildRequestService {
                 .requestedBy(actor)
                 .build();
         row = requestRepository.save(row);
+        stampRequesterSignature(row, actor, true);
+        row = requestRepository.save(row);
         notifyHrPending(row);
         notificationService.notifyYoungChildRequestSubmittedToEmployee(row);
         return toMap(row);
@@ -143,6 +145,7 @@ public class YoungChildRequestService {
         row.setPeriodMonth(startDate.getMonthValue());
         row.setEnabled(enabled);
         row.setReason(req.getReason() != null && !req.getReason().isBlank() ? req.getReason().trim() : null);
+        stampRequesterSignature(row, actor, false);
         row = requestRepository.save(row);
         return toMap(row);
     }
@@ -390,6 +393,15 @@ public class YoungChildRequestService {
         return employeeLinkService.findLinkedEmployee(actor).map(Employee::getId).orElse(null);
     }
 
+    private void stampRequesterSignature(YoungChildRequest row, UserAccount actor, boolean force) {
+        boolean owner = row.getRequestedBy() != null && row.getRequestedBy().getId().equals(actor.getId());
+        if (!force && !owner && row.getRequesterSignaturePath() != null && !row.getRequesterSignaturePath().isBlank()) {
+            return;
+        }
+        row.setRequesterSignaturePath(approvalSignatureService.stampRequester(
+                actor, "young-child", row.getId(), row.getRequesterSignaturePath()));
+    }
+
     private Map<String, Object> toMap(YoungChildRequest r) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", r.getId());
@@ -408,6 +420,8 @@ public class YoungChildRequestService {
         m.put("reason", r.getReason());
         m.put("status", r.getStatus().name());
         m.put("requestedByUsername", r.getRequestedBy() != null ? r.getRequestedBy().getUsername() : null);
+        m.put("requesterSignatureUrl", ApprovalSignatureService.requesterSignatureUrl(
+                "young-child", r.getId(), r.getRequesterSignaturePath()));
         m.put("hrReviewerUsername", r.getHrReviewer() != null ? r.getHrReviewer().getUsername() : null);
         m.put("hrComment", r.getHrComment());
         m.put("hrReviewedAt", r.getHrReviewedAt() != null ? r.getHrReviewedAt().toString() : null);

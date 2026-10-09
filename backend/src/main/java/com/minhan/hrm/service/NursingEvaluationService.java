@@ -11,6 +11,7 @@ import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.NursingEvaluationRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
 import com.minhan.hrm.security.ApprovalAuthority;
+import com.minhan.hrm.service.support.AccountNames;
 import com.minhan.hrm.service.support.CreatedAtRange;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -40,23 +41,7 @@ public class NursingEvaluationService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getTemplateForUi(String code) {
-        JsonNode root = templateService.getTemplate(code);
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("code", text(root, "code"));
-        m.put("name", text(root, "name"));
-        m.put("version", root.has("version") ? root.get("version").asInt() : 1);
-        m.put("baseMaxPoints", root.has("baseMaxPoints") ? root.get("baseMaxPoints").asInt() : 90);
-        m.put("criteriaGroups", objectMapper.convertValue(root.get("criteriaGroups"),
-                new TypeReference<List<Map<String, Object>>>() {
-                }));
-        m.put("note", text(root, "note"));
-        m.put("gradingScale", List.of(
-                Map.of("min", 90, "label", "Xuất sắc", "proposal", "Xét tăng lương sớm"),
-                Map.of("min", 80, "label", "Tốt", "proposal", "Ưu tiên, theo dõi"),
-                Map.of("min", 65, "label", "Khá", "proposal", "Chưa xét"),
-                Map.of("min", 0, "label", "Chưa đạt", "proposal", "Đào tạo lại")
-        ));
-        return m;
+        return templateService.toUi(templateService.getTemplate(code));
     }
 
     @Transactional(readOnly = true)
@@ -121,6 +106,137 @@ public class NursingEvaluationService {
             out.add(toSummaryRow(n));
         }
         return out;
+    }
+
+    /** Một cột "điểm tiêu chí" theo mục của mẫu (I. Tuân thủ nội quy …). */
+    public record RankingSection(String name, BigDecimal maxPoints, boolean bonus, boolean penalty) {
+    }
+
+    public record RankingRow(
+            String fullName,
+            String employeeCode,
+            String departmentName,
+            Map<String, BigDecimal> sectionPoints,
+            BigDecimal totalScore,
+            String grade,
+            String status) {
+    }
+
+    public record MonthlyRanking(
+            String templateName,
+            List<RankingSection> sections,
+            List<NursingEvaluationTemplateService.GradeBand> gradingScale,
+            List<RankingRow> rows) {
+    }
+
+    /** Phiếu đã qua bước Trưởng phòng Điều dưỡng duyệt và còn hiệu lực. */
+    private static final Set<NursingEvaluationStatus> RANKING_STATUSES = Set.of(
+            NursingEvaluationStatus.PENDING_HR,
+            NursingEvaluationStatus.PENDING_DIRECTOR,
+            NursingEvaluationStatus.APPROVED);
+
+    /**
+     * Thống kê xếp loại tháng để xuất Excel: chỉ phiếu Trưởng phòng ĐD đã duyệt.
+     * Điểm từng mục cộng từ điểm tiêu chí theo mẫu tại thời điểm chấm (bản chụp).
+     */
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_NURSING')")
+    public MonthlyRanking monthlyRankingForExport(int year, int month, String templateCode) {
+        UserAccount current = employeeService.currentUser();
+        JsonNode currentTemplate = templateService.getTemplate(templateCode);
+        Map<String, RankingSection> sections = new LinkedHashMap<>();
+        collectSections(currentTemplate, sections);
+
+        List<RankingRow> rows = new ArrayList<>();
+        for (NursingEvaluation n : nursingEvaluationRepository.listMonthlyForTemplate(year, month, templateCode)) {
+            Employee emp = n.getEmployee();
+            if (n.getHeadReviewedAt() == null || !RANKING_STATUSES.contains(n.getStatus())
+                    || !inNursingBlockScope(current, emp) || !canViewQuiet(current, emp)) {
+                continue;
+            }
+            JsonNode template = snapshotOrCurrent(n, currentTemplate);
+            collectSections(template, sections);
+            Map<String, BigDecimal> bySection = new LinkedHashMap<>();
+            Map<String, Object> scores = readScores(n.getScoresJson());
+            JsonNode groups = template.get("criteriaGroups");
+            if (groups != null && groups.isArray()) {
+                for (JsonNode g : groups) {
+                    if (isCouncilCriterion(g)) {
+                        continue;
+                    }
+                    BigDecimal pts = pointsOf(scores.get(g.path("id").asText()));
+                    if (pts == null) {
+                        continue;
+                    }
+                    String section = sectionName(g);
+                    // Điểm trừ ghi số âm để cộng hàng ngang khớp tổng điểm.
+                    BigDecimal signed = isPenaltyCriterion(g) ? pts.negate() : pts;
+                    bySection.merge(section, signed, BigDecimal::add);
+                }
+            }
+            rows.add(new RankingRow(
+                    emp.getFullName(),
+                    emp.getEmployeeCode(),
+                    emp.getDepartment() != null ? emp.getDepartment().getName() : "",
+                    bySection,
+                    n.getTotalScore(),
+                    n.getOverallGrade(),
+                    n.getStatus() != null ? n.getStatus().name() : null));
+        }
+        return new MonthlyRanking(
+                text(currentTemplate, "name"),
+                new ArrayList<>(sections.values()),
+                templateService.gradingScale(currentTemplate),
+                rows);
+    }
+
+    private JsonNode snapshotOrCurrent(NursingEvaluation n, JsonNode fallback) {
+        if (n.getTemplateSnapshotJson() != null && !n.getTemplateSnapshotJson().isBlank()) {
+            try {
+                return objectMapper.readTree(n.getTemplateSnapshotJson());
+            } catch (Exception ignored) {
+                // bản chụp lỗi — dùng mẫu hiện tại
+            }
+        }
+        return fallback;
+    }
+
+    private Map<String, Object> readScores(String json) {
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private static void collectSections(JsonNode template, Map<String, RankingSection> out) {
+        JsonNode groups = template != null ? template.get("criteriaGroups") : null;
+        if (groups == null || !groups.isArray()) {
+            return;
+        }
+        for (JsonNode g : groups) {
+            if (isCouncilCriterion(g)) {
+                continue;
+            }
+            String name = sectionName(g);
+            if (out.containsKey(name)) {
+                continue;
+            }
+            BigDecimal max = g.hasNonNull("sectionPoints")
+                    ? BigDecimal.valueOf(g.get("sectionPoints").asDouble())
+                    : null;
+            out.put(name, new RankingSection(name, max, isBonusCriterion(g), isPenaltyCriterion(g)));
+        }
+    }
+
+    private static String sectionName(JsonNode g) {
+        String s = g.path("section").asText("").trim();
+        return s.isEmpty() ? "Khác" : s;
+    }
+
+    private static String text(JsonNode n, String field) {
+        return n != null && n.hasNonNull(field) ? n.get(field).asText() : "";
     }
 
     @Transactional(readOnly = true)
@@ -206,7 +322,9 @@ public class NursingEvaluationService {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "Chỉ xem được phiếu đánh giá sau khi Giám đốc duyệt xong");
         }
-        return toMap(n);
+        Map<String, Object> m = toMap(n);
+        m.put("templateSnapshot", templateSnapshotForUi(n));
+        return m;
     }
 
     @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
@@ -301,7 +419,9 @@ public class NursingEvaluationService {
         row.setPeriodYear(req.getPeriodYear());
         row.setPeriodMonth(req.getPeriodMonth());
         row.setTemplateCode(req.getTemplateCode());
+        row.setTemplateVersion(template.has("version") ? template.get("version").asInt() : null);
         try {
+            row.setTemplateSnapshotJson(objectMapper.writeValueAsString(template));
             row.setScoresJson(objectMapper.writeValueAsString(scores));
         } catch (Exception e) {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Không lưu được điểm");
@@ -628,7 +748,8 @@ public class NursingEvaluationService {
         if (gradeMax.compareTo(BigDecimal.ZERO) <= 0) {
             gradeMax = new BigDecimal("90.00");
         }
-        return new ScoreAgg(total, gradeFromTotalScaled(total.min(gradeMax), gradeMax));
+        return new ScoreAgg(total, NursingEvaluationTemplateService.gradeFor(
+                total.min(gradeMax), gradeMax, templateService.gradingScale(template)));
     }
 
     @SuppressWarnings("unchecked")
@@ -684,6 +805,8 @@ public class NursingEvaluationService {
         m.put("overallGrade", n.getOverallGrade());
         m.put("comments", n.getComments());
         m.put("evaluatorUsername", n.getEvaluator() != null ? n.getEvaluator().getUsername() : "");
+        // Họ tên người ký (username thường là SĐT) — hiển thị ở thẻ chữ ký / lịch sử duyệt.
+        m.put("evaluatorName", AccountNames.personName(n.getEvaluator()));
         m.put("requestedByUsername", n.getEvaluator() != null ? n.getEvaluator().getUsername() : "");
         m.put("evaluatorSignedAt",
                 n.getEvaluatorSignedAt() != null ? n.getEvaluatorSignedAt().toString() : null);
@@ -700,17 +823,20 @@ public class NursingEvaluationService {
 
         m.put("headReviewerUsername",
                 n.getHeadReviewer() != null ? n.getHeadReviewer().getUsername() : null);
+        m.put("headReviewerName", AccountNames.personName(n.getHeadReviewer()));
         m.put("headComment", n.getHeadComment());
         m.put("headReviewedAt", n.getHeadReviewedAt() != null ? n.getHeadReviewedAt().toString() : null);
         m.put("headSignatureUrl", sigUrl(n.getId(), "nursing-head", n.getHeadSignaturePath()));
 
         m.put("hrReviewerUsername", n.getHrReviewer() != null ? n.getHrReviewer().getUsername() : null);
+        m.put("hrReviewerName", AccountNames.personName(n.getHrReviewer()));
         m.put("hrComment", n.getHrComment());
         m.put("hrReviewedAt", n.getHrReviewedAt() != null ? n.getHrReviewedAt().toString() : null);
         m.put("hrSignatureUrl", sigUrl(n.getId(), "hr", n.getHrSignaturePath()));
 
         m.put("directorReviewerUsername",
                 n.getDirectorReviewer() != null ? n.getDirectorReviewer().getUsername() : null);
+        m.put("directorReviewerName", AccountNames.personName(n.getDirectorReviewer()));
         m.put("directorComment", n.getDirectorComment());
         m.put("directorReviewedAt",
                 n.getDirectorReviewedAt() != null ? n.getDirectorReviewedAt().toString() : null);
@@ -720,6 +846,18 @@ public class NursingEvaluationService {
         m.put("totalTruongKhoa", n.getTotalScore());
         m.put("gradeTruongKhoa", n.getOverallGrade());
         return m;
+    }
+
+    /** Mẫu tại thời điểm chấm; phiếu lập trước khi có bản chụp → null (giao diện dùng mẫu hiện tại). */
+    private Map<String, Object> templateSnapshotForUi(NursingEvaluation n) {
+        if (n.getTemplateSnapshotJson() == null || n.getTemplateSnapshotJson().isBlank()) {
+            return null;
+        }
+        try {
+            return templateService.toUi(objectMapper.readTree(n.getTemplateSnapshotJson()));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String sigUrl(Long id, String role, String path) {
@@ -808,19 +946,8 @@ public class NursingEvaluationService {
     }
 
     public static String gradeFromTotalScaled(BigDecimal total, BigDecimal maxTotal) {
-        if (total == null || maxTotal == null || maxTotal.compareTo(BigDecimal.ZERO) <= 0) {
-            return "Chưa đạt";
-        }
-        BigDecimal pct = total.multiply(new BigDecimal("100"))
-                .divide(maxTotal, 2, RoundingMode.HALF_UP);
-        if (pct.compareTo(new BigDecimal("90")) >= 0) return "Xuất sắc";
-        if (pct.compareTo(new BigDecimal("80")) >= 0) return "Tốt";
-        if (pct.compareTo(new BigDecimal("65")) >= 0) return "Khá";
-        return "Chưa đạt";
-    }
-
-    private static String text(JsonNode n, String field) {
-        return n.has(field) ? n.get(field).asText() : "";
+        return NursingEvaluationTemplateService.gradeFor(
+                total, maxTotal, NursingEvaluationTemplateService.DEFAULT_GRADING_SCALE);
     }
 
     private static String blankToNull(String s) {

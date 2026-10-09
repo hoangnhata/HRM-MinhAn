@@ -61,6 +61,9 @@ public class MainDutyAuthorizationRequest {
     @JoinColumn(name = "requested_by_user_id", nullable = false)
     private UserAccount requestedBy;
 
+    @Column(name = "requester_signature_path", length = 500)
+    private String requesterSignaturePath;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "head_reviewer_id")
     private UserAccount headReviewer;

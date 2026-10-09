@@ -8,11 +8,21 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -26,12 +36,22 @@ public class SeminarProposalController {
 
     private final SeminarProposalService proposalService;
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Operation(summary = "Trưởng khoa / Điều dưỡng trưởng lập phiếu đề xuất hội thảo")
     public Map<String, Object> create(@Valid @RequestBody SeminarProposalCreateRequest request) {
         return proposalService.create(request);
+    }
+
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @Operation(summary = "Lập phiếu hội thảo kèm công văn đính kèm")
+    public Map<String, Object> createWithFiles(
+            @Valid @RequestPart("request") SeminarProposalCreateRequest request,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files) {
+        return proposalService.create(request, files);
     }
 
     @GetMapping("/pending-hr")
@@ -80,8 +100,8 @@ public class SeminarProposalController {
     }
 
     @PostMapping("/{id}/hr-review")
-    @PreAuthorize("hasAnyRole('ADMIN','HR2')")
-    @Operation(summary = "HCNS chọn có công / không công rồi chuyển Giám đốc, hoặc từ chối")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Bước HCNS đã bỏ — endpoint giữ để tương thích, chỉ ADMIN")
     public Map<String, Object> hrReview(
             @PathVariable Long id,
             @Valid @RequestBody SeminarProposalReviewRequest body) {
@@ -103,12 +123,50 @@ public class SeminarProposalController {
         return proposalService.cancel(id);
     }
 
-    @PutMapping("/{id}")
+    @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Operation(summary = "Chỉnh sửa phiếu hội thảo đang chờ duyệt (người lập hoặc ADMIN)")
     public Map<String, Object> update(
             @PathVariable Long id,
             @Valid @RequestBody SeminarProposalCreateRequest request) {
         return proposalService.update(id, request);
+    }
+
+    @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT','HEAD_NURSING')")
+    @Operation(summary = "Chỉnh sửa phiếu hội thảo và bổ sung công văn")
+    public Map<String, Object> updateWithFiles(
+            @PathVariable Long id,
+            @Valid @RequestPart("request") SeminarProposalCreateRequest request,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files) {
+        return proposalService.update(id, request, files);
+    }
+
+    @GetMapping("/{id}/attachments/{attachmentId}")
+    @PreAuthorize("hasAnyRole('ADMIN','HR2','DIRECTOR','HEAD_DEPARTMENT','HEAD_NURSING','EMPLOYEE')")
+    public ResponseEntity<Resource> downloadAttachment(
+            @PathVariable Long id,
+            @PathVariable Long attachmentId) throws java.io.IOException {
+        var attachment = proposalService.readAttachment(id, attachmentId);
+        Path path = proposalService.resolveAttachment(attachment.getStoredPath());
+        if (!Files.exists(path)) {
+            return ResponseEntity.notFound().build();
+        }
+        String type = attachment.getContentType() != null ? attachment.getContentType() : MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        boolean inline = type.startsWith("image/") || "application/pdf".equals(type);
+        ContentDisposition disposition = (inline ? ContentDisposition.inline() : ContentDisposition.attachment())
+                .filename(attachment.getOriginalName(), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .contentType(MediaType.parseMediaType(type))
+                .body(new FileSystemResource(path));
+    }
+
+    @DeleteMapping("/{id}/attachments/{attachmentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT','HEAD_NURSING')")
+    public void deleteAttachment(@PathVariable Long id, @PathVariable Long attachmentId) {
+        proposalService.deleteAttachment(id, attachmentId);
     }
 }

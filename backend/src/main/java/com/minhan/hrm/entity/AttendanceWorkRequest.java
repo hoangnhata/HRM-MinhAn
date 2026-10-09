@@ -116,6 +116,9 @@ public class AttendanceWorkRequest {
     @Column(nullable = false, length = 32)
     private AttendanceRequestStatus status;
 
+    @Column(name = "requester_signature_path", length = 500)
+    private String requesterSignaturePath;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "head_reviewer_id")
     private UserAccount headReviewer;

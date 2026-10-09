@@ -42,21 +42,71 @@ public final class AttendancePenaltyCalculator {
             }
             LocalTime dayIn = rec.getMorningCheckIn() != null ? rec.getMorningCheckIn() : rec.getCheckIn();
             LocalTime dayOut = rec.getAfternoonCheckOut() != null ? rec.getAfternoonCheckOut() : rec.getCheckOut();
-            // Cột ca trống nhưng còn log máy → vẫn tính đã có giờ vào (tránh trừ 2 khi chỉ quên ra)
+            // Giờ vào phải rơi vào buổi sáng: quẹt buổi chiều (VD 14:46 sát giờ ra 14:45) chỉ có thể
+            // là giờ RA — trước đây cột checkIn = lần quẹt đầu tiên nên bị tính nhầm là đã có giờ vào.
+            if (dayIn != null && !dayIn.isBefore(LocalTime.NOON)) {
+                if (dayOut == null || dayIn.isAfter(dayOut)) {
+                    dayOut = dayIn;
+                }
+                dayIn = null;
+            }
+            // Ngược lại, quẹt buổi sáng không thể là giờ ra cuối ngày.
+            if (dayOut != null && dayOut.isBefore(LocalTime.NOON)) {
+                if (dayIn == null || dayOut.isBefore(dayIn)) {
+                    dayIn = dayOut;
+                }
+                dayOut = null;
+            }
+            // Một lần quẹt ghi vào cả vào lẫn ra → chỉ tính một mốc.
+            // Buổi chiều/tối (từ 12:00) là giờ RA, không phải giờ vào.
+            if (dayIn != null && dayIn.equals(dayOut)) {
+                if (!dayIn.isBefore(LocalTime.NOON)) {
+                    dayIn = null;
+                } else {
+                    dayOut = null;
+                }
+            }
             if (dayIn == null || dayOut == null) {
                 List<LocalTime> punches = parsePunchTimes(rec.getPunchTimesJson());
-                if (dayIn == null && !punches.isEmpty()) {
-                    dayIn = punches.get(0);
-                }
-                if (dayOut == null && punches.size() >= 2) {
-                    LocalTime last = punches.get(punches.size() - 1);
-                    // Chỉ coi là giờ ra khi cách giờ vào ≥ 4 giờ (tránh 6h07+6h14 thành đủ 2 mốc)
-                    if (dayIn != null && java.time.Duration.between(dayIn, last).toMinutes() >= 4 * 60) {
-                        dayOut = last;
+                if (punches.size() == 1) {
+                    LocalTime only = punches.get(0);
+                    if (!only.isBefore(LocalTime.NOON)) {
+                        if (dayOut == null) {
+                            dayOut = only;
+                        }
+                    } else if (dayIn == null) {
+                        dayIn = only;
+                    }
+                } else if (!punches.isEmpty()) {
+                    if (dayIn == null) {
+                        LocalTime first = punches.get(0);
+                        if (first.isBefore(LocalTime.NOON)) {
+                            dayIn = first;
+                        }
+                    }
+                    if (dayOut == null && punches.size() >= 2) {
+                        LocalTime last = punches.get(punches.size() - 1);
+                        if (dayIn != null && java.time.Duration.between(dayIn, last).toMinutes() >= 4 * 60) {
+                            dayOut = last;
+                        } else if (dayIn == null && !last.isBefore(LocalTime.NOON)) {
+                            dayOut = last;
+                        }
                     }
                 }
             }
-            return missingPunchCount(dayIn, dayOut);
+            // Một lần quẹt buổi chiều bị ghi vào cột giờ vào → coi là giờ ra, thiếu giờ vào.
+            if (dayIn != null && dayOut == null && !dayIn.isBefore(LocalTime.NOON)) {
+                dayOut = dayIn;
+                dayIn = null;
+            }
+            if (dayIn != null && dayIn.equals(dayOut)) {
+                if (!dayIn.isBefore(LocalTime.NOON)) {
+                    dayIn = null;
+                } else {
+                    dayOut = null;
+                }
+            }
+            return countAbsentPunches(dayIn, dayOut);
         }
         if (kind == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
             if (rec == null) {
@@ -77,6 +127,77 @@ public final class AttendancePenaltyCalculator {
                     rec != null ? rec.getAfternoonCheckOut() : null);
         }
         return 2;
+    }
+
+    /**
+     * Phân quyền công: chỉ tính vào sáng / ra chiều khi lần quẹt nằm trong cửa sổ của mốc đó.
+     * Quẹt đúng giờ kết thúc ca sáng (vd. 11:45) không phải giờ vào, cũng không phải giờ ra chiều.
+     */
+    public static int forgotFineUnitsForTwoPunch(AttendanceRecord rec, AttendanceShiftSchedule schedule) {
+        if (rec == null || schedule == null) {
+            return 2;
+        }
+        AttendancePunchWindows windows = schedule.punchWindows() != null
+                ? schedule.punchWindows()
+                : AttendancePunchWindows.defaults();
+        LocalTime morningStart = schedule.morningStart();
+        LocalTime afternoonEnd = schedule.afternoonEnd();
+        LocalTime dayIn = acceptedPunch(
+                rec.getMorningCheckIn(), morningStart, windows.morningInBeforeMin(), windows.morningInAfterMin());
+        LocalTime dayOut = acceptedPunch(
+                rec.getAfternoonCheckOut(), afternoonEnd, windows.afternoonOutBeforeMin(), windows.afternoonOutAfterMin());
+        List<LocalTime> punches = new java.util.ArrayList<>(parsePunchTimes(rec.getPunchTimesJson()));
+        if (rec.getCheckIn() != null) {
+            punches.add(rec.getCheckIn());
+        }
+        if (rec.getCheckOut() != null) {
+            punches.add(rec.getCheckOut());
+        }
+        punches.sort(LocalTime::compareTo);
+        if (dayIn == null) {
+            for (LocalTime t : punches) {
+                if (inWindow(t, morningStart, windows.morningInBeforeMin(), windows.morningInAfterMin())) {
+                    dayIn = t;
+                    break;
+                }
+            }
+        }
+        if (dayOut == null) {
+            for (int i = punches.size() - 1; i >= 0; i--) {
+                LocalTime t = punches.get(i);
+                if (dayIn != null && t.equals(dayIn)) {
+                    continue;
+                }
+                if (inWindow(t, afternoonEnd, windows.afternoonOutBeforeMin(), windows.afternoonOutAfterMin())) {
+                    dayOut = t;
+                    break;
+                }
+            }
+        }
+        if (dayIn != null && dayIn.equals(dayOut)) {
+            if (inWindow(dayIn, afternoonEnd, windows.afternoonOutBeforeMin(), windows.afternoonOutAfterMin())) {
+                dayIn = null;
+            } else {
+                dayOut = null;
+            }
+        }
+        return countAbsentPunches(dayIn, dayOut);
+    }
+
+    private static LocalTime acceptedPunch(LocalTime punch, LocalTime anchor, int beforeMin, int afterMin) {
+        if (punch == null || anchor == null || !inWindow(punch, anchor, beforeMin, afterMin)) {
+            return null;
+        }
+        return punch;
+    }
+
+    private static boolean inWindow(LocalTime punch, LocalTime anchor, int beforeMin, int afterMin) {
+        if (punch == null || anchor == null) {
+            return false;
+        }
+        LocalTime from = anchor.minusMinutes(beforeMin);
+        LocalTime to = anchor.plusMinutes(afterMin);
+        return !punch.isBefore(from) && !punch.isAfter(to);
     }
 
     private static List<LocalTime> parsePunchTimes(String json) {

@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -50,6 +51,41 @@ public class FileStorageService {
         } catch (IOException e) {
             log.error("Lưu file thất bại", e);
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể lưu file");
+        }
+    }
+
+    /**
+     * Lưu công văn đính kèm (ảnh, PDF, Word, Excel). Trả về đường dẫn tương đối.
+     */
+    public String storeDocument(MultipartFile file, String subdirectory, Set<String> allowedExtensions, long maxBytes) {
+        if (file == null || file.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "File rỗng");
+        }
+        if (file.getSize() > maxBytes) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Mỗi tệp đính kèm tối đa " + (maxBytes / (1024 * 1024)) + "MB");
+        }
+        String original = file.getOriginalFilename();
+        String ext = extensionOf(original);
+        if (ext.isEmpty() || !allowedExtensions.contains(ext)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Chỉ đính kèm ảnh (PNG, JPG, WEBP), PDF, Word hoặc Excel");
+        }
+        try {
+            Path base = Paths.get(hrmProperties.getUpload().getDir()).toAbsolutePath().normalize();
+            Path dir = base.resolve(subdirectory).normalize();
+            if (!dir.startsWith(base)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Đường dẫn không hợp lệ");
+            }
+            Files.createDirectories(dir);
+            String storedName = UUID.randomUUID() + "." + ext;
+            Path target = dir.resolve(storedName);
+            Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
+            return base.relativize(target).toString().replace('\\', '/');
+        } catch (ApiException e) {
+            throw e;
+        } catch (IOException e) {
+            log.error("Lưu công văn thất bại", e);
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể lưu tệp đính kèm");
         }
     }
 
@@ -103,5 +139,17 @@ public class FileStorageService {
 
     private static String sanitize(String name) {
         return name.replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    private static String extensionOf(String name) {
+        if (name == null) {
+            return "";
+        }
+        String base = Paths.get(name).getFileName().toString();
+        int dot = base.lastIndexOf('.');
+        if (dot < 0 || dot == base.length() - 1) {
+            return "";
+        }
+        return base.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 }

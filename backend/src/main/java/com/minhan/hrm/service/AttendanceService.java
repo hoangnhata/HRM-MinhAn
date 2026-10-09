@@ -116,6 +116,8 @@ public class AttendanceService {
                         .workDate(req.getWorkDate())
                         .status("ABSENT")
                         .build());
+        // Gỡ ghi chú (và mốc giờ) Quang Trung cũ trước — bộ xử lý ngày không áp lại giờ cũ khi sửa.
+        rec.setNote(stripQuangTrungNotes(rec.getNote()));
         // Ghi đè toàn bộ giờ trong ngày theo loại bổ sung (hỗ trợ sửa lại)
         clearPunches(rec);
         if (req.getUpdateKind() == AttendanceUpdateKind.FULL_DAY_SUPPLEMENT) {
@@ -131,10 +133,19 @@ public class AttendanceService {
                     : AttendanceShiftScope.MORNING;
             dayProcessor.applyManualShift(rec, scope, req.getRequestedStart(), req.getRequestedEnd());
         }
+        // Lưu mốc giờ Quang Trung trong ghi chú: đồng bộ máy chấm công ghi đè log giờ chấm,
+        // bộ xử lý ngày đọc mốc này để áp lại — công Quang Trung không bị mất sau đồng bộ / tính lại.
+        AttendanceShiftScope qtScope = switch (req.getUpdateKind()) {
+            case FULL_DAY_SUPPLEMENT -> AttendanceShiftScope.FULL_DAY;
+            case AFTERNOON_SUPPLEMENT -> AttendanceShiftScope.AFTERNOON;
+            default -> AttendanceShiftScope.MORNING;
+        };
+        String marker = AttendanceDayProcessor.quangTrungMarker(qtScope, dayProcessor.resolvePunches(rec));
         String noteLine = QUANG_TRUNG_NOTE_MARKER + " — không trừ phạt quên chấm";
         if (req.getReason() != null && !req.getReason().isBlank()) {
             noteLine += ": " + req.getReason().trim();
         }
+        noteLine += " " + marker;
         rec.setNote(replaceQuangTrungNote(rec.getNote(), noteLine));
         rec = attendanceRecordRepository.save(rec);
         return toMap(rec);
@@ -151,8 +162,9 @@ public class AttendanceService {
         if (!isQuangTrungNote(rec.getNote())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Ngày này không có công Quang Trung để xóa");
         }
-        resetAttendanceAfterQuangTrungDelete(rec);
+        // Gỡ ghi chú trước khi tính lại — nếu không, mốc giờ Quang Trung trong ghi chú sẽ được áp lại.
         rec.setNote(stripQuangTrungNotes(rec.getNote()));
+        resetAttendanceAfterQuangTrungDelete(rec);
         if (isEmptyAttendanceRecord(rec)) {
             attendanceRecordRepository.delete(rec);
             return;
@@ -227,7 +239,7 @@ public class AttendanceService {
             return "";
         }
         for (String part : note.split(";")) {
-            String p = part.trim();
+            String p = AttendanceDayProcessor.stripQuangTrungMarker(part.trim());
             if (!p.contains(QUANG_TRUNG_NOTE_MARKER)) {
                 continue;
             }

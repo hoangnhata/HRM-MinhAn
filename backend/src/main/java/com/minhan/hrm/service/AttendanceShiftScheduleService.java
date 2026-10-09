@@ -123,7 +123,12 @@ public class AttendanceShiftScheduleService {
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> infoForDate(LocalDate date, Long employeeId) {
+    public Map<String, Object> infoForDate(LocalDate date, Long requestedEmployeeId) {
+        // Không truyền employeeId → lấy hồ sơ của chính người đăng nhập, để client biết đúng
+        // ca thông tầm / phân quyền công (chỉ chấm vào sáng + ra chiều) của họ.
+        Long employeeId = requestedEmployeeId != null
+                ? requestedEmployeeId
+                : employeeService.linkedEmployee().map(Employee::getId).orElse(null);
         AttendanceShiftSchedule schedule = forEmployee(employeeId, date);
         Map<String, Object> info = new LinkedHashMap<>(schedule.toInfoMap());
         info.put("referenceDate", date.toString());
@@ -136,7 +141,7 @@ public class AttendanceShiftScheduleService {
             continuous = continuousShiftService.isContinuousShift(employeeId, date);
             youngChild = youngChildHoursService.isYoungChild(employeeId, date);
             info.put("continuousShift", continuous);
-            info.put("twoPunchAttendance", continuousShiftService.isTwoPunchAttendance(employeeId));
+            info.put("twoPunchAttendance", continuousShiftService.isTwoPunchAttendance(employeeId, date));
             info.put("youngChild", youngChild);
             continuousShiftService.findDay(employeeId, date).ifPresent(day -> {
                 continuousShiftService.findType(day.getShiftTypeId()).ifPresent(type -> {
@@ -156,7 +161,7 @@ public class AttendanceShiftScheduleService {
                 if (youngChild) {
                     info.put("youngChildLabel", "Nuôi con nhỏ · giảm 1 giờ/ngày (tối thiểu 7h = 1 công)");
                 }
-                if (continuousShiftService.isTwoPunchAttendance(employeeId)) {
+                if (continuousShiftService.isTwoPunchAttendance(employeeId, date)) {
                     info.put(
                             "twoPunchLabel",
                             "Phân quyền công · chỉ cần vào sáng + ra chiều (ca sáng/chiều bình thường)");

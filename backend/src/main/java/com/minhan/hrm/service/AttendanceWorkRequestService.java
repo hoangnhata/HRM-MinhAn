@@ -3,6 +3,7 @@ package com.minhan.hrm.service;
 import com.minhan.hrm.attendance.AttendanceDayProcessor;
 import com.minhan.hrm.attendance.AttendancePenaltyCalculator;
 import com.minhan.hrm.attendance.AttendanceShiftSchedule;
+import com.minhan.hrm.attendance.ContinuousDeploymentSpan;
 import com.minhan.hrm.attendance.LeaveEntitlement;
 import com.minhan.hrm.dto.attendance.AttendanceReviewDto;
 import com.minhan.hrm.dto.attendance.AttendanceWorkRequestSubmitDto;
@@ -85,6 +86,16 @@ public class AttendanceWorkRequestService {
             UserRole.ADMIN, UserRole.HR2, UserRole.HEAD_HR);
     private static final EnumSet<UserRole> HR_MANAGER_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.HR);
     private static final EnumSet<UserRole> DIRECTOR_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.DIRECTOR);
+    /** Ghi chú khi bỏ qua bước duyệt vì người làm đơn chính là người duyệt bước đó. */
+    private static final String SKIP_HEAD_NOTE = "Bỏ qua — người làm đơn là lãnh đạo duyệt bước này";
+    /** Trùng ghi chú trong migration V115 — giao diện ẩn bước lãnh đạo khi khớp. */
+    static final String SKIP_HEAD_NURSING_REQUESTER_NOTE =
+            "Bỏ qua — đơn của Trưởng phòng Điều dưỡng chuyển thẳng HCNS";
+    private static final String DEPLOYMENT_CREATED_NOTE = "Trưởng khoa/phòng lập phiếu điều động";
+    private static final String SKIP_NURSING_HEAD_NOTE =
+            "Bỏ qua — người làm đơn là Trưởng phòng Điều dưỡng duyệt bước này";
+    private static final String SKIP_HR_NOTE = "Bỏ qua — người làm đơn là HCNS duyệt bước này";
+
     /** Nghỉ chế độ (kết hôn / người thân mất) tối đa 3 ngày theo Điều 115 BLLĐ 2019. */
     public static final int PERSONAL_LEAVE_MAX_DAYS = 3;
 
@@ -141,7 +152,7 @@ public class AttendanceWorkRequestService {
             scope = AttendanceShiftScope.FULL_DAY;
         }
         boolean continuousDay = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
-        boolean twoPunchDay = continuousShiftService.isTwoPunchAttendance(emp.getId());
+        boolean twoPunchDay = continuousShiftService.isTwoPunchAttendance(emp.getId(), dto.getWorkDate());
         AttendanceUpdateKind updateKind = dto.getUpdateKind();
         if ((dto.getRequestType() == AttendanceRequestType.UPDATE
                 || dto.getRequestType() == AttendanceRequestType.EXPLANATION)
@@ -157,8 +168,8 @@ public class AttendanceWorkRequestService {
             AttendanceRecord existing = attendanceRecordRepository
                     .findByEmployeeAndWorkDate(emp, dto.getWorkDate())
                     .orElse(null);
-            forgotFineUnits = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
-                    updateKind, existing, continuousDay || twoPunchDay);
+            forgotFineUnits = forgotUnitsForSubmittedUpdate(
+                    emp, dto.getWorkDate(), updateKind, existing, continuousDay, twoPunchDay);
         }
         boolean personalLeave = dto.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE;
         AttendanceWorkRequest req = AttendanceWorkRequest.builder()
@@ -194,8 +205,12 @@ public class AttendanceWorkRequestService {
         if (dto.getRequestType() == AttendanceRequestType.EXPLANATION) {
             snapshotExplanationOriginalPunches(req, emp, dto);
         }
+        skipSelfApprovalStages(req);
         req = requestRepository.save(req);
-        notifyHeadNewRequest(req);
+        stampAttendanceRequester(req, employeeService.currentUser(), true);
+        stampAutoStageSignatures(req);
+        req = requestRepository.save(req);
+        notifyPendingStage(req);
         return toMap(req);
     }
 
@@ -221,12 +236,14 @@ public class AttendanceWorkRequestService {
         if (req.getRequestType() == AttendanceRequestType.DEPLOYMENT) {
             validateDeploymentTimes(dto, id);
             applyDeploymentFields(req, dto);
+            stampAttendanceRequester(req, actor, false);
             req = requestRepository.save(req);
             return toMap(req);
         }
 
         validateSubmit(dto, emp, id);
         applyWorkRequestFields(req, dto, emp);
+        stampAttendanceRequester(req, actor, false);
         req = requestRepository.save(req);
         return toMap(req);
     }
@@ -257,7 +274,7 @@ public class AttendanceWorkRequestService {
             scope = AttendanceShiftScope.FULL_DAY;
         }
         boolean continuousDay = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
-        boolean twoPunchDay = continuousShiftService.isTwoPunchAttendance(emp.getId());
+        boolean twoPunchDay = continuousShiftService.isTwoPunchAttendance(emp.getId(), dto.getWorkDate());
         AttendanceUpdateKind updateKind = dto.getUpdateKind();
         if ((dto.getRequestType() == AttendanceRequestType.UPDATE
                 || dto.getRequestType() == AttendanceRequestType.EXPLANATION)
@@ -273,8 +290,8 @@ public class AttendanceWorkRequestService {
             AttendanceRecord existing = attendanceRecordRepository
                     .findByEmployeeAndWorkDate(emp, dto.getWorkDate())
                     .orElse(null);
-            forgotFineUnits = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
-                    updateKind, existing, continuousDay || twoPunchDay);
+            forgotFineUnits = forgotUnitsForSubmittedUpdate(
+                    emp, dto.getWorkDate(), updateKind, existing, continuousDay, twoPunchDay);
         }
         if (dto.getRequestType() == AttendanceRequestType.PERSONAL_LEAVE) {
             req.setPersonalLeaveKind(dto.getPersonalLeaveKind());
@@ -425,14 +442,14 @@ public class AttendanceWorkRequestService {
                         : AttendanceRequestStatus.PENDING_HR)
                 .headReviewer(creator)
                 .headReviewedAt(Instant.now())
-                .headComment("Trưởng khoa/phòng lập phiếu điều động")
+                .headComment(DEPLOYMENT_CREATED_NOTE)
                 .build();
+        skipSelfApprovalStages(req);
         req = requestRepository.save(req);
-        if (nursingBlock) {
-            notifyNursingHeadNewRequest(req);
-        } else {
-            notifyHrNewRequest(req);
-        }
+        stampAttendanceRequester(req, creator, true);
+        stampAutoStageSignatures(req);
+        req = requestRepository.save(req);
+        notifyPendingStage(req);
         if (target.getUser() != null) {
             notificationService.notifyStaffDeployment(
                     target.getUser(),
@@ -480,7 +497,9 @@ public class AttendanceWorkRequestService {
         boolean insideShift = isInsideShiftDeployment(dto, continuous, schedule);
 
         if (continuous) {
-            validateContinuousDeploymentTimes(dto, schedule, offDay, insideShift);
+            validateContinuousDeploymentTimes(dto, schedule, offDay);
+        } else if (isSplitMixedDeployment(dto, schedule)) {
+            // Một khung liên tục cắt ca sáng/chiều và ngoài ca — chấp nhận trên cùng đơn.
         } else if (insideShift) {
             if (scope == AttendanceShiftScope.FULL_DAY
                     && (dto.getRequestedAfternoonStart() == null || dto.getRequestedAfternoonEnd() == null)) {
@@ -502,7 +521,7 @@ public class AttendanceWorkRequestService {
                     schedule.afternoonEnd())) {
                 throw new ApiException(HttpStatus.BAD_REQUEST,
                         String.format(
-                                "Giờ điều động ngoài ca không được trùng ca chính (%s–%s, %s–%s). Chọn «Trong ca» để điều chỉnh công ca sáng/chiều ×1,5.",
+                                "Giờ điều động ngoài ca không được trùng ca chính (%s–%s, %s–%s). Chọn «Trong ca» nếu nằm trọn trong ca, hoặc «Trong ca & ngoài ca» nếu một khung giờ cắt cả hai.",
                                 schedule.morningStart(),
                                 schedule.morningEnd(),
                                 schedule.afternoonStart(),
@@ -528,20 +547,19 @@ public class AttendanceWorkRequestService {
     private void validateContinuousDeploymentTimes(
             AttendanceWorkRequestSubmitDto dto,
             AttendanceShiftSchedule schedule,
-            boolean offDay,
-            boolean insideShift) {
+            boolean offDay) {
         if (dto.getRequestedAfternoonStart() != null || dto.getRequestedAfternoonEnd() != null) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "Ca thông tầm: chỉ nhập một khung giờ vào–ra trong ngày (không tách sáng/chiều)");
         }
         LocalTime dayStart = schedule.continuousDayStart();
         LocalTime dayEnd = schedule.continuousDayEnd();
-        if (insideShift) {
-            if (!withinShift(dto.getRequestedStart(), dto.getRequestedEnd(), dayStart, dayEnd)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST,
-                        String.format("Giờ điều động trong ca thông tầm phải nằm trong %s–%s",
-                                dayStart, dayEnd));
-            }
+        ContinuousDeploymentSpan.Result span = ContinuousDeploymentSpan.classify(
+                dto.getRequestedStart(), dto.getRequestedEnd(), dayStart, dayEnd);
+        if (span.kind() == ContinuousDeploymentSpan.Kind.INSIDE) {
+            return;
+        }
+        if (span.kind() == ContinuousDeploymentSpan.Kind.MIXED) {
             return;
         }
         if (dto.getRequestedStart().equals(dto.getRequestedEnd())) {
@@ -557,8 +575,8 @@ public class AttendanceWorkRequestService {
                 dayEnd)) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     String.format(
-                            "Giờ điều động ngoài ca không được trùng ca thông tầm (%s–%s). Chọn «Trong ca» để điều chỉnh công ×1,5.",
-                            dayStart, dayEnd));
+                            "Giờ điều động ngoài ca không được trùng ca thông tầm (%s–%s). Chọn «Trong ca» nếu nằm trọn trong ca, hoặc «Trong ca & ngoài ca» nếu một khung giờ cắt cả hai.",
+                            hhmm(dayStart), hhmm(dayEnd)));
         }
     }
 
@@ -635,6 +653,42 @@ public class AttendanceWorkRequestService {
             return true;
         }
         return dto.getRequestedAfternoonStart() != null && dto.getRequestedAfternoonEnd() != null;
+    }
+
+    /** Ca sáng/chiều: một khung giờ (không có giờ chiều riêng) vừa trùng ca vừa có phần ngoài ca. */
+    private static boolean isSplitMixedDeployment(
+            AttendanceWorkRequestSubmitDto dto, AttendanceShiftSchedule schedule) {
+        if (dto.getShiftScope() == AttendanceShiftScope.MORNING
+                || dto.getShiftScope() == AttendanceShiftScope.AFTERNOON) {
+            return false;
+        }
+        if (dto.getRequestedAfternoonStart() != null || dto.getRequestedAfternoonEnd() != null) {
+            return false;
+        }
+        return ContinuousDeploymentSpan.classifyWindows(
+                dto.getRequestedStart(),
+                dto.getRequestedEnd(),
+                schedule.morningStart(),
+                schedule.morningEnd(),
+                schedule.afternoonStart(),
+                schedule.afternoonEnd()).kind() == ContinuousDeploymentSpan.Kind.MIXED;
+    }
+
+    private static boolean isSplitMixedDeployment(AttendanceWorkRequest req, AttendanceShiftSchedule schedule) {
+        if (req.getShiftScope() == AttendanceShiftScope.MORNING
+                || req.getShiftScope() == AttendanceShiftScope.AFTERNOON) {
+            return false;
+        }
+        if (req.getRequestedAfternoonStart() != null || req.getRequestedAfternoonEnd() != null) {
+            return false;
+        }
+        return ContinuousDeploymentSpan.classifyWindows(
+                req.getRequestedStart(),
+                req.getRequestedEnd(),
+                schedule.morningStart(),
+                schedule.morningEnd(),
+                schedule.afternoonStart(),
+                schedule.afternoonEnd()).kind() == ContinuousDeploymentSpan.Kind.MIXED;
     }
 
     private boolean isInsideShiftDeploymentFromRequest(AttendanceWorkRequest req) {
@@ -1078,13 +1132,11 @@ public class AttendanceWorkRequestService {
             } else {
                 req.setStatus(AttendanceRequestStatus.PENDING_HR);
             }
+            skipSelfApprovalStages(req);
+            stampAutoStageSignatures(req);
         }
         requestRepository.save(req);
-        if (req.getStatus() == AttendanceRequestStatus.PENDING_NURSING_HEAD) {
-            notifyNursingHeadNewRequest(req);
-        } else if (req.getStatus() == AttendanceRequestStatus.PENDING_HR) {
-            notifyHrNewRequest(req);
-        }
+        notifyPendingStage(req);
         return toMap(req);
     }
 
@@ -1131,6 +1183,8 @@ public class AttendanceWorkRequestService {
         if (previousStatus == AttendanceRequestStatus.PENDING_NURSING_HEAD
                 || previousStatus == AttendanceRequestStatus.NURSING_HEAD_REJECTED) {
             req.setStatus(AttendanceRequestStatus.PENDING_HR);
+            skipSelfApprovalStages(req);
+            stampAutoStageSignatures(req);
         }
         requestRepository.save(req);
         if (req.getStatus() == AttendanceRequestStatus.PENDING_HR) {
@@ -1558,16 +1612,27 @@ public class AttendanceWorkRequestService {
         UserAccount actor = employeeService.currentUser();
         AttendanceWorkRequest req = requestRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn"));
-        if (actor.getRole() != UserRole.ADMIN) {
-            throw new ApiException(HttpStatus.FORBIDDEN,
-                    "Đơn đã gửi không thể thu hồi. Liên hệ quản trị viên nếu cần xử lý.");
-        }
         boolean pending = req.getStatus() == AttendanceRequestStatus.PENDING_HEAD
                 || req.getStatus() == AttendanceRequestStatus.PENDING_NURSING_HEAD
                 || req.getStatus() == AttendanceRequestStatus.PENDING_HR
                 || req.getStatus() == AttendanceRequestStatus.PENDING_DIRECTOR;
         if (req.getStatus() == AttendanceRequestStatus.WITHDRAWN) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Đơn đã thu hồi rồi");
+        }
+        // Người gửi (đơn điều động: người lập phiếu) tự thu hồi khi đơn còn chờ và chưa ai duyệt bước nào.
+        if (actor.getRole() != UserRole.ADMIN) {
+            if (!isWorkRequestOwner(actor, req)) {
+                throw new ApiException(HttpStatus.FORBIDDEN,
+                        "Chỉ người gửi đơn hoặc quản trị viên được thu hồi đơn này.");
+            }
+            if (!pending) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "Đơn đã duyệt hoặc đã từ chối nên không thể thu hồi. Liên hệ quản trị viên nếu cần xử lý.");
+            }
+            if (hasApprovalProgress(req)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "Đơn đã có người duyệt nên không thể thu hồi. Liên hệ HCNS / quản trị viên nếu cần xử lý.");
+            }
         }
         AttendanceRequestStatus previous = req.getStatus();
         // ADMIN: mọi trạng thái (đã duyệt / từ chối / chờ) đều thu hồi được — gỡ hiệu lực công nếu đã áp dụng
@@ -1578,6 +1643,33 @@ public class AttendanceWorkRequestService {
         requestRepository.save(req);
         notificationService.notifyAttendanceRequestWithdrawn(req, previous);
         return toMap(req);
+    }
+
+    /** Người gửi đơn: nhân viên đứng đơn; riêng đơn điều động là trưởng khoa/phòng lập phiếu. */
+    private boolean isWorkRequestOwner(UserAccount actor, AttendanceWorkRequest req) {
+        if (req.getRequestType() == AttendanceRequestType.DEPLOYMENT) {
+            return req.getHeadReviewer() != null
+                    && req.getHeadReviewer().getId().equals(actor.getId());
+        }
+        return employeeLinkService.findLinkedEmployee(actor)
+                .map(e -> e.getId().equals(req.getEmployee().getId()))
+                .orElse(false);
+    }
+
+    /**
+     * Đã có người thực sự duyệt một bước nào đó chưa. Bước bị bỏ qua (người làm đơn là người duyệt)
+     * và dấu «lập phiếu điều động» không tính là đã duyệt.
+     */
+    public static boolean hasApprovalProgress(AttendanceWorkRequest req) {
+        boolean headActed = req.getHeadReviewedAt() != null
+                && !SKIP_HEAD_NOTE.equals(req.getHeadComment())
+                && !DEPLOYMENT_CREATED_NOTE.equals(req.getHeadComment());
+        boolean nursingActed = req.getNursingHeadReviewedAt() != null
+                && !SKIP_NURSING_HEAD_NOTE.equals(req.getNursingHeadComment());
+        boolean hrActed = req.getHrReviewedAt() != null
+                && !SKIP_HR_NOTE.equals(req.getHrComment());
+        boolean directorActed = req.getDirectorReviewedAt() != null;
+        return headActed || nursingActed || hrActed || directorActed;
     }
 
     private void applyApprovedExplanation(AttendanceWorkRequest req, boolean waiveLateFine) {
@@ -1673,7 +1765,8 @@ public class AttendanceWorkRequestService {
         }
         boolean continuous = continuousShiftService.isContinuousShift(
                 req.getEmployee().getId(), req.getWorkDate());
-        boolean twoPunch = continuousShiftService.isTwoPunchAttendance(req.getEmployee().getId());
+        boolean twoPunch = continuousShiftService.isTwoPunchAttendance(
+                req.getEmployee().getId(), req.getWorkDate());
         if (continuous) {
             LocalTime dayIn = req.getRequestedStart();
             LocalTime dayOut = req.getRequestedAfternoonEnd() != null
@@ -1744,6 +1837,17 @@ public class AttendanceWorkRequestService {
         boolean continuous = continuousShiftService.isContinuousShift(
                 req.getEmployee().getId(), req.getWorkDate());
         boolean insideShift = isInsideShiftDeploymentFromRequest(req);
+        if (continuous) {
+            ContinuousDeploymentSpan.Result span = ContinuousDeploymentSpan.classify(
+                    start, end, schedule.continuousDayStart(), schedule.continuousDayEnd());
+            if (span.kind() == ContinuousDeploymentSpan.Kind.MIXED) {
+                applyMixedContinuousDeployment(req, rec, schedule, span);
+                return;
+            }
+        } else if (isSplitMixedDeployment(req, schedule)) {
+            applyMixedSplitDeployment(req, rec, schedule);
+            return;
+        }
         double dayHours = continuous
                 ? (schedule.continuousHours() > 0 ? schedule.continuousHours() : 8.0)
                 : (schedule.totalHours() > 0 ? schedule.totalHours() : 8.0);
@@ -1883,6 +1987,129 @@ public class AttendanceWorkRequestService {
         rec.setNote(appendNote(stripProtectedDayNotesKeepingDeployments(rec.getNote()),
                 deploymentNoteWithId(noteLine, req.getId())));
         attendanceRecordRepository.save(rec);
+    }
+
+    /**
+     * Một khung giờ cắt cả ca thông tầm: phần giao với ca tính trong ca (chờ giờ chấm),
+     * phần trước/sau ca tính ngoài ca ngay trên cùng đơn.
+     */
+    private void applyMixedContinuousDeployment(
+            AttendanceWorkRequest req,
+            AttendanceRecord rec,
+            AttendanceShiftSchedule schedule,
+            ContinuousDeploymentSpan.Result span) {
+        double dayHours = schedule.continuousHours() > 0 ? schedule.continuousHours() : 8.0;
+        BigDecimal fullDayBonus = DEPLOYMENT_INSIDE_MORNING_UNITS.add(DEPLOYMENT_INSIDE_AFTERNOON_UNITS);
+        BigDecimal total = prorateInsideUnits(
+                span.insideStart(),
+                span.insideEnd(),
+                schedule.continuousDayStart(),
+                schedule.continuousDayEnd(),
+                dayHours,
+                fullDayBonus);
+        BigDecimal morningBonus = total.multiply(DEPLOYMENT_INSIDE_MORNING_UNITS)
+                .divide(fullDayBonus, 2, RoundingMode.HALF_UP);
+        BigDecimal afternoonBonus = total.subtract(morningBonus).max(BigDecimal.ZERO);
+        BigDecimal overtimeBonus = dayBonusUnits(span.outsideHours(), dayHours);
+        String noteLine = String.format(
+                "Điều động trong ca và ngoài ca thông tầm ×%.1f: %s–%s (trong ca %s–%s · ngoài ca %sh) "
+                        + "— chờ đủ giờ vào/ra trong ca (=%s sáng / =%s chiều / +%s ngoài giờ) "
+                        + "[DDTC:S=%s-%s;A=-]",
+                DEPLOYMENT_COEFFICIENT.doubleValue(),
+                hhmm(req.getRequestedStart()),
+                hhmm(req.getRequestedEnd()),
+                hhmm(span.insideStart()),
+                hhmm(span.insideEnd()),
+                trimHours(span.outsideHours()),
+                morningBonus.toPlainString(),
+                afternoonBonus.toPlainString(),
+                overtimeBonus.toPlainString(),
+                hhmm(span.insideStart()),
+                hhmm(span.insideEnd()));
+        if (req.getReason() != null && !req.getReason().isBlank()) {
+            noteLine += ": " + req.getReason().trim();
+        }
+        rec.setLateMinutesExempt(false);
+        rec.setNote(appendNote(stripProtectedDayNotesKeepingDeployments(rec.getNote()),
+                deploymentNoteWithId(noteLine, req.getId())));
+        dayProcessor.applyToRecord(rec);
+        attendanceRecordRepository.save(rec);
+    }
+
+    /** Ca sáng/chiều: phần trùng từng ca tính trong ca, phần còn lại của cùng khung tính ngoài ca. */
+    private void applyMixedSplitDeployment(
+            AttendanceWorkRequest req,
+            AttendanceRecord rec,
+            AttendanceShiftSchedule schedule) {
+        ContinuousDeploymentSpan.Windows span = ContinuousDeploymentSpan.classifyWindows(
+                req.getRequestedStart(),
+                req.getRequestedEnd(),
+                schedule.morningStart(),
+                schedule.morningEnd(),
+                schedule.afternoonStart(),
+                schedule.afternoonEnd());
+        double morningHours = schedule.morningHours() > 0 ? schedule.morningHours() : 1;
+        double afternoonHours = schedule.afternoonHours() > 0 ? schedule.afternoonHours() : 1;
+        BigDecimal morningBonus = span.hasMorning()
+                ? prorateInsideUnits(
+                        span.morningStart(),
+                        span.morningEnd(),
+                        schedule.morningStart(),
+                        schedule.morningEnd(),
+                        morningHours,
+                        DEPLOYMENT_INSIDE_MORNING_UNITS)
+                : BigDecimal.ZERO;
+        BigDecimal afternoonBonus = span.hasAfternoon()
+                ? prorateInsideUnits(
+                        span.afternoonStart(),
+                        span.afternoonEnd(),
+                        schedule.afternoonStart(),
+                        schedule.afternoonEnd(),
+                        afternoonHours,
+                        DEPLOYMENT_INSIDE_AFTERNOON_UNITS)
+                : BigDecimal.ZERO;
+        double dayHours = schedule.totalHours() > 0 ? schedule.totalHours() : 8.0;
+        BigDecimal overtimeBonus = dayBonusUnits(span.outsideHours(), dayHours);
+        String morningWindow = span.hasMorning()
+                ? hhmm(span.morningStart()) + "-" + hhmm(span.morningEnd())
+                : "-";
+        String afternoonWindow = span.hasAfternoon()
+                ? hhmm(span.afternoonStart()) + "-" + hhmm(span.afternoonEnd())
+                : "-";
+        String noteLine = String.format(
+                "Điều động trong ca và ngoài ca ×%.1f: %s–%s (sáng %s · chiều %s · ngoài ca %sh) "
+                        + "— chờ đủ giờ vào/ra trong ca (=%s sáng / =%s chiều / +%s ngoài giờ) "
+                        + "[DDTC:S=%s;A=%s]",
+                DEPLOYMENT_COEFFICIENT.doubleValue(),
+                hhmm(req.getRequestedStart()),
+                hhmm(req.getRequestedEnd()),
+                morningWindow,
+                afternoonWindow,
+                trimHours(span.outsideHours()),
+                morningBonus.toPlainString(),
+                afternoonBonus.toPlainString(),
+                overtimeBonus.toPlainString(),
+                morningWindow,
+                afternoonWindow);
+        if (req.getReason() != null && !req.getReason().isBlank()) {
+            noteLine += ": " + req.getReason().trim();
+        }
+        rec.setLateMinutesExempt(false);
+        rec.setNote(appendNote(stripProtectedDayNotesKeepingDeployments(rec.getNote()),
+                deploymentNoteWithId(noteLine, req.getId())));
+        dayProcessor.applyToRecord(rec);
+        attendanceRecordRepository.save(rec);
+    }
+
+    private static String hhmm(LocalTime time) {
+        if (time == null) {
+            return "";
+        }
+        return String.format("%02d:%02d", time.getHour(), time.getMinute());
+    }
+
+    private static String trimHours(double hours) {
+        return BigDecimal.valueOf(hours).setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
     }
 
     /**
@@ -2153,7 +2380,7 @@ public class AttendanceWorkRequestService {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Cần nhập thời gian bắt đầu và kết thúc");
             }
             boolean continuous = continuousShiftService.isContinuousShift(emp.getId(), dto.getWorkDate());
-            boolean twoPunch = continuousShiftService.isTwoPunchAttendance(emp.getId());
+            boolean twoPunch = continuousShiftService.isTwoPunchAttendance(emp.getId(), dto.getWorkDate());
             if (continuous) {
                 if (!dto.getRequestedStart().isBefore(dto.getRequestedEnd())) {
                     throw new ApiException(HttpStatus.BAD_REQUEST,
@@ -2484,6 +2711,99 @@ public class AttendanceWorkRequestService {
         return req;
     }
 
+    /**
+     * Bỏ qua bước duyệt mà chính người làm đơn là người duyệt (không ai tự duyệt đơn của mình).
+     * Bước Giám đốc luôn giữ vì đây là bước quyết định cuối (trừ / miễn tiền phạt).
+     */
+    private void skipSelfApprovalStages(AttendanceWorkRequest req) {
+        UserAccount owner = req.getEmployee().getUser();
+        if (owner == null) {
+            return;
+        }
+        Instant now = Instant.now();
+        // Trưởng phòng Điều dưỡng lập đơn của mình: không qua bước lãnh đạo — chỉ HCNS → Giám đốc.
+        boolean nursingHeadRequester = owner.getRole() == UserRole.HEAD_NURSING
+                && req.getRequestType() != AttendanceRequestType.DEPLOYMENT;
+        boolean selfHeadApprover = employeeService.isHeadApproverFor(owner, req.getEmployee());
+        if (req.getStatus() == AttendanceRequestStatus.PENDING_HEAD
+                && (selfHeadApprover || nursingHeadRequester)) {
+            req.setHeadReviewer(owner);
+            req.setHeadReviewedAt(now);
+            req.setHeadComment(selfHeadApprover ? SKIP_HEAD_NOTE : SKIP_HEAD_NURSING_REQUESTER_NOTE);
+            req.setStatus(req.getRequestType() == AttendanceRequestType.DEPLOYMENT
+                    && NursingBlockClassifier.matchesNursingHeadScope(req.getEmployee())
+                    ? AttendanceRequestStatus.PENDING_NURSING_HEAD
+                    : AttendanceRequestStatus.PENDING_HR);
+        }
+        if (req.getStatus() == AttendanceRequestStatus.PENDING_NURSING_HEAD
+                && employeeService.isNursingHeadApproverFor(owner, req.getEmployee())) {
+            req.setNursingHeadReviewer(owner);
+            req.setNursingHeadReviewedAt(now);
+            req.setNursingHeadComment(SKIP_NURSING_HEAD_NOTE);
+            req.setStatus(AttendanceRequestStatus.PENDING_HR);
+        }
+        // Chỉ bỏ qua HCNS khi phía sau vẫn còn bước Giám đốc — tránh tự duyệt thành «đã duyệt».
+        if (req.getStatus() == AttendanceRequestStatus.PENDING_HR
+                && EmployeeService.isHrApprover(owner)
+                && requiresDirectorStep(req.getRequestType())) {
+            req.setHrReviewer(owner);
+            req.setHrReviewedAt(now);
+            req.setHrComment(SKIP_HR_NOTE);
+            req.setStatus(AttendanceRequestStatus.PENDING_DIRECTOR);
+        }
+    }
+
+    /**
+     * Bước tự hoàn tất (Trưởng khoa lập phiếu điều động, bỏ qua vì người làm đơn là người duyệt)
+     * không đi qua API duyệt nên chưa có ảnh chữ ký — snapshot chữ ký của chính người đó để
+     * phiếu hiện đủ chữ ký. Cần {@code req.getId()} nên gọi sau lần lưu đầu.
+     */
+    private void stampAutoStageSignatures(AttendanceWorkRequest req) {
+        long id = req.getId();
+        if (isBlank(req.getHeadSignaturePath()) && req.getHeadReviewer() != null
+                && req.getHeadReviewedAt() != null) {
+            req.setHeadSignaturePath(approvalSignatureService.snapshotIfAvailable(
+                    req.getHeadReviewer(), "attendance", id, "head"));
+        }
+        if (isBlank(req.getNursingHeadSignaturePath()) && req.getNursingHeadReviewer() != null
+                && req.getNursingHeadReviewedAt() != null) {
+            req.setNursingHeadSignaturePath(approvalSignatureService.snapshotIfAvailable(
+                    req.getNursingHeadReviewer(), "attendance", id, "nursing-head"));
+        }
+        if (isBlank(req.getHrSignaturePath()) && req.getHrReviewer() != null
+                && req.getHrReviewedAt() != null) {
+            req.setHrSignaturePath(approvalSignatureService.snapshotIfAvailable(
+                    req.getHrReviewer(), "attendance", id, "hr"));
+        }
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    /** Loại đơn có bước Giám đốc quyết định sau HCNS. */
+    private static boolean requiresDirectorStep(AttendanceRequestType type) {
+        return type == AttendanceRequestType.UPDATE
+                || type == AttendanceRequestType.EXPLANATION
+                || type == AttendanceRequestType.LEAVE
+                || type == AttendanceRequestType.UNPAID_LEAVE
+                || type == AttendanceRequestType.PERSONAL_LEAVE
+                || type == AttendanceRequestType.DEPLOYMENT;
+    }
+
+    /** Báo cho đúng nhóm người duyệt của bước đang chờ hiện tại. */
+    private void notifyPendingStage(AttendanceWorkRequest req) {
+        switch (req.getStatus()) {
+            case PENDING_HEAD -> notifyHeadNewRequest(req);
+            case PENDING_NURSING_HEAD -> notifyNursingHeadNewRequest(req);
+            case PENDING_HR -> notifyHrNewRequest(req);
+            case PENDING_DIRECTOR -> notifyDirectorNewRequest(req);
+            default -> {
+                // Trạng thái khác không cần báo người duyệt
+            }
+        }
+    }
+
     private void notifyHeadNewRequest(AttendanceWorkRequest req) {
         userAccountRepository.findByRoleIn(List.of(UserRole.ADMIN, UserRole.HEAD_DEPARTMENT, UserRole.HEAD_HR))
                 .stream()
@@ -2557,6 +2877,25 @@ public class AttendanceWorkRequestService {
     }
 
     /**
+     * Phân quyền công đếm theo cửa sổ vào sáng / ra chiều.
+     * Ca thông tầm giữ cách đếm 2 mốc vào đầu ngày / ra cuối ngày.
+     */
+    private int forgotUnitsForSubmittedUpdate(
+            Employee emp,
+            LocalDate workDate,
+            AttendanceUpdateKind updateKind,
+            AttendanceRecord existing,
+            boolean continuousDay,
+            boolean twoPunchDay) {
+        if (twoPunchDay && !continuousDay) {
+            return AttendancePenaltyCalculator.forgotFineUnitsForTwoPunch(
+                    existing, shiftScheduleService.forEmployee(emp.getId(), workDate));
+        }
+        return AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
+                updateKind, existing, continuousDay || twoPunchDay);
+    }
+
+    /**
      * @param cache người nhận từng bước duyệt, dùng chung cho cả danh sách để
      *              không tải lại bảng tài khoản cho mỗi dòng.
      */
@@ -2569,7 +2908,7 @@ public class AttendanceWorkRequestService {
         boolean continuousShift = needsShiftFlags
                 && continuousShiftService.isContinuousShift(r.getEmployee().getId(), r.getWorkDate());
         boolean twoPunch = needsShiftFlags
-                && continuousShiftService.isTwoPunchAttendance(r.getEmployee().getId());
+                && continuousShiftService.isTwoPunchAttendance(r.getEmployee().getId(), r.getWorkDate());
         m.put("id", r.getId());
         m.put("employeeId", r.getEmployee().getId());
         m.put("employeeCode", r.getEmployee().getEmployeeCode());
@@ -2623,15 +2962,82 @@ public class AttendanceWorkRequestService {
                 InsideDeploymentUnits inside = resolveInsideDeploymentUnits(r, sch);
                 BigDecimal totalUnits = inside.morning().add(inside.afternoon());
                 m.put("deploymentInsideShift", true);
+                m.put("deploymentMixedShift", false);
                 m.put("deploymentMorningUnits", inside.morning().doubleValue());
                 m.put("deploymentAfternoonUnits", inside.afternoon().doubleValue());
                 m.put("deploymentWorkUnits", totalUnits.doubleValue());
+            } else if (continuousShift) {
+                AttendanceShiftSchedule sch = shiftScheduleService.forEmployee(r.getEmployee().getId(), r.getWorkDate());
+                ContinuousDeploymentSpan.Result span = ContinuousDeploymentSpan.classify(
+                        r.getRequestedStart(),
+                        r.getRequestedEnd(),
+                        sch.continuousDayStart(),
+                        sch.continuousDayEnd());
+                if (span.kind() == ContinuousDeploymentSpan.Kind.MIXED) {
+                    double dayHours = sch.continuousHours() > 0 ? sch.continuousHours() : 8.0;
+                    BigDecimal fullDayBonus = DEPLOYMENT_INSIDE_MORNING_UNITS.add(DEPLOYMENT_INSIDE_AFTERNOON_UNITS);
+                    BigDecimal total = prorateInsideUnits(
+                            span.insideStart(),
+                            span.insideEnd(),
+                            sch.continuousDayStart(),
+                            sch.continuousDayEnd(),
+                            dayHours,
+                            fullDayBonus);
+                    BigDecimal overtimeBonus = dayBonusUnits(span.outsideHours(), dayHours);
+                    m.put("deploymentInsideShift", true);
+                    m.put("deploymentMixedShift", true);
+                    m.put("deploymentWorkUnits", total.doubleValue());
+                    m.put("deploymentActualHours", Math.round(span.outsideHours() * 100.0) / 100.0);
+                    m.put("deploymentCreditedHours",
+                            Math.round(span.outsideHours() * DEPLOYMENT_COEFFICIENT.doubleValue() * 100.0) / 100.0);
+                    m.put("deploymentOvertimeUnits", overtimeBonus.doubleValue());
+                } else {
+                    double actualHours = overtimeHours(r.getRequestedStart(), r.getRequestedEnd());
+                    double creditedHours = actualHours * DEPLOYMENT_COEFFICIENT.doubleValue();
+                    m.put("deploymentInsideShift", false);
+                    m.put("deploymentMixedShift", false);
+                    m.put("deploymentActualHours", Math.round(actualHours * 100.0) / 100.0);
+                    m.put("deploymentCreditedHours", Math.round(creditedHours * 100.0) / 100.0);
+                }
             } else {
-                double actualHours = overtimeHours(r.getRequestedStart(), r.getRequestedEnd());
-                double creditedHours = actualHours * DEPLOYMENT_COEFFICIENT.doubleValue();
-                m.put("deploymentInsideShift", false);
-                m.put("deploymentActualHours", Math.round(actualHours * 100.0) / 100.0);
-                m.put("deploymentCreditedHours", Math.round(creditedHours * 100.0) / 100.0);
+                AttendanceShiftSchedule sch = shiftScheduleService.forEmployee(
+                        r.getEmployee().getId(), r.getWorkDate());
+                if (isSplitMixedDeployment(r, sch)) {
+                    ContinuousDeploymentSpan.Windows span = ContinuousDeploymentSpan.classifyWindows(
+                            r.getRequestedStart(),
+                            r.getRequestedEnd(),
+                            sch.morningStart(),
+                            sch.morningEnd(),
+                            sch.afternoonStart(),
+                            sch.afternoonEnd());
+                    double morningHours = sch.morningHours() > 0 ? sch.morningHours() : 1;
+                    double afternoonHours = sch.afternoonHours() > 0 ? sch.afternoonHours() : 1;
+                    BigDecimal morning = span.hasMorning()
+                            ? prorateInsideUnits(span.morningStart(), span.morningEnd(),
+                                    sch.morningStart(), sch.morningEnd(), morningHours,
+                                    DEPLOYMENT_INSIDE_MORNING_UNITS)
+                            : BigDecimal.ZERO;
+                    BigDecimal afternoon = span.hasAfternoon()
+                            ? prorateInsideUnits(span.afternoonStart(), span.afternoonEnd(),
+                                    sch.afternoonStart(), sch.afternoonEnd(), afternoonHours,
+                                    DEPLOYMENT_INSIDE_AFTERNOON_UNITS)
+                            : BigDecimal.ZERO;
+                    m.put("deploymentInsideShift", true);
+                    m.put("deploymentMixedShift", true);
+                    m.put("deploymentMorningUnits", morning.doubleValue());
+                    m.put("deploymentAfternoonUnits", afternoon.doubleValue());
+                    m.put("deploymentWorkUnits", morning.add(afternoon).doubleValue());
+                    m.put("deploymentActualHours", Math.round(span.outsideHours() * 100.0) / 100.0);
+                    m.put("deploymentCreditedHours",
+                            Math.round(span.outsideHours() * DEPLOYMENT_COEFFICIENT.doubleValue() * 100.0) / 100.0);
+                } else {
+                    double actualHours = overtimeHours(r.getRequestedStart(), r.getRequestedEnd());
+                    double creditedHours = actualHours * DEPLOYMENT_COEFFICIENT.doubleValue();
+                    m.put("deploymentInsideShift", false);
+                    m.put("deploymentMixedShift", false);
+                    m.put("deploymentActualHours", Math.round(actualHours * 100.0) / 100.0);
+                    m.put("deploymentCreditedHours", Math.round(creditedHours * 100.0) / 100.0);
+                }
             }
         }
         m.put("requestedAfternoonStart",
@@ -2704,15 +3110,14 @@ public class AttendanceWorkRequestService {
         m.put("nursingHeadComment", r.getNursingHeadComment() != null ? r.getNursingHeadComment() : "");
         m.put("hrComment", r.getHrComment() != null ? r.getHrComment() : "");
         m.put("directorComment", r.getDirectorComment() != null ? r.getDirectorComment() : "");
-        m.put("headSignatureUrl", r.getHeadSignaturePath() != null && !r.getHeadSignaturePath().isBlank()
-                ? "/j1-api/v1/approval-signatures/attendance/" + r.getId() + "/head" : null);
-        m.put("nursingHeadSignatureUrl",
-                r.getNursingHeadSignaturePath() != null && !r.getNursingHeadSignaturePath().isBlank()
-                        ? "/j1-api/v1/approval-signatures/attendance/" + r.getId() + "/nursing-head" : null);
-        m.put("hrSignatureUrl", r.getHrSignaturePath() != null && !r.getHrSignaturePath().isBlank()
-                ? "/j1-api/v1/approval-signatures/attendance/" + r.getId() + "/hr" : null);
-        m.put("directorSignatureUrl", r.getDirectorSignaturePath() != null && !r.getDirectorSignaturePath().isBlank()
-                ? "/j1-api/v1/approval-signatures/attendance/" + r.getId() + "/director" : null);
+        m.put("headSignatureUrl", ApprovalSignatureService.stageSignatureUrl("attendance", r.getId(), "head",
+                r.getHeadSignaturePath(), r.getHeadReviewer(), r.getHeadReviewedAt()));
+        m.put("nursingHeadSignatureUrl", ApprovalSignatureService.stageSignatureUrl("attendance", r.getId(), "nursing-head",
+                r.getNursingHeadSignaturePath(), r.getNursingHeadReviewer(), r.getNursingHeadReviewedAt()));
+        m.put("hrSignatureUrl", ApprovalSignatureService.stageSignatureUrl("attendance", r.getId(), "hr",
+                r.getHrSignaturePath(), r.getHrReviewer(), r.getHrReviewedAt()));
+        m.put("directorSignatureUrl", ApprovalSignatureService.stageSignatureUrl("attendance", r.getId(), "director",
+                r.getDirectorSignaturePath(), r.getDirectorReviewer(), r.getDirectorReviewedAt()));
         m.put("headReviewedAt", r.getHeadReviewedAt() != null ? r.getHeadReviewedAt().toString() : "");
         m.put("nursingHeadReviewedAt",
                 r.getNursingHeadReviewedAt() != null ? r.getNursingHeadReviewedAt().toString() : "");
@@ -2730,6 +3135,11 @@ public class AttendanceWorkRequestService {
         m.put("directorReviewerName", accountPersonName(r.getDirectorReviewer()));
         m.put("hrReviewedAt", r.getHrReviewedAt() != null ? r.getHrReviewedAt().toString() : "");
         m.put("directorReviewedAt", r.getDirectorReviewedAt() != null ? r.getDirectorReviewedAt().toString() : "");
+        m.put("approvalStarted", hasApprovalProgress(r));
+        m.put("headSkipped", SKIP_HEAD_NOTE.equals(r.getHeadComment())
+                || SKIP_HEAD_NURSING_REQUESTER_NOTE.equals(r.getHeadComment()));
+        m.put("nursingHeadSkipped", SKIP_NURSING_HEAD_NOTE.equals(r.getNursingHeadComment()));
+        m.put("hrSkipped", SKIP_HR_NOTE.equals(r.getHrComment()));
         m.put("hrWaiveForgotFine", r.isHrWaiveForgotFine());
         m.put("explanationKeepOriginalTimes", r.isExplanationKeepOriginalTimes());
         putFlowAssigneeNames(m, r, cache);
@@ -2743,8 +3153,13 @@ public class AttendanceWorkRequestService {
                 AttendanceRecord existing = attendanceRecordRepository
                         .findByEmployeeAndWorkDate(r.getEmployee(), r.getWorkDate())
                         .orElse(null);
-                int recomputed = AttendancePenaltyCalculator.forgotFineUnitsForUpdate(
-                        r.getUpdateKind(), existing, true);
+                int recomputed = forgotUnitsForSubmittedUpdate(
+                        r.getEmployee(),
+                        r.getWorkDate(),
+                        r.getUpdateKind(),
+                        existing,
+                        continuousShift,
+                        twoPunch);
                 if (recomputed > 0) {
                     units = recomputed;
                 }
@@ -2753,7 +3168,29 @@ public class AttendanceWorkRequestService {
         }
         m.put("createdAt", r.getCreatedAt().toString());
         m.put("requestedByUsername", resolveRequestedByUsername(r));
+        m.put("requesterSignatureUrl", ApprovalSignatureService.requesterSignatureUrl(
+                "attendance", r.getId(), r.getRequesterSignaturePath()));
         return m;
+    }
+
+    private void stampAttendanceRequester(AttendanceWorkRequest req, UserAccount actor, boolean force) {
+        if (!force && !isAttendanceRequester(req, actor)
+                && req.getRequesterSignaturePath() != null && !req.getRequesterSignaturePath().isBlank()) {
+            return;
+        }
+        req.setRequesterSignaturePath(approvalSignatureService.stampRequester(
+                actor, "attendance", req.getId(), req.getRequesterSignaturePath()));
+    }
+
+    private boolean isAttendanceRequester(AttendanceWorkRequest req, UserAccount actor) {
+        if (actor == null) {
+            return false;
+        }
+        if (req.getRequestType() == AttendanceRequestType.DEPLOYMENT && req.getHeadReviewer() != null) {
+            return req.getHeadReviewer().getId().equals(actor.getId());
+        }
+        Employee emp = req.getEmployee();
+        return emp.getUser() != null && emp.getUser().getId().equals(actor.getId());
     }
 
     private String resolveRequestedByUsername(AttendanceWorkRequest r) {
@@ -2867,21 +3304,7 @@ public class AttendanceWorkRequestService {
     }
 
     private static String accountPersonName(UserAccount u) {
-        if (u == null) {
-            return null;
-        }
-        try {
-            Employee linked = u.getEmployee();
-            if (linked != null && linked.getFullName() != null && !linked.getFullName().isBlank()) {
-                return linked.getFullName().trim();
-            }
-        } catch (Exception ignored) {
-            // lazy load có thể fail ngoài session — fallback displayName/username
-        }
-        if (u.getDisplayName() != null && !u.getDisplayName().isBlank()) {
-            return u.getDisplayName().trim();
-        }
-        return u.getUsername();
+        return com.minhan.hrm.service.support.AccountNames.personName(u);
     }
 
 }

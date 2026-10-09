@@ -283,6 +283,9 @@ public class NotificationService {
 
     @Transactional
     public void notifyAttendanceRequestResult(UserAccount targetUser, AttendanceWorkRequest req, boolean approved) {
+        if (targetUser == null) {
+            return;
+        }
         String typeLabel = switch (req.getRequestType()) {
             case EXPLANATION -> "Giải trình công";
             case UPDATE -> "Cập nhật công";

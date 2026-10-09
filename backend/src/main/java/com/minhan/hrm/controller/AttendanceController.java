@@ -513,7 +513,8 @@ public class AttendanceController {
     }
 
     @PutMapping("/employees/{employeeId}/duty-shifts")
-    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
+    // HEAD_NURSING: chỉ công trực của chính mình (kiểm tra trong DutyShiftService).
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Operation(summary = "Trưởng phòng nhập / cập nhật ca trực cho nhân viên")
     public Map<String, Object> upsertDutyShift(
             @PathVariable Long employeeId,
@@ -560,7 +561,7 @@ public class AttendanceController {
     }
 
     @DeleteMapping("/employees/{employeeId}/duty-shifts/{workDate}")
-    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT')")
+    @PreAuthorize("hasAnyRole('ADMIN','HEAD_DEPARTMENT','HEAD_NURSING')")
     @Operation(summary = "Xóa ca trực")
     public void deleteDutyShift(
             @PathVariable Long employeeId,

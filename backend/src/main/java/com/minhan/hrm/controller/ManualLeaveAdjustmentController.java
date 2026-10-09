@@ -1,6 +1,7 @@
 package com.minhan.hrm.controller;
 
 import com.minhan.hrm.dto.attendance.ManualLeaveAttachDto;
+import com.minhan.hrm.dto.attendance.ManualLeaveUpdateDto;
 import com.minhan.hrm.service.ManualLeaveAdjustmentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -49,6 +51,12 @@ public class ManualLeaveAdjustmentController {
     @Operation(summary = "Gắn tay phép đã nghỉ cho 1 nhân viên")
     public Map<String, Object> attach(@Valid @RequestBody ManualLeaveAttachDto dto) {
         return service.attachManual(dto);
+    }
+
+    @PutMapping("/{id}")
+    @Operation(summary = "Sửa khoảng ngày / ghi chú phép đã gắn (cập nhật lại bảng công và hạn mức)")
+    public Map<String, Object> update(@PathVariable Long id, @Valid @RequestBody ManualLeaveUpdateDto dto) {
+        return service.update(id, dto);
     }
 
     @DeleteMapping("/{id}")

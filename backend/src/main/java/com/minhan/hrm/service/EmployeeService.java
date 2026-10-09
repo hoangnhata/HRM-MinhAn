@@ -1322,6 +1322,26 @@ public class EmployeeService {
         return NursingBlockClassifier.matchesNursingHeadScope(employee);
     }
 
+    /**
+     * TK có nằm trong danh sách duyệt bước «Lãnh đạo» của chính nhân viên này không
+     * (đúng danh sách hiển thị trên luồng duyệt — ADMIN không tính).
+     */
+    public boolean isHeadApproverFor(UserAccount account, Employee employee) {
+        return isHeadRole(account) && shouldReceiveHeadPendingNotification(account, employee);
+    }
+
+    /** TK có duyệt bước «Trưởng phòng Điều dưỡng» của nhân viên này không (ADMIN không tính). */
+    public boolean isNursingHeadApproverFor(UserAccount account, Employee employee) {
+        return account != null
+                && account.getRole() == UserRole.HEAD_NURSING
+                && shouldReceiveNursingHeadPendingNotification(account, employee);
+    }
+
+    /** TK có duyệt bước «HCNS» không (HR2 / Trưởng phòng HCNS — ADMIN không tính). */
+    public static boolean isHrApprover(UserAccount account) {
+        return account != null && account.isEnabled() && isHr2Role(account);
+    }
+
     private Long requireHeadDepartmentId(UserAccount head) {
         Employee self = employeeLinkService.findLinkedEmployee(head)
                 .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN,

@@ -100,11 +100,26 @@ public class MainDutyAuthorizationService {
             builder.status(MainDutyAuthorizationStatus.PENDING_HEAD);
         }
 
-        MainDutyAuthorizationRequest row = requestRepository.save(builder.build());
+        MainDutyAuthorizationRequest candidate = builder.build();
+        skipSelfApprovalNursingHeadStage(candidate);
+        MainDutyAuthorizationRequest row = requestRepository.save(candidate);
+        stampRequesterSignature(row, actor, true);
+        // Bước tự hoàn tất lúc lập (Trưởng khoa lập phiếu / bỏ qua TP Điều dưỡng) chưa có ảnh chữ ký.
+        if (row.getHeadReviewer() != null && row.getHeadReviewedAt() != null
+                && (row.getHeadSignaturePath() == null || row.getHeadSignaturePath().isBlank())) {
+            row.setHeadSignaturePath(approvalSignatureService.snapshotIfAvailable(
+                    row.getHeadReviewer(), "main-duty", row.getId(), "head"));
+        }
+        if (row.getNursingHeadReviewer() != null && row.getNursingHeadReviewedAt() != null
+                && (row.getNursingHeadSignaturePath() == null || row.getNursingHeadSignaturePath().isBlank())) {
+            row.setNursingHeadSignaturePath(approvalSignatureService.snapshotIfAvailable(
+                    row.getNursingHeadReviewer(), "main-duty", row.getId(), "nursing-head"));
+        }
+        row = requestRepository.save(row);
 
-        if (skipHead && nursingBlock) {
+        if (row.getStatus() == MainDutyAuthorizationStatus.PENDING_NURSING_HEAD) {
             notifyNursingHeadsPending(row);
-        } else if (skipHead) {
+        } else if (row.getStatus() == MainDutyAuthorizationStatus.PENDING_DIRECTOR) {
             notifyDirectorsPending(row);
             notificationService.notifyMainDutyForwarded(row);
         } else {
@@ -148,6 +163,7 @@ public class MainDutyAuthorizationService {
         row.setGender(blankToNull(req.getGender()));
         row.setDegree(blankToNull(req.getDegree()));
         row.setReason(blankToNull(req.getReason()));
+        stampRequesterSignature(row, actor, false);
         row = requestRepository.save(row);
         return toMap(row);
     }
@@ -464,6 +480,24 @@ public class MainDutyAuthorizationService {
                 .forEach(u -> notificationService.notifyMainDutyPendingHr(u, row));
     }
 
+    /**
+     * Chính nhân viên trong phiếu là Trưởng phòng Điều dưỡng duyệt bước này thì bỏ qua —
+     * không ai tự duyệt phiếu của mình; Giám đốc vẫn quyết định cuối.
+     */
+    private void skipSelfApprovalNursingHeadStage(MainDutyAuthorizationRequest row) {
+        if (row.getStatus() != MainDutyAuthorizationStatus.PENDING_NURSING_HEAD) {
+            return;
+        }
+        UserAccount owner = row.getEmployee().getUser();
+        if (!employeeService.isNursingHeadApproverFor(owner, row.getEmployee())) {
+            return;
+        }
+        row.setNursingHeadReviewer(owner);
+        row.setNursingHeadReviewedAt(Instant.now());
+        row.setNursingHeadComment("Bỏ qua — người trong phiếu là Trưởng phòng Điều dưỡng duyệt bước này");
+        row.setStatus(MainDutyAuthorizationStatus.PENDING_DIRECTOR);
+    }
+
     private void notifyDirectorsPending(MainDutyAuthorizationRequest row) {
         List<UserAccount> directors = userAccountRepository.findByDirectorApprovalEnabledTrueAndEnabledTrue();
         for (UserAccount u : directors) {
@@ -592,6 +626,15 @@ public class MainDutyAuthorizationService {
                 .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "Tài khoản chưa liên kết nhân viên"));
     }
 
+    private void stampRequesterSignature(MainDutyAuthorizationRequest row, UserAccount actor, boolean force) {
+        boolean owner = row.getRequestedBy() != null && row.getRequestedBy().getId().equals(actor.getId());
+        if (!force && !owner && row.getRequesterSignaturePath() != null && !row.getRequesterSignaturePath().isBlank()) {
+            return;
+        }
+        row.setRequesterSignaturePath(approvalSignatureService.stampRequester(
+                actor, "main-duty", row.getId(), row.getRequesterSignaturePath()));
+    }
+
     private Map<String, Object> toMap(MainDutyAuthorizationRequest r) {
         Employee e = r.getEmployee();
         Map<String, Object> m = new LinkedHashMap<>();
@@ -615,32 +658,32 @@ public class MainDutyAuthorizationService {
         m.put("reason", r.getReason());
         m.put("status", r.getStatus().name());
         m.put("requestedByUsername", r.getRequestedBy() != null ? r.getRequestedBy().getUsername() : null);
+        m.put("requesterSignatureUrl", ApprovalSignatureService.requesterSignatureUrl(
+                "main-duty", r.getId(), r.getRequesterSignaturePath()));
         m.put("headReviewerUsername", r.getHeadReviewer() != null ? r.getHeadReviewer().getUsername() : null);
         m.put("headComment", r.getHeadComment());
         m.put("headReviewedAt", r.getHeadReviewedAt() != null ? r.getHeadReviewedAt().toString() : null);
-        m.put("headSignatureUrl", r.getHeadSignaturePath() != null && !r.getHeadSignaturePath().isBlank()
-                ? "/j1-api/v1/approval-signatures/main-duty/" + r.getId() + "/head" : null);
+        m.put("headSignatureUrl", ApprovalSignatureService.stageSignatureUrl("main-duty", r.getId(), "head",
+                r.getHeadSignaturePath(), r.getHeadReviewer(), r.getHeadReviewedAt()));
         m.put("nursingHeadReviewerUsername",
                 r.getNursingHeadReviewer() != null ? r.getNursingHeadReviewer().getUsername() : null);
         m.put("nursingHeadComment", r.getNursingHeadComment());
         m.put("nursingHeadReviewedAt",
                 r.getNursingHeadReviewedAt() != null ? r.getNursingHeadReviewedAt().toString() : null);
-        m.put("nursingHeadSignatureUrl",
-                r.getNursingHeadSignaturePath() != null && !r.getNursingHeadSignaturePath().isBlank()
-                        ? "/j1-api/v1/approval-signatures/main-duty/" + r.getId() + "/nursing-head" : null);
+        m.put("nursingHeadSignatureUrl", ApprovalSignatureService.stageSignatureUrl("main-duty", r.getId(), "nursing-head",
+                r.getNursingHeadSignaturePath(), r.getNursingHeadReviewer(), r.getNursingHeadReviewedAt()));
         m.put("hrReviewerUsername", r.getHrReviewer() != null ? r.getHrReviewer().getUsername() : null);
         m.put("hrComment", r.getHrComment());
         m.put("hrReviewedAt", r.getHrReviewedAt() != null ? r.getHrReviewedAt().toString() : null);
-        m.put("hrSignatureUrl", r.getHrSignaturePath() != null && !r.getHrSignaturePath().isBlank()
-                ? "/j1-api/v1/approval-signatures/main-duty/" + r.getId() + "/hr" : null);
+        m.put("hrSignatureUrl", ApprovalSignatureService.stageSignatureUrl("main-duty", r.getId(), "hr",
+                r.getHrSignaturePath(), r.getHrReviewer(), r.getHrReviewedAt()));
         m.put("directorReviewerUsername",
                 r.getDirectorReviewer() != null ? r.getDirectorReviewer().getUsername() : null);
         m.put("directorComment", r.getDirectorComment());
         m.put("directorReviewedAt",
                 r.getDirectorReviewedAt() != null ? r.getDirectorReviewedAt().toString() : null);
-        m.put("directorSignatureUrl",
-                r.getDirectorSignaturePath() != null && !r.getDirectorSignaturePath().isBlank()
-                        ? "/j1-api/v1/approval-signatures/main-duty/" + r.getId() + "/director" : null);
+        m.put("directorSignatureUrl", ApprovalSignatureService.stageSignatureUrl("main-duty", r.getId(), "director",
+                r.getDirectorSignaturePath(), r.getDirectorReviewer(), r.getDirectorReviewedAt()));
         m.put("createdAt", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
         return m;
     }

@@ -99,6 +99,8 @@ public class ShiftConfigChangeRequestService {
                 .requestedBy(actor)
                 .build();
         row = requestRepository.save(row);
+        stampRequesterSignature(row, actor, true);
+        row = requestRepository.save(row);
         notifyHrPending(row);
         notificationService.notifyShiftConfigChangeSubmittedToEmployee(row);
         return toMap(row);
@@ -153,6 +155,7 @@ public class ShiftConfigChangeRequestService {
         row.setMorningUnits(morningUnits);
         row.setAfternoonUnits(afternoonUnits);
         row.setReason(req.getReason() != null && !req.getReason().isBlank() ? req.getReason().trim() : null);
+        stampRequesterSignature(row, actor, false);
         row = requestRepository.save(row);
         return toMap(row);
     }
@@ -430,6 +433,15 @@ public class ShiftConfigChangeRequestService {
         return t != null ? t.toString() : null;
     }
 
+    private void stampRequesterSignature(ShiftConfigChangeRequest row, UserAccount actor, boolean force) {
+        boolean owner = row.getRequestedBy() != null && row.getRequestedBy().getId().equals(actor.getId());
+        if (!force && !owner && row.getRequesterSignaturePath() != null && !row.getRequesterSignaturePath().isBlank()) {
+            return;
+        }
+        row.setRequesterSignaturePath(approvalSignatureService.stampRequester(
+                actor, "shift-config-change", row.getId(), row.getRequesterSignaturePath()));
+    }
+
     private Map<String, Object> toMap(ShiftConfigChangeRequest r) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", r.getId());
@@ -455,6 +467,8 @@ public class ShiftConfigChangeRequestService {
         m.put("reason", r.getReason());
         m.put("status", r.getStatus().name());
         m.put("requestedByUsername", r.getRequestedBy() != null ? r.getRequestedBy().getUsername() : null);
+        m.put("requesterSignatureUrl", ApprovalSignatureService.requesterSignatureUrl(
+                "shift-config-change", r.getId(), r.getRequesterSignaturePath()));
         m.put("hrReviewerUsername", r.getHrReviewer() != null ? r.getHrReviewer().getUsername() : null);
         m.put("hrComment", r.getHrComment());
         m.put("hrReviewedAt", r.getHrReviewedAt() != null ? r.getHrReviewedAt().toString() : null);

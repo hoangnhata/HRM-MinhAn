@@ -41,3 +41,8 @@ _eval_xlsx_dump.json
 *.docx
 *.pptx
 logo.jpg
+
+# Mobile build output / gói phát hành (không đẩy lên git)
+mobile/android/build/
+mobile/store-listing/*.aab
+mobile/store-listing/*.apk

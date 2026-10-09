@@ -8,6 +8,7 @@ import com.minhan.hrm.exception.ApiException;
 import com.minhan.hrm.exception.ResourceNotFoundException;
 import com.minhan.hrm.repository.AttendanceRecordRepository;
 import com.minhan.hrm.repository.EmployeeRepository;
+import com.minhan.hrm.repository.SeminarProposalAttachmentRepository;
 import com.minhan.hrm.repository.SeminarProposalRequestRepository;
 import com.minhan.hrm.repository.UserAccountRepository;
 import com.minhan.hrm.service.support.CreatedAtRange;
@@ -18,13 +19,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -39,6 +43,12 @@ public class SeminarProposalService {
             SeminarProposalStatus.APPROVED);
     private static final DateTimeFormatter VN_DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
+    private static final int MAX_ATTACHMENTS = 8;
+    private static final long MAX_ATTACHMENT_BYTES = 15L * 1024 * 1024;
+    private static final String ATTACHMENT_REQUIRED =
+            "Cần đính kèm ít nhất 1 công văn (giấy mời, công văn hoặc quyết định)";
+    private static final Set<String> ATTACHMENT_EXTENSIONS = Set.of(
+            "pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "xls", "xlsx");
 
     private final SeminarProposalRequestRepository proposalRepository;
     private final EmployeeRepository employeeRepository;
@@ -49,9 +59,16 @@ public class SeminarProposalService {
     private final EmployeeService employeeService;
     private final NotificationService notificationService;
     private final ApprovalSignatureService approvalSignatureService;
+    private final FileStorageService fileStorageService;
+    private final SeminarProposalAttachmentRepository attachmentRepository;
 
     @Transactional
     public Map<String, Object> create(SeminarProposalCreateRequest req) {
+        return create(req, List.of());
+    }
+
+    @Transactional
+    public Map<String, Object> create(SeminarProposalCreateRequest req, List<MultipartFile> files) {
         UserAccount actor = ensureHeadOrAdmin();
         Employee emp = employeeRepository.findById(req.getEmployeeId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhân viên"));
@@ -73,6 +90,13 @@ public class SeminarProposalService {
         if (!Boolean.TRUE.equals(req.getDepartmentCommitmentAck())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Cần xác nhận cam kết của Khoa/Phòng đề xuất");
         }
+        List<MultipartFile> uploads = presentFiles(files);
+        if (uploads.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, ATTACHMENT_REQUIRED);
+        }
+        if (uploads.size() > MAX_ATTACHMENTS) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Tối đa " + MAX_ATTACHMENTS + " tệp công văn");
+        }
 
         SeminarProposalRequest row = SeminarProposalRequest.builder()
                 .employee(emp)
@@ -89,6 +113,8 @@ public class SeminarProposalService {
                 .requestedBy(actor)
                 .build();
         row = proposalRepository.save(row);
+        stampRequesterSignature(row, actor);
+        storeAttachments(row, uploads);
 
         notifyDirectorsPending(row);
         notificationService.notifySeminarProposalSubmittedToEmployee(row);
@@ -98,6 +124,11 @@ public class SeminarProposalService {
 
     @Transactional
     public Map<String, Object> update(Long id, SeminarProposalCreateRequest req) {
+        return update(id, req, List.of());
+    }
+
+    @Transactional
+    public Map<String, Object> update(Long id, SeminarProposalCreateRequest req, List<MultipartFile> files) {
         UserAccount actor = employeeService.currentUser();
         SeminarProposalRequest row = proposalRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đề xuất hội thảo"));
@@ -137,6 +168,20 @@ public class SeminarProposalService {
         row.setReason(req.getReason().trim());
         row.setEmployeeCommitmentAck(true);
         row.setDepartmentCommitmentAck(true);
+        if (row.getRequestedBy() != null && row.getRequestedBy().getId().equals(actor.getId())) {
+            stampRequesterSignature(row, actor);
+        } else if (row.getRequesterSignaturePath() == null || row.getRequesterSignaturePath().isBlank()) {
+            stampRequesterSignature(row, actor);
+        }
+        List<MultipartFile> uploads = presentFiles(files);
+        long existing = attachmentRepository.countByProposal_Id(row.getId());
+        if (existing + uploads.size() == 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, ATTACHMENT_REQUIRED);
+        }
+        if (existing + uploads.size() > MAX_ATTACHMENTS) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Tối đa " + MAX_ATTACHMENTS + " tệp công văn");
+        }
+        storeAttachments(row, uploads);
         row = proposalRepository.save(row);
         return toMap(row);
     }
@@ -242,13 +287,18 @@ public class SeminarProposalService {
         UserAccount director = ensureDirectorOrAdmin();
         SeminarProposalRequest row = proposalRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đề xuất hội thảo"));
+        // Giám đốc được sửa quyết định (có công / không công / từ chối) như các đơn khác —
+        // kể cả khi phiếu đã tự chuyển "Đã hoàn thành" sau ngày hội thảo. Chỉ phiếu đã thu hồi bị khóa.
         if (row.getStatus() != SeminarProposalStatus.PENDING_DIRECTOR
                 && row.getStatus() != SeminarProposalStatus.DIRECTOR_REJECTED
-                && row.getStatus() != SeminarProposalStatus.APPROVED) {
+                && row.getStatus() != SeminarProposalStatus.APPROVED
+                && row.getStatus() != SeminarProposalStatus.COMPLETED) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "Phiếu đã hoàn thành hoặc đã hủy nên không thể đổi quyết định");
+                    "Phiếu đã thu hồi nên không thể đổi quyết định");
         }
         SeminarProposalStatus previousStatus = row.getStatus();
+        boolean previouslyApplied = previousStatus == SeminarProposalStatus.APPROVED
+                || previousStatus == SeminarProposalStatus.COMPLETED;
         boolean approved = Boolean.TRUE.equals(body.getApproved());
         row.setDirectorReviewer(director);
         row.setDirectorReviewedAt(Instant.now());
@@ -257,7 +307,7 @@ public class SeminarProposalService {
                 approvalSignatureService.snapshotForApproval(director, "seminar", row.getId(), "director"));
 
         if (!approved) {
-            if (previousStatus == SeminarProposalStatus.APPROVED) {
+            if (previouslyApplied) {
                 revokeSeminarDays(row);
             }
             // Khi đổi quyết định từ duyệt sang từ chối, không được giữ nhãn
@@ -276,7 +326,10 @@ public class SeminarProposalService {
         }
         row.setWithPay(Boolean.TRUE.equals(body.getWithPay()));
         row.setSupportAmount(blankToNull(body.getSupportAmount()));
-        row.setStatus(SeminarProposalStatus.APPROVED);
+        // Hội thảo đã qua → giữ "Đã hoàn thành" thay vì quay lại "Đã duyệt".
+        row.setStatus(row.getEndDate().isBefore(LocalDate.now(VN))
+                ? SeminarProposalStatus.COMPLETED
+                : SeminarProposalStatus.APPROVED);
         proposalRepository.save(row);
         // Áp dụng lại cả khi Giám đốc sửa quyết định có/không công.
         applySeminarDays(row, Boolean.TRUE.equals(row.getWithPay()));
@@ -358,7 +411,9 @@ public class SeminarProposalService {
             AttendanceRecord rec = attendanceRecordRepository
                     .findByEmployeeAndWorkDate(row.getEmployee(), d)
                     .orElse(null);
-            if (rec == null || !"SEMINAR".equals(rec.getStatus())) {
+            // Ngày không có lịch ca vẫn giữ trạng thái ABSENT nhưng mang nhãn [SEMINAR:…] trong ghi chú.
+            boolean marked = rec != null && rec.getNote() != null && rec.getNote().contains("[SEMINAR:");
+            if (rec == null || (!"SEMINAR".equals(rec.getStatus()) && !marked)) {
                 continue;
             }
             rec.setStatus("ABSENT");
@@ -561,6 +616,10 @@ public class SeminarProposalService {
         m.put("withPay", r.getWithPay());
         m.put("supportAmount", r.getSupportAmount());
         m.put("requestedByUsername", r.getRequestedBy() != null ? r.getRequestedBy().getUsername() : null);
+        m.put("requesterSignatureUrl",
+                r.getRequesterSignaturePath() != null && !r.getRequesterSignaturePath().isBlank()
+                        ? "/j1-api/v1/approval-signatures/seminar/" + r.getId() + "/requester" : null);
+        m.put("attachments", attachmentMaps(r.getId()));
         m.put("hrReviewerUsername", r.getHrReviewer() != null ? r.getHrReviewer().getUsername() : null);
         m.put("hrComment", r.getHrComment());
         m.put("hrReviewedAt", r.getHrReviewedAt() != null ? r.getHrReviewedAt().toString() : null);
@@ -576,6 +635,140 @@ public class SeminarProposalService {
                         ? "/j1-api/v1/approval-signatures/seminar/" + r.getId() + "/director" : null);
         m.put("createdAt", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
         return m;
+    }
+
+    @Transactional
+    public void deleteAttachment(Long proposalId, Long attachmentId) {
+        UserAccount actor = employeeService.currentUser();
+        SeminarProposalRequest row = proposalRepository.findById(proposalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đề xuất hội thảo"));
+        RequestEditSupport.ensureRequesterOrAdmin(actor, row.getRequestedBy(),
+                "Không có quyền chỉnh sửa phiếu này");
+        RequestEditSupport.ensurePendingStatus(row.getStatus(), "phiếu hội thảo");
+        SeminarProposalAttachment attachment = attachmentRepository.findById(attachmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tệp đính kèm"));
+        if (attachment.getProposal() == null || !proposalId.equals(attachment.getProposal().getId())) {
+            throw new ResourceNotFoundException("Không tìm thấy tệp đính kèm");
+        }
+        if (attachmentRepository.countByProposal_Id(proposalId) <= 1) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Phiếu phải có ít nhất 1 công văn đính kèm — thêm công văn khác trước khi xóa tệp này");
+        }
+        fileStorageService.deleteStoredFile(attachment.getStoredPath());
+        attachmentRepository.delete(attachment);
+    }
+
+    public java.nio.file.Path resolveAttachment(String storedPath) {
+        return fileStorageService.resolveStoredPath(storedPath);
+    }
+
+    @Transactional(readOnly = true)
+    public SeminarProposalAttachment readAttachment(Long proposalId, Long attachmentId) {
+        SeminarProposalRequest row = proposalRepository.findById(proposalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phiếu đề xuất hội thảo"));
+        ensureCanViewDetail(row);
+        SeminarProposalAttachment attachment = attachmentRepository.findById(attachmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tệp đính kèm"));
+        if (attachment.getProposal() == null || !proposalId.equals(attachment.getProposal().getId())) {
+            throw new ResourceNotFoundException("Không tìm thấy tệp đính kèm");
+        }
+        return attachment;
+    }
+
+    private void stampRequesterSignature(SeminarProposalRequest row, UserAccount actor) {
+        String previous = row.getRequesterSignaturePath();
+        String next;
+        try {
+            next = approvalSignatureService.snapshotForApproval(actor, "seminar", row.getId(), "requester");
+        } catch (ApiException ex) {
+            if (ex.getStatus() == HttpStatus.BAD_REQUEST) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "Bạn chưa có chữ ký số. Vào menu tài khoản → Chữ ký số để tạo trước khi gửi phiếu.");
+            }
+            throw ex;
+        }
+        if (previous != null && !previous.isBlank() && !previous.equals(next)) {
+            fileStorageService.deleteStoredFile(previous);
+        }
+        row.setRequesterSignaturePath(next);
+        proposalRepository.save(row);
+    }
+
+    private void storeAttachments(SeminarProposalRequest row, List<MultipartFile> files) {
+        if (files.isEmpty()) {
+            return;
+        }
+        String subdir = "seminar-attachments/" + row.getId();
+        List<String> stored = new ArrayList<>();
+        try {
+            for (MultipartFile file : files) {
+                String path = fileStorageService.storeDocument(
+                        file, subdir, ATTACHMENT_EXTENSIONS, MAX_ATTACHMENT_BYTES);
+                stored.add(path);
+                String name = displayName(file.getOriginalFilename());
+                attachmentRepository.save(SeminarProposalAttachment.builder()
+                        .proposal(row)
+                        .storedPath(path)
+                        .originalName(name)
+                        .contentType(contentTypeOf(name, file.getContentType()))
+                        .fileSize(file.getSize())
+                        .build());
+            }
+        } catch (RuntimeException ex) {
+            for (String path : stored) {
+                fileStorageService.deleteStoredFile(path);
+            }
+            throw ex;
+        }
+    }
+
+    private List<Map<String, Object>> attachmentMaps(Long proposalId) {
+        return attachmentRepository.findByProposal_IdOrderByIdAsc(proposalId).stream()
+                .map(a -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", a.getId());
+                    item.put("originalName", a.getOriginalName());
+                    item.put("contentType", a.getContentType());
+                    item.put("fileSize", a.getFileSize());
+                    item.put("url", "/j1-api/v1/seminar-proposals/" + proposalId + "/attachments/" + a.getId());
+                    return item;
+                })
+                .toList();
+    }
+
+    private static List<MultipartFile> presentFiles(List<MultipartFile> files) {
+        if (files == null || files.isEmpty()) {
+            return List.of();
+        }
+        return files.stream().filter(f -> f != null && !f.isEmpty()).toList();
+    }
+
+    private static String displayName(String original) {
+        if (original == null || original.isBlank()) {
+            return "cong-van";
+        }
+        String name = java.nio.file.Paths.get(original).getFileName().toString().trim();
+        if (name.isBlank()) {
+            return "cong-van";
+        }
+        return name.length() > 255 ? name.substring(name.length() - 255) : name;
+    }
+
+    private static String contentTypeOf(String name, String uploaded) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".pdf")) return "application/pdf";
+        if (lower.endsWith(".doc")) return "application/msword";
+        if (lower.endsWith(".docx")) {
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        }
+        if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+        if (lower.endsWith(".xlsx")) {
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        }
+        return uploaded != null && !uploaded.isBlank() ? uploaded : "application/octet-stream";
     }
 
     private static String formatPeriod(LocalDate from, LocalDate to) {

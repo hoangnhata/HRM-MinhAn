@@ -1,6 +1,11 @@
 package com.minhan.hrm.service;
 
+import com.minhan.hrm.entity.Employee;
+import com.minhan.hrm.entity.EmployeeWorkforceDetails;
 import com.minhan.hrm.exception.ApiException;
+import com.minhan.hrm.repository.EmployeeRepository;
+import com.minhan.hrm.repository.EmployeeWorkforceDetailsRepository;
+import com.minhan.hrm.workforce.WorkforceInsurance;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
@@ -28,6 +33,8 @@ import java.util.*;
 public class LowAttendanceReportExcelService {
 
     private final AttendanceSummaryService summaryService;
+    private final EmployeeRepository employeeRepository;
+    private final EmployeeWorkforceDetailsRepository workforceDetailsRepository;
 
     private static final String FONT_NAME = "Times New Roman";
 
@@ -40,6 +47,13 @@ public class LowAttendanceReportExcelService {
     private static final String CRITICAL_TEXT = "991B1B";
     private static final String WARN_FILL = "FEF3C7";      // vàng nhạt — thấp (< ngưỡng)
     private static final String WARN_TEXT = "92400E";
+    private static final String STUDY_FILL = "E0F2FE";     // xanh dương nhạt — đang đi học
+    private static final String STUDY_TEXT = "075985";
+    private static final String MATERNITY_FILL = "FCE7F3"; // hồng nhạt — nghỉ thai sản
+    private static final String MATERNITY_TEXT = "9D174D";
+
+    static final String STUDY_LABEL = "Đang đi học";
+    static final String MATERNITY_LABEL = "Nghỉ thai sản";
 
     private static final Map<String, String> STATUS_LABEL = Map.of(
             "ACTIVE", "Chính thức",
@@ -50,9 +64,21 @@ public class LowAttendanceReportExcelService {
     );
 
     private static final String[] HEADERS = {
-            "STT", "Mã NV", "Họ và tên", "Chức vụ", "SĐT", "Trạng thái",
+            "STT", "Mã NV", "Họ và tên", "Chức vụ", "SĐT", "Trạng thái", "Tình trạng đặc biệt",
             "Công chấm", "Công phép", "Công điều động", "Công trực", "Tổng công"
     };
+
+    /** Đi học / thai sản theo nhân viên — để phân biệt công thấp có lý do. */
+    private record SpecialStatus(boolean studying, boolean maternity) {
+        static final SpecialStatus NONE = new SpecialStatus(false, false);
+
+        String label() {
+            if (studying && maternity) {
+                return STUDY_LABEL + " · " + MATERNITY_LABEL;
+            }
+            return studying ? STUDY_LABEL : maternity ? MATERNITY_LABEL : "";
+        }
+    }
 
     @Transactional(readOnly = true)
     public byte[] buildReport(int year, int month, Long departmentId, BigDecimal threshold) {
@@ -78,13 +104,15 @@ public class LowAttendanceReportExcelService {
                     .thenComparing(r -> str(r.get("fullName")), String.CASE_INSENSITIVE_ORDER));
         }
 
+        Map<Long, SpecialStatus> special = loadSpecialStatus(lowRows);
+
         String scopeName = departmentId == null || allRows.isEmpty()
                 ? "Toàn bệnh viện"
                 : str(allRows.get(0).get("department"));
 
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Styles s = new Styles(wb);
-            writeSheet(wb, s, byDept, lowRows.size(), year, month, scopeName, limit);
+            writeSheet(wb, s, byDept, special, lowRows.size(), year, month, scopeName, limit);
             wb.write(out);
             return out.toByteArray();
         } catch (Exception ex) {
@@ -92,8 +120,44 @@ public class LowAttendanceReportExcelService {
         }
     }
 
+    /** Đang đi học = cờ đào tạo của hồ sơ; thai sản = tình trạng tham gia BHXH "thai sản". */
+    private Map<Long, SpecialStatus> loadSpecialStatus(List<Map<String, Object>> rows) {
+        Set<Long> ids = new HashSet<>();
+        for (Map<String, Object> row : rows) {
+            if (row.get("employeeId") instanceof Number n) {
+                ids.add(n.longValue());
+            }
+        }
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        List<Employee> employees = employeeRepository.findAllById(ids);
+        Set<Long> maternity = new HashSet<>();
+        for (EmployeeWorkforceDetails d : workforceDetailsRepository.findByEmployeeIn(employees)) {
+            if (WorkforceInsurance.isMaternityLeave(d.getInsuranceParticipation())) {
+                maternity.add(d.getEmployeeId());
+            }
+        }
+        Map<Long, SpecialStatus> out = new HashMap<>();
+        for (Employee e : employees) {
+            boolean studying = e.isOnTraining();
+            boolean onMaternity = maternity.contains(e.getId());
+            if (studying || onMaternity) {
+                out.put(e.getId(), new SpecialStatus(studying, onMaternity));
+            }
+        }
+        return out;
+    }
+
+    private static SpecialStatus specialOf(Map<Long, SpecialStatus> special, Map<String, Object> row) {
+        return row.get("employeeId") instanceof Number n
+                ? special.getOrDefault(n.longValue(), SpecialStatus.NONE)
+                : SpecialStatus.NONE;
+    }
+
     private void writeSheet(
             XSSFWorkbook wb, Styles s, Map<String, List<Map<String, Object>>> byDept,
+            Map<Long, SpecialStatus> special,
             int totalCount, int year, int month, String scopeName, BigDecimal limit) {
         Sheet sheet = wb.createSheet("Công thấp trong tháng");
         sheet.setDisplayGridlines(false);
@@ -103,9 +167,14 @@ public class LowAttendanceReportExcelService {
         r = title(sheet, s, r, lastCol, "BỆNH VIỆN MINH AN");
         r = subtitle(sheet, s, r, lastCol,
                 "DANH SÁCH NHÂN VIÊN CÔNG THẤP — THÁNG " + String.format("%02d/%d", month, year));
+        long studyingCount = special.values().stream().filter(SpecialStatus::studying).count();
+        long maternityCount = special.values().stream().filter(SpecialStatus::maternity).count();
         r = meta(sheet, s, r, lastCol, "Phạm vi: " + scopeName
                 + "     •     Ngưỡng: dưới " + fmt(limit) + " công"
                 + "     •     Tổng số: " + totalCount + " nhân viên"
+                + (studyingCount + maternityCount > 0
+                        ? " (trong đó " + studyingCount + " đang đi học, " + maternityCount + " nghỉ thai sản)"
+                        : "")
                 + "     •     Xuất ngày: " + LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
         r++; // dòng trống
 
@@ -149,6 +218,9 @@ public class LowAttendanceReportExcelService {
                 setCell(dr, c++, str(row.get("position")), textStyle);
                 setCell(dr, c++, str(row.get("phone")), centerStyle);
                 setCell(dr, c++, statusLabel(str(row.get("employeeStatus"))), centerStyle);
+                SpecialStatus sp = specialOf(special, row);
+                setCell(dr, c++, sp.label(),
+                        sp.studying() ? s.study : sp.maternity() ? s.maternity : centerStyle);
                 setCell(dr, c++, num(row.get("clockedWorkUnits")), numStyle);
                 setCell(dr, c++, num(row.get("leaveWorkUnits")), numStyle);
                 setCell(dr, c++, num(row.get("deploymentWorkUnits")), numStyle);
@@ -168,7 +240,7 @@ public class LowAttendanceReportExcelService {
         }
         setCell(totalRow, lastCol, totalCount + " nhân viên", s.totalText);
 
-        int[] widths = {1600, 2800, 6600, 5600, 3400, 3200, 2800, 2800, 3200, 2800, 2800};
+        int[] widths = {1600, 2800, 6600, 5600, 3400, 3200, 5200, 2800, 2800, 3200, 2800, 2800};
         for (int c = 0; c <= lastCol; c++) {
             sheet.setColumnWidth(c, widths[c]);
         }
@@ -181,7 +253,8 @@ public class LowAttendanceReportExcelService {
         noteCell.setCellValue("Ghi chú: Danh sách chỉ gồm nhân viên có Tổng công trong tháng dưới " + fmt(limit)
                 + " công, nhóm theo khoa/phòng và sắp xếp tăng dần theo công trong từng khoa. "
                 + "Ô «Tổng công» tô đỏ = dưới " + fmt(limit.divide(BigDecimal.valueOf(2))) + " công (rất thấp), "
-                + "tô vàng = còn lại dưới ngưỡng.");
+                + "tô vàng = còn lại dưới ngưỡng. «Tình trạng đặc biệt»: xanh = đang đi học (đi đào tạo), "
+                + "hồng = nghỉ thai sản — công thấp có lý do.");
         noteCell.setCellStyle(s.footnote);
         sheet.addMergedRegion(new CellRangeAddress(r, r, 0, lastCol));
     }
@@ -293,6 +366,9 @@ public class LowAttendanceReportExcelService {
 
         final CellStyle totalText;
 
+        final CellStyle study;
+        final CellStyle maternity;
+
         Styles(XSSFWorkbook wb) {
             DataFormat fmt = wb.createDataFormat();
             short num2 = fmt.getFormat("0.00");
@@ -333,6 +409,10 @@ public class LowAttendanceReportExcelService {
             this.warnNum = body(wb, warnFont, HorizontalAlignment.CENTER, WARN_FILL, num2);
 
             this.totalText = body(wb, totalFont, HorizontalAlignment.LEFT, TOTAL_FILL, (short) 0);
+
+            this.study = body(wb, font(wb, 11, true, STUDY_TEXT), HorizontalAlignment.CENTER, STUDY_FILL, (short) 0);
+            this.maternity = body(
+                    wb, font(wb, 11, true, MATERNITY_TEXT), HorizontalAlignment.CENTER, MATERNITY_FILL, (short) 0);
         }
 
         private static XSSFFont font(XSSFWorkbook wb, int size, boolean bold, String hex) {
