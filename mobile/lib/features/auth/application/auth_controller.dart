@@ -36,7 +36,9 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> bootstrap() async {
     final token = await _tokenStorage.readToken();
-    if (token == null || token.isEmpty) {
+    final refresh = await _tokenStorage.readRefreshToken();
+    if ((token == null || token.isEmpty) &&
+        (refresh == null || refresh.isEmpty)) {
       state = state.copyWith(status: AuthStatus.unauthenticated);
       return;
     }
@@ -45,17 +47,84 @@ class AuthController extends StateNotifier<AuthState> {
       state = state.copyWith(
         status: me.mustChangePassword
             ? AuthStatus.mustChangePassword
-            : (!me.hasSignature ? AuthStatus.mustSetSignature : AuthStatus.authenticated),
+            : (!me.hasSignature
+                  ? AuthStatus.mustSetSignature
+                  : AuthStatus.authenticated),
         role: me.role,
         userId: me.userId,
         employeeId: me.employeeId,
         fullName: me.displayName,
         currentUser: me,
       );
+    } on ApiException catch (e) {
+      if (e.isUnauthorized) {
+        // ApiClient đã thử làm mới phiên và bị từ chối → thật sự hết phiên.
+        await _tokenStorage.clear();
+        state = state.copyWith(status: AuthStatus.unauthenticated);
+        return;
+      }
+      await _restoreOfflineSession();
     } catch (_) {
+      await _restoreOfflineSession();
+    }
+  }
+
+  /// Mất mạng / máy chủ bận lúc mở app: KHÔNG đăng xuất. Dựng lại phiên từ
+  /// thông tin đã lưu và thử tải hồ sơ lại khi có mạng.
+  Future<void> _restoreOfflineSession() async {
+    final roleRaw = await _tokenStorage.readRole();
+    final userId = await _tokenStorage.readUserId();
+    if (userId == null) {
       await _tokenStorage.clear();
       state = state.copyWith(status: AuthStatus.unauthenticated);
+      return;
     }
+    state = state.copyWith(
+      status: AuthStatus.authenticated,
+      role: UserRoleX.fromApi(roleRaw),
+      userId: userId,
+      employeeId: await _tokenStorage.readEmployeeId(),
+      fullName: await _tokenStorage.readFullName(),
+    );
+    _scheduleProfileRetry();
+  }
+
+  Timer? _profileRetry;
+  int _profileRetryAttempt = 0;
+
+  void _scheduleProfileRetry() {
+    _profileRetry?.cancel();
+    const delays = [5, 15, 30, 60, 120];
+    final seconds = delays[_profileRetryAttempt.clamp(0, delays.length - 1)];
+    _profileRetryAttempt++;
+    _profileRetry = Timer(Duration(seconds: seconds), () async {
+      if (!state.isAuthenticated) return;
+      try {
+        final me = await _repository.fetchMe();
+        _profileRetryAttempt = 0;
+        state = state.copyWith(
+          status: me.mustChangePassword
+              ? AuthStatus.mustChangePassword
+              : (!me.hasSignature
+                    ? AuthStatus.mustSetSignature
+                    : AuthStatus.authenticated),
+          role: me.role,
+          employeeId: me.employeeId,
+          fullName: me.displayName,
+          currentUser: me,
+        );
+      } on ApiException catch (e) {
+        if (!e.isUnauthorized) _scheduleProfileRetry();
+      } catch (_) {
+        _scheduleProfileRetry();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _profileRetry?.cancel();
+    super.dispose();
   }
 
   Future<bool> login(String username, String password) async {
@@ -64,6 +133,7 @@ class AuthController extends StateNotifier<AuthState> {
       final result = await _repository.login(username.trim(), password);
       await _tokenStorage.saveSession(
         accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
         role: result.role.apiValue,
         userId: result.userId,
         employeeId: result.employeeId,
@@ -96,7 +166,9 @@ class AuthController extends StateNotifier<AuthState> {
       state = state.copyWith(errorMessage: e.message);
       return false;
     } catch (_) {
-      state = state.copyWith(errorMessage: 'Đăng nhập thất bại. Vui lòng thử lại.');
+      state = state.copyWith(
+        errorMessage: 'Đăng nhập thất bại. Vui lòng thử lại.',
+      );
       return false;
     }
   }
@@ -112,12 +184,20 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> refreshCurrentUser() => _refreshCurrentUser();
 
-  Future<bool> changePassword(String currentPassword, String newPassword) async {
+  Future<bool> changePassword(
+    String currentPassword,
+    String newPassword,
+  ) async {
     try {
-      await _repository.changePassword(currentPassword: currentPassword, newPassword: newPassword);
+      await _repository.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+      );
       final me = await _repository.fetchMe();
       state = state.copyWith(
-        status: !me.hasSignature ? AuthStatus.mustSetSignature : AuthStatus.authenticated,
+        status: !me.hasSignature
+            ? AuthStatus.mustSetSignature
+            : AuthStatus.authenticated,
         currentUser: me,
         errorMessage: null,
       );
@@ -154,6 +234,14 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    _profileRetry?.cancel();
+    // Thu hồi refresh token trên máy chủ (best-effort — mất mạng vẫn đăng xuất ngay).
+    final refresh = await _tokenStorage.readRefreshToken();
+    if (refresh != null && refresh.isNotEmpty) {
+      try {
+        await _repository.logout(refresh).timeout(const Duration(seconds: 5));
+      } catch (_) {}
+    }
     await _tokenStorage.clear();
     _resetUserScopedCaches();
     state = const AuthState(status: AuthStatus.unauthenticated);
@@ -161,6 +249,7 @@ class AuthController extends StateNotifier<AuthState> {
 
   void _handleUnauthorized() {
     if (state.status == AuthStatus.unauthenticated) return;
+    _profileRetry?.cancel();
     _tokenStorage.clear();
     _resetUserScopedCaches();
     state = const AuthState(
@@ -176,11 +265,13 @@ class AuthController extends StateNotifier<AuthState> {
   }
 }
 
-final authControllerProvider = StateNotifierProvider<AuthController, AuthState>((ref) {
-  return AuthController(
-    ref,
-    ref.watch(authRepositoryProvider),
-    ref.watch(tokenStorageProvider),
-    ref.watch(apiClientProvider),
-  );
-});
+final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
+  (ref) {
+    return AuthController(
+      ref,
+      ref.watch(authRepositoryProvider),
+      ref.watch(tokenStorageProvider),
+      ref.watch(apiClientProvider),
+    );
+  },
+);

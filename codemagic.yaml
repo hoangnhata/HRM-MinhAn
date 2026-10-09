@@ -45,8 +45,8 @@ workflows:
       - name: Build IPA
         script: |
           cd mobile
-          # Phiên bản lấy từ pubspec.yaml (dòng "version: 1.0.5+10"): tên bản = 1.0.5,
-          # số build tối thiểu = 10. Không ghim cứng --build-name nữa; Codemagic lấy
+          # Phiên bản lấy từ pubspec.yaml (dòng "version: 1.0.5+11"): tên bản = 1.0.5,
+          # số build tối thiểu = 11. Không ghim cứng --build-name nữa; Codemagic lấy
           # max(pubspec, TestFlight+1) để không trùng số build đã upload.
           VERSION_LINE=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
           BUILD_NAME=${VERSION_LINE%%+*}

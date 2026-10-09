@@ -80,8 +80,8 @@ flutter build appbundle --release
 Android đi trước iOS một bản, nên khi build Android ghi đè tên bản và số build:
 
 ```bash
-# Play đang có 1.0.5 (9) → bản kế tiếp 1.0.6 (10)
-flutter build appbundle --release --build-name=1.0.6 --build-number=10
+# Play đã có 1.0.6 (11) → bản kế tiếp 1.0.6 (12); mỗi lần tải lên phải tăng số build
+flutter build appbundle --release --build-name=1.0.6 --build-number=12
 ```
 
 ## 5. Luồng đăng nhập

@@ -1,8 +1,16 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- open_filex tự khai báo quyền đọc ảnh/video/âm thanh. App chỉ mở tệp nó vừa
+         tải vào thư mục tạm của chính nó (FileProvider), còn chọn ảnh/tệp đi qua
+         trình chọn hệ thống (image_picker/file_picker) nên không cần các quyền này.
+         Gỡ để đạt chính sách quyền ảnh & video của Google Play. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove"/>
     <application
         android:label="HRM Minh An"
         android:name="${applicationName}"

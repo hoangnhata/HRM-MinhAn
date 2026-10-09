@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -14,9 +15,34 @@ class AuthRepository {
   Future<LoginResult> login(String username, String password) async {
     final response = await _client.post<Map<String, dynamic>>(
       '/auth/login',
-      data: {'username': username, 'password': password},
+      data: {
+        'username': username,
+        'password': password,
+        // Nhận refresh token: giữ đăng nhập tới khi người dùng tự đăng xuất.
+        'rememberDevice': true,
+        'deviceLabel': _deviceLabel(),
+      },
     );
     return LoginResult.fromJson(response.data!);
+  }
+
+  /// Thu hồi refresh token của thiết bị này trên máy chủ.
+  Future<void> logout(String refreshToken) async {
+    await _client.post('/auth/logout', data: {'refreshToken': refreshToken});
+  }
+
+  static String _deviceLabel() {
+    try {
+      final os = Platform.isIOS
+          ? 'iOS'
+          : Platform.isAndroid
+          ? 'Android'
+          : Platform.operatingSystem;
+      final label = '$os ${Platform.operatingSystemVersion}'.trim();
+      return label.length > 120 ? label.substring(0, 120) : label;
+    } catch (_) {
+      return 'mobile';
+    }
   }
 
   Future<CurrentUser> fetchMe() async {
@@ -42,9 +68,7 @@ class AuthRepository {
     final safeMime = mimeType.startsWith('image/') ? mimeType : 'image/png';
     await _client.put(
       '/v1/account/me/signature',
-      data: {
-        'imageBase64': 'data:$safeMime;base64,${base64Encode(bytes)}',
-      },
+      data: {'imageBase64': 'data:$safeMime;base64,${base64Encode(bytes)}'},
     );
   }
 }

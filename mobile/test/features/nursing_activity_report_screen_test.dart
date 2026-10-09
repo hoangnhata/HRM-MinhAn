@@ -208,6 +208,9 @@ class _FakeTokenStorage implements TokenStorage {
   Future<String?> readToken() async => null;
 
   @override
+  Future<String?> readRefreshToken() async => null;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 

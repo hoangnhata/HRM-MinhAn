@@ -8,6 +8,7 @@ class TokenStorage {
   final FlutterSecureStorage _storage;
 
   static const _kAccessToken = 'hrm_access_token';
+  static const _kRefreshToken = 'hrm_refresh_token';
   static const _kRole = 'hrm_role';
   static const _kUserId = 'hrm_user_id';
   static const _kEmployeeId = 'hrm_employee_id';
@@ -15,6 +16,7 @@ class TokenStorage {
 
   Future<void> saveSession({
     required String accessToken,
+    String? refreshToken,
     required String role,
     required int userId,
     int? employeeId,
@@ -22,6 +24,8 @@ class TokenStorage {
   }) async {
     await Future.wait([
       _storage.write(key: _kAccessToken, value: accessToken),
+      if (refreshToken != null && refreshToken.isNotEmpty)
+        _storage.write(key: _kRefreshToken, value: refreshToken),
       _storage.write(key: _kRole, value: role),
       _storage.write(key: _kUserId, value: userId.toString()),
       if (employeeId != null)
@@ -33,6 +37,21 @@ class TokenStorage {
   }
 
   Future<String?> readToken() => _storage.read(key: _kAccessToken);
+
+  /// Refresh token giữ phiên dài hạn — dùng để lấy access token mới khi hết 8 giờ.
+  Future<String?> readRefreshToken() => _storage.read(key: _kRefreshToken);
+
+  /// Lưu cặp token mới sau khi làm mới phiên (thông tin hồ sơ giữ nguyên).
+  Future<void> saveTokens({
+    required String accessToken,
+    String? refreshToken,
+  }) async {
+    await Future.wait([
+      _storage.write(key: _kAccessToken, value: accessToken),
+      if (refreshToken != null && refreshToken.isNotEmpty)
+        _storage.write(key: _kRefreshToken, value: refreshToken),
+    ]);
+  }
 
   Future<String?> readRole() => _storage.read(key: _kRole);
 
@@ -53,6 +72,7 @@ class TokenStorage {
   Future<void> clear() async {
     await Future.wait([
       _storage.delete(key: _kAccessToken),
+      _storage.delete(key: _kRefreshToken),
       _storage.delete(key: _kRole),
       _storage.delete(key: _kUserId),
       _storage.delete(key: _kEmployeeId),

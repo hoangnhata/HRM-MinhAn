@@ -5,8 +5,10 @@ enum AuthStatus {
   /// Dang kiem tra session da luu (splash).
   bootstrapping,
   unauthenticated,
+
   /// Da dang nhap nhung backend yeu cau doi mat khau truoc.
   mustChangePassword,
+
   /// Da dang nhap nhung backend yeu cau thiet lap chu ky truoc.
   mustSetSignature,
   authenticated,
