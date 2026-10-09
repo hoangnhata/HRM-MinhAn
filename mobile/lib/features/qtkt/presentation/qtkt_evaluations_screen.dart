@@ -183,6 +183,7 @@ class _QtktEvaluationsScreenState extends ConsumerState<QtktEvaluationsScreen> {
     final selected = await showAppOptionPicker(
       context,
       title: 'Lọc theo trạng thái',
+      icon: Icons.flag_rounded,
       options: const [
         AppOptionItem(
           value: 'ALL',
@@ -219,6 +220,7 @@ class _QtktEvaluationsScreenState extends ConsumerState<QtktEvaluationsScreen> {
     final selected = await showAppOptionPicker(
       context,
       title: 'Lọc theo khoa/phòng',
+      icon: Icons.apartment_rounded,
       options: [
         const AppOptionItem(
           value: 'ALL',
@@ -229,7 +231,6 @@ class _QtktEvaluationsScreenState extends ConsumerState<QtktEvaluationsScreen> {
           AppOptionItem(
             value: '${department.id}',
             label: department.name,
-            subtitle: department.code,
             icon: Icons.local_hospital_outlined,
           ),
       ],
@@ -247,6 +248,7 @@ class _QtktEvaluationsScreenState extends ConsumerState<QtktEvaluationsScreen> {
     final selected = await showAppOptionPicker(
       context,
       title: 'Lọc theo quy trình',
+      icon: Icons.medical_services_rounded,
       options: [
         const AppOptionItem(
           value: 'ALL',
@@ -365,7 +367,9 @@ class _QtktEvaluationsScreenState extends ConsumerState<QtktEvaluationsScreen> {
         _tab == _QtktTab.evaluations &&
         !_loading &&
         _error == null &&
-        _template != null;
+        _template != null &&
+        // Chưa có phiếu: màn trống đã có nút "Lập phiếu đầu tiên" — tránh trùng.
+        _evaluations.isNotEmpty;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -537,6 +541,9 @@ class _QtktEvaluationsScreenState extends ConsumerState<QtktEvaluationsScreen> {
             onPickStatus: _pickStatus,
             onPickDepartment: _pickDepartment,
             onPickProcedure: _pickProcedure,
+            onClearStatus: () => setState(() => _statusFilter = null),
+            onClearDepartment: () => setState(() => _departmentFilter = null),
+            onClearProcedure: () => setState(() => _procedureFilter = null),
             onClear: _clearFilters,
           ),
         ),
@@ -789,17 +796,31 @@ class _MonthPanel extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       decoration: BoxDecoration(
-        color: onBrand.withValues(alpha: 0.11),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            onBrand.withValues(alpha: 0.16),
+            onBrand.withValues(alpha: 0.06),
+          ],
+        ),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: onBrand.withValues(alpha: 0.16)),
+        border: Border.all(color: onBrand.withValues(alpha: 0.18)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.10),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Row(
         children: [
           _ScoreRing(
             value: avgPercent,
-            label: hasScore ? avgScore.toStringAsFixed(2) : '—',
+            label: hasScore ? AppFormat.score(avgScore) : null,
             caption: 'ĐIỂM TB',
             loading: loading,
           ),
@@ -808,26 +829,59 @@ class _MonthPanel extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: AppColors.secondaryLight,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.secondaryLight.withValues(
+                              alpha: 0.6,
+                            ),
+                            blurRadius: 5,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'KỲ ĐÁNH GIÁ',
+                      style: AppTypography.uppercase(
+                        fontSize: 9.5,
+                        letterSpacing: 1.0,
+                        color: AppColors.secondaryLight,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
                 Text(
                   monthLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTypography.metric(
+                  style: AppTypography.style(
                     fontSize: 19,
-                    color: onBrand,
                     fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
+                    height: AppTypography.uppercaseHeight,
+                    color: onBrand,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   caption,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.style(
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    height: 1.32,
-                    color: onBrand.withValues(alpha: 0.84),
+                    fontWeight: FontWeight.w500,
+                    height: 1.4,
+                    tabular: true,
+                    color: onBrand.withValues(alpha: 0.8),
                   ),
                 ),
               ],
@@ -837,19 +891,27 @@ class _MonthPanel extends StatelessWidget {
           Semantics(
             button: true,
             label: 'Đổi tháng',
-            child: Material(
-              color: onBrand.withValues(alpha: 0.16),
-              borderRadius: AppRadius.brMd,
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: onPickMonth,
-                child: SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: Icon(
-                    Icons.edit_calendar_outlined,
-                    color: onBrand,
-                    size: 20,
+            excludeSemantics: true,
+            child: Tooltip(
+              message: 'Đổi tháng',
+              child: Material(
+                color: onBrand.withValues(alpha: 0.16),
+                shape: CircleBorder(
+                  side: BorderSide(color: onBrand.withValues(alpha: 0.24)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    onPickMonth();
+                  },
+                  child: SizedBox.square(
+                    dimension: 44,
+                    child: Icon(
+                      Icons.edit_calendar_rounded,
+                      color: onBrand,
+                      size: 20,
+                    ),
                   ),
                 ),
               ),
@@ -861,7 +923,7 @@ class _MonthPanel extends StatelessWidget {
   }
 }
 
-/// Vòng điểm trung bình trên nền brand.
+/// Vòng điểm trung bình trên nền brand — số và nhãn nằm trong vòng.
 class _ScoreRing extends StatelessWidget {
   const _ScoreRing({
     required this.value,
@@ -871,7 +933,9 @@ class _ScoreRing extends StatelessWidget {
   });
 
   final double value;
-  final String label;
+
+  /// `null` = chưa có phiếu đã gửi → hiện icon thay cho số.
+  final String? label;
   final String caption;
   final bool loading;
 
@@ -882,62 +946,79 @@ class _ScoreRing extends StatelessWidget {
   Widget build(BuildContext context) {
     final onBrand = Theme.of(context).colorScheme.onPrimary;
     final safe = value.clamp(0.0, 1.0);
+    final tone = safe >= 0.9 ? _mint : _gold;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 58,
-          height: 58,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: loading ? 0 : safe),
-            duration: AppDurations.slow,
-            curve: Curves.easeOutCubic,
-            builder: (context, animated, _) => Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox.expand(
-                  child: CircularProgressIndicator(
-                    value: loading ? null : animated,
-                    strokeWidth: 5,
-                    strokeCap: StrokeCap.round,
-                    backgroundColor: onBrand.withValues(alpha: 0.18),
-                    valueColor: AlwaysStoppedAnimation(
-                      safe >= 0.9 ? _mint : _gold,
-                    ),
-                  ),
-                ),
-                if (!loading)
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        style: AppTypography.metric(
-                          fontSize: 14,
-                          color: onBrand,
-                          fontWeight: FontWeight.w800,
+    return SizedBox.square(
+      dimension: 72,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: loading ? 0 : safe),
+        duration: AppDurations.slow,
+        curve: Curves.easeOutCubic,
+        builder: (context, animated, _) => Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.black.withValues(alpha: 0.12),
+                boxShadow: label == null
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: tone.withValues(alpha: 0.25),
+                          blurRadius: 16,
+                        ),
+                      ],
+              ),
+            ),
+            SizedBox.expand(
+              child: CircularProgressIndicator(
+                value: loading ? null : animated,
+                strokeWidth: 5.5,
+                strokeCap: StrokeCap.round,
+                backgroundColor: onBrand.withValues(alpha: 0.14),
+                valueColor: AlwaysStoppedAnimation(tone),
+              ),
+            ),
+            if (!loading)
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (label == null)
+                    Icon(
+                      Icons.hourglass_empty_rounded,
+                      size: 20,
+                      color: onBrand.withValues(alpha: 0.75),
+                    )
+                  else
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          label!,
+                          maxLines: 1,
+                          style: AppTypography.display(
+                            fontSize: 18,
+                            color: onBrand,
+                          ),
                         ),
                       ),
                     ),
+                  const SizedBox(height: 1),
+                  Text(
+                    caption,
+                    style: AppTypography.uppercase(
+                      fontSize: 7.5,
+                      letterSpacing: 0.6,
+                      color: onBrand.withValues(alpha: 0.7),
+                    ),
                   ),
-              ],
-            ),
-          ),
+                ],
+              ),
+          ],
         ),
-        const SizedBox(height: 5),
-        Text(
-          caption,
-          style: AppTypography.style(
-            fontSize: 10,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.7,
-            color: onBrand.withValues(alpha: 0.72),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -954,6 +1035,9 @@ class _SearchAndFilterBar extends StatelessWidget {
     required this.onPickStatus,
     required this.onPickDepartment,
     required this.onPickProcedure,
+    required this.onClearStatus,
+    required this.onClearDepartment,
+    required this.onClearProcedure,
     required this.onClear,
   });
 
@@ -967,30 +1051,52 @@ class _SearchAndFilterBar extends StatelessWidget {
   final VoidCallback onPickStatus;
   final VoidCallback onPickDepartment;
   final VoidCallback onPickProcedure;
+  final VoidCallback onClearStatus;
+  final VoidCallback onClearDepartment;
+  final VoidCallback onClearProcedure;
   final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
     final filtering = activeCount > 0 || controller.text.trim().isNotEmpty;
+    final active = <(IconData, String, VoidCallback)>[
+      if (statusLabel != null)
+        (Icons.flag_rounded, statusLabel!, onClearStatus),
+      if (departmentLabel != null)
+        (Icons.apartment_rounded, departmentLabel!, onClearDepartment),
+      if (procedureLabel != null)
+        (Icons.medical_services_rounded, procedureLabel!, onClearProcedure),
+    ];
 
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(19),
+        borderRadius: AppRadius.brXl,
         border: Border.all(color: AppColors.borderSoft),
         boxShadow: AppShadows.card,
       ),
-      padding: const EdgeInsets.all(5),
+      padding: const EdgeInsets.all(8),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
+          // Ô tìm kiếm dạng rãnh lõm nhẹ trong thẻ trắng.
+          Container(
             height: 42,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFFE6EFEE), Color(0xFFF0F6F5)],
+              ),
+              borderRadius: AppRadius.brPaper,
+            ),
             child: TextField(
               controller: controller,
               textInputAction: TextInputAction.search,
               style: AppTypography.style(
                 fontSize: 13.5,
                 fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
               ),
               decoration: InputDecoration(
                 isDense: true,
@@ -1004,15 +1110,15 @@ class _SearchAndFilterBar extends StatelessWidget {
                 prefixIcon: const Icon(
                   Icons.search_rounded,
                   size: 20,
-                  color: AppColors.textTertiary,
+                  color: AppColors.textSecondary,
                 ),
                 suffixIcon: controller.text.isEmpty
                     ? null
                     : IconButton(
                         onPressed: controller.clear,
                         tooltip: 'Xóa từ khóa',
-                        icon: const Icon(Icons.close_rounded, size: 18),
-                        color: AppColors.textSecondary,
+                        icon: const Icon(Icons.cancel_rounded, size: 18),
+                        color: AppColors.textTertiary,
                       ),
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
@@ -1020,64 +1126,119 @@ class _SearchAndFilterBar extends StatelessWidget {
               ),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(4, 1, 4, 5),
-            child: Divider(height: 1, color: AppColors.borderSoft),
-          ),
+          const SizedBox(height: 8),
+          // Nút lọc nhãn ngắn cố định — giá trị đang chọn hiện ở hàng chip
+          // bên dưới, nên nút không bao giờ bị cắt chữ.
           SizedBox(
-            height: 36,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: EdgeInsets.zero,
+            height: 40,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _FilterPill(
-                  label: statusLabel ?? 'Trạng thái',
-                  active: statusLabel != null,
-                  icon: Icons.flag_outlined,
-                  onTap: onPickStatus,
+                Expanded(
+                  child: _FilterPill(
+                    label: 'Trạng thái',
+                    active: statusLabel != null,
+                    icon: Icons.flag_rounded,
+                    onTap: onPickStatus,
+                  ),
                 ),
                 const SizedBox(width: 6),
-                _FilterPill(
-                  label: departmentLabel ?? 'Khoa/phòng',
-                  active: departmentLabel != null,
-                  icon: Icons.apartment_outlined,
-                  onTap: onPickDepartment,
+                Expanded(
+                  child: _FilterPill(
+                    label: 'Khoa',
+                    active: departmentLabel != null,
+                    icon: Icons.apartment_rounded,
+                    onTap: onPickDepartment,
+                  ),
                 ),
                 const SizedBox(width: 6),
-                _FilterPill(
-                  label: procedureLabel ?? 'Quy trình',
-                  active: procedureLabel != null,
-                  icon: Icons.biotech_outlined,
-                  onTap: onPickProcedure,
+                Expanded(
+                  child: _FilterPill(
+                    label: 'Quy trình',
+                    active: procedureLabel != null,
+                    icon: Icons.medical_services_rounded,
+                    onTap: onPickProcedure,
+                  ),
                 ),
-                if (activeCount > 0) ...[
-                  const SizedBox(width: 6),
-                  _ClearFilterPill(onTap: onClear),
-                ],
               ],
             ),
           ),
+          if (active.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final a in active)
+                  _ActiveFilterChip(icon: a.$1, label: a.$2, onRemove: a.$3),
+              ],
+            ),
+          ],
           if (filtering) ...[
-            const SizedBox(height: 2),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 0, 6, 4),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.fromLTRB(10, 0, 2, 0),
+              height: 32,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceAlt,
+                borderRadius: AppRadius.brControl,
+              ),
               child: Row(
                 children: [
                   const Icon(
-                    Icons.filter_alt_outlined,
-                    size: 13,
-                    color: AppColors.textTertiary,
+                    Icons.filter_alt_rounded,
+                    size: 14,
+                    color: AppColors.primary,
                   ),
                   const SizedBox(width: 5),
-                  Text(
-                    'Hiển thị $resultCount / $totalCount phiếu',
-                    style: AppTypography.style(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textSecondary,
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        text: 'Hiển thị ',
+                        children: [
+                          TextSpan(
+                            text: '$resultCount',
+                            style: AppTypography.style(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              tabular: true,
+                              color: AppColors.primaryDark,
+                            ),
+                          ),
+                          TextSpan(text: ' / $totalCount phiếu'),
+                        ],
+                      ),
+                      style: AppTypography.style(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        tabular: true,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ),
+                  if (activeCount > 0)
+                    TextButton.icon(
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        onClear();
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.errorText,
+                        minimumSize: const Size(0, 30),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      icon: const Icon(Icons.filter_alt_off_rounded, size: 15),
+                      label: Text(
+                        'Xóa tất cả',
+                        style: AppTypography.style(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.errorText,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1088,6 +1249,8 @@ class _SearchAndFilterBar extends StatelessWidget {
   }
 }
 
+/// Nút mở bộ lọc: nhãn ngắn cố định; đang lọc → nền teal nhạt, viền teal và
+/// chấm báo đã áp dụng.
 class _FilterPill extends StatelessWidget {
   const _FilterPill({
     required this.label,
@@ -1103,114 +1266,147 @@ class _FilterPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: active ? 1 : 0),
-      duration: AppDurations.fast,
-      curve: Curves.easeOutCubic,
-      builder: (context, t, _) {
-        final foreground = Color.lerp(
-          AppColors.textSecondary,
-          AppColors.primary,
-          t,
-        )!;
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            color: Color.lerp(
-              AppColors.surfaceAlt,
-              AppColors.primary.withValues(alpha: 0.1),
-              t,
-            ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Color.lerp(
-                Colors.transparent,
-                AppColors.primary.withValues(alpha: 0.3),
-                t,
-              )!,
+    final fg = active ? AppColors.primaryDark : AppColors.textSecondary;
+    return Semantics(
+      button: true,
+      label: active ? '$label, đang lọc' : 'Lọc theo $label',
+      excludeSemantics: true,
+      child: AnimatedContainer(
+        duration: AppDurations.fast,
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: active ? AppColors.primaryContainer : AppColors.surface,
+          borderRadius: AppRadius.brBase,
+          border: Border.all(
+            color: active
+                ? AppColors.primary.withValues(alpha: 0.45)
+                : AppColors.border,
+            width: active ? 1.4 : 1,
+          ),
+          boxShadow: active ? null : AppShadows.soft,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+            borderRadius: AppRadius.brBase,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 15, color: AppColors.primary),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.style(
+                        fontSize: 12.5,
+                        fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                        height: AppTypography.uppercaseHeight,
+                        color: fg,
+                      ),
+                    ),
+                  ),
+                  if (active) ...[
+                    const SizedBox(width: 5),
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(width: 1),
+                    Icon(Icons.expand_more_rounded, size: 16, color: fg),
+                  ],
+                ],
+              ),
             ),
           ),
-          child: Material(
-            color: Colors.transparent,
+        ),
+      ),
+    );
+  }
+}
+
+/// Chip bộ lọc đang áp dụng: icon · giá trị đầy đủ · nút ✕ bỏ riêng lọc này.
+class _ActiveFilterChip extends StatelessWidget {
+  const _ActiveFilterChip({
+    required this.icon,
+    required this.label,
+    required this.onRemove,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 300),
+      padding: const EdgeInsets.fromLTRB(9, 0, 2, 0),
+      height: 32,
+      decoration: BoxDecoration(
+        gradient: AppGradients.brand,
+        borderRadius: AppRadius.brPill,
+        boxShadow: AppShadows.tinted(AppColors.primary),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: Colors.white.withValues(alpha: 0.85)),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.style(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                height: AppTypography.uppercaseHeight,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Semantics(
+            button: true,
+            label: 'Bỏ lọc $label',
+            excludeSemantics: true,
             child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(12),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 190),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(icon, size: 15, color: foreground),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.style(
-                            fontSize: 12,
-                            fontWeight: t > 0.5
-                                ? FontWeight.w800
-                                : FontWeight.w600,
-                            color: foreground,
-                            letterSpacing: -0.05,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 2),
-                      Icon(
-                        Icons.keyboard_arrow_down_rounded,
-                        size: 16,
-                        color: foreground,
-                      ),
-                    ],
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onRemove();
+              },
+              customBorder: const CircleBorder(),
+              child: Padding(
+                padding: const EdgeInsets.all(5),
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.22),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 13,
+                    color: Colors.white,
                   ),
                 ),
               ),
             ),
           ),
-        );
-      },
-    );
-  }
-}
-
-class _ClearFilterPill extends StatelessWidget {
-  const _ClearFilterPill({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.errorLight,
-      borderRadius: BorderRadius.circular(12),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.filter_alt_off_outlined,
-                size: 15,
-                color: AppColors.errorText,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Xóa lọc',
-                style: AppTypography.style(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.errorText,
-                ),
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }

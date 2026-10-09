@@ -134,10 +134,9 @@ class ProfileScreen extends ConsumerWidget {
                   ))
                     const SizedBox(height: AppSpacing.sm),
                   if (RoleGroups.canViewWorkforceReports(
-                    auth.role,
-                    reportViewEnabled:
-                        me?.reportViewEnabled ?? false,
-                  ) ||
+                        auth.role,
+                        reportViewEnabled: me?.reportViewEnabled ?? false,
+                      ) ||
                       RoleGroups.canViewNursingAnalytics(auth.role) ||
                       RoleGroups.canEnterNursingDailyReports(auth.role) ||
                       RoleGroups.canEnterQtkt(auth.role))
@@ -148,8 +147,7 @@ class ProfileScreen extends ConsumerWidget {
                         items: [
                           if (RoleGroups.canViewWorkforceReports(
                             auth.role,
-                            reportViewEnabled:
-                                me?.reportViewEnabled ?? false,
+                            reportViewEnabled: me?.reportViewEnabled ?? false,
                           )) ...[
                             _MenuItem(
                               icon: Icons.assessment_rounded,
@@ -214,8 +212,7 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   if (RoleGroups.canViewWorkforceReports(
                         auth.role,
-                        reportViewEnabled:
-                            me?.reportViewEnabled ?? false,
+                        reportViewEnabled: me?.reportViewEnabled ?? false,
                       ) ||
                       RoleGroups.canViewNursingAnalytics(auth.role) ||
                       RoleGroups.canEnterNursingDailyReports(auth.role) ||
@@ -359,7 +356,8 @@ class _ProfileHeader extends StatelessWidget {
     final onBrand = Theme.of(context).colorScheme.onPrimary;
 
     return GradientHeader(
-      bottomRadius: 24,
+      bottomRadius: 28,
+      ornamentIcon: Icons.verified_user_rounded,
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
         AppSpacing.lg,
@@ -369,14 +367,8 @@ class _ProfileHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          AppAvatar(
-            name: name,
-            size: 88,
-            authImageUrl: hasAvatar ? ProfileRepository.myAvatarUrl : null,
-            borderColor: onBrand.withValues(alpha: 0.92),
-            borderWidth: 3,
-          ),
-          const SizedBox(height: AppSpacing.sm),
+          _ProfileAvatarRing(name: name, hasAvatar: hasAvatar),
+          const SizedBox(height: AppSpacing.md),
           Semantics(
             header: true,
             child: Text(
@@ -384,41 +376,202 @@ class _ProfileHeader extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: AppTypography.pageTitle(color: onBrand),
+              style:
+                  AppTypography.style(
+                    color: onBrand,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.6,
+                    height: AppTypography.uppercaseHeight,
+                  ).copyWith(
+                    shadows: [
+                      Shadow(
+                        color: AppColors.primaryDark.withValues(alpha: 0.35),
+                        blurRadius: 12,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
             ),
           ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-            decoration: BoxDecoration(
-              color: onBrand.withValues(alpha: 0.16),
-              borderRadius: AppRadius.brPill,
+          const SizedBox(height: AppSpacing.xs),
+          _RoleChip(label: roleLabel),
+          if (subtitle.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.apartment_rounded,
+                  size: 15,
+                  color: onBrand.withValues(alpha: 0.7),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: AppTypography.style(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      height: 1.4,
+                      color: onBrand.withValues(alpha: 0.82),
+                    ),
+                  ),
+                ),
+              ],
             ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Avatar lớn với viền vàng đồng chuyển sắc, khe trắng mảnh và dấu xác thực.
+class _ProfileAvatarRing extends StatelessWidget {
+  const _ProfileAvatarRing({required this.name, required this.hasAvatar});
+
+  final String name;
+  final bool hasAvatar;
+
+  static const double _avatar = 92;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: _avatar + 16,
+      height: _avatar + 16,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Quầng sáng mềm phía sau — tách avatar khỏi nền teal.
+          Container(
+            width: _avatar + 16,
+            height: _avatar + 16,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  Colors.white.withValues(alpha: 0.22),
+                  Colors.white.withValues(alpha: 0),
+                ],
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(2.5),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: SweepGradient(
+                colors: [
+                  AppColors.secondaryLight,
+                  Colors.white.withValues(alpha: 0.95),
+                  AppColors.secondaryLight.withValues(alpha: 0.7),
+                  Colors.white.withValues(alpha: 0.95),
+                  AppColors.secondaryLight,
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 22,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.primaryDark,
+              ),
+              child: AppAvatar(
+                name: name,
+                size: _avatar,
+                authImageUrl: hasAvatar ? ProfileRepository.myAvatarUrl : null,
+                showShadow: false,
+              ),
+            ),
+          ),
+          Positioned(
+            right: 8,
+            bottom: 8,
+            child: Semantics(
+              label: 'Tài khoản đang hoạt động',
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: AppGradients.gold,
+                  border: Border.all(color: AppColors.primaryDark, width: 2.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.check_rounded,
+                  size: 15,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Chip vai trò: kính mờ tối, viền vàng đồng, icon khiên — cùng ngôn ngữ với
+/// eyebrow ở các header khác.
+class _RoleChip extends StatelessWidget {
+  const _RoleChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 5, 12, 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.16),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(
+          color: AppColors.secondaryLight.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.shield_rounded,
+            size: 14,
+            color: AppColors.secondaryLight,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
             child: Text(
-              roleLabel,
+              label,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: AppTypography.style(
-                color: onBrand,
-                fontSize: 12,
+                color: AppColors.secondaryLight,
+                fontSize: 12.5,
                 fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+                height: AppTypography.uppercaseHeight,
               ),
             ),
           ),
-          if (subtitle.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: AppTypography.body(
-                fontSize: 12.5,
-                color: onBrand.withValues(alpha: 0.85),
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -442,11 +595,7 @@ class _IdentityCard extends StatelessWidget {
       if (me.workUnitScoped &&
           me.workUnitDetail != null &&
           me.workUnitDetail!.trim().isNotEmpty)
-        (
-          Icons.filter_alt_outlined,
-          'Phạm vi duyệt',
-          me.workUnitDetail!.trim(),
-        ),
+        (Icons.filter_alt_outlined, 'Phạm vi duyệt', me.workUnitDetail!.trim()),
     ];
 
     return Padding(

@@ -7,9 +7,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_avatar.dart';
+import '../../../core/widgets/app_segmented_control.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/search_field.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 import '../../../shared/models/employee.dart';
 import '../../employees/data/employee_repository.dart';
 
@@ -23,6 +25,7 @@ Future<EmployeeSummary?> showAttendanceEmployeePicker(
 }) {
   return showModalBottomSheet<EmployeeSummary>(
     context: context,
+    showDragHandle: false,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
@@ -62,6 +65,7 @@ class _AttendanceEmployeePickerSheetState
   bool _loading = true;
   bool _loadingMore = false;
   bool _hasMore = true;
+  int _total = 0;
   int _page = 0;
   String? _error;
   String _query = '';
@@ -94,7 +98,9 @@ class _AttendanceEmployeePickerSheetState
       });
     }
     try {
-      final page = await ref.read(employeeRepositoryProvider).list(
+      final page = await ref
+          .read(employeeRepositoryProvider)
+          .list(
             page: reset ? 0 : _page,
             size: 20,
             query: _query.isEmpty ? null : _query,
@@ -106,6 +112,7 @@ class _AttendanceEmployeePickerSheetState
         _items = reset ? page.content : [..._items, ...page.content];
         _page = page.number;
         _hasMore = !page.last;
+        _total = page.totalElements;
         _loading = false;
         _loadingMore = false;
         _error = null;
@@ -136,9 +143,24 @@ class _AttendanceEmployeePickerSheetState
     await _load(reset: false);
   }
 
+  static const _statuses = [
+    ('WORKING', 'Đang làm'),
+    ('OFFICIAL', 'Chính thức'),
+    ('TRIAL', 'Thử việc'),
+  ];
+
+  void _setStatus(String value) {
+    if (_status == value) return;
+    setState(() => _status = value);
+    _load(reset: true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height * 0.88;
+    final statusIndex = _statuses.indexWhere((s) => s.$1 == _status);
+    final statusLabel = statusIndex >= 0 ? _statuses[statusIndex].$2 : '';
+
     return Container(
       height: height,
       decoration: const BoxDecoration(
@@ -152,27 +174,73 @@ class _AttendanceEmployeePickerSheetState
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: AppColors.borderSoft,
-              borderRadius: BorderRadius.circular(99),
+              color: AppColors.border,
+              borderRadius: AppRadius.brPill,
             ),
           ),
+          // ── Đầu sheet ─────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
             child: Row(
               children: [
+                const TintedIconTile(
+                  icon: Icons.person_search_rounded,
+                  color: AppColors.primary,
+                  size: 40,
+                ),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    widget.title,
-                    style: AppTypography.style(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.3,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                          height: AppTypography.uppercaseHeight,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _loading && _items.isEmpty
+                            ? 'Đang tải danh sách…'
+                            : '$_total nhân viên · $statusLabel',
+                        style: AppTypography.style(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded),
+                Semantics(
+                  button: true,
+                  label: 'Đóng',
+                  child: Material(
+                    color: AppColors.surface,
+                    shape: const CircleBorder(
+                      side: BorderSide(color: AppColors.borderSoft),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context),
+                      child: const SizedBox(
+                        width: 38,
+                        height: 38,
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 20,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -192,41 +260,15 @@ class _AttendanceEmployeePickerSheetState
           const SizedBox(height: 10),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                _Chip(
-                  label: 'Đang làm',
-                  selected: _status == 'WORKING',
-                  onTap: () {
-                    if (_status == 'WORKING') return;
-                    setState(() => _status = 'WORKING');
-                    _load(reset: true);
-                  },
-                ),
-                const SizedBox(width: 8),
-                _Chip(
-                  label: 'Chính thức',
-                  selected: _status == 'OFFICIAL',
-                  onTap: () {
-                    if (_status == 'OFFICIAL') return;
-                    setState(() => _status = 'OFFICIAL');
-                    _load(reset: true);
-                  },
-                ),
-                const SizedBox(width: 8),
-                _Chip(
-                  label: 'Thử việc',
-                  selected: _status == 'TRIAL',
-                  onTap: () {
-                    if (_status == 'TRIAL') return;
-                    setState(() => _status = 'TRIAL');
-                    _load(reset: true);
-                  },
-                ),
-              ],
+            child: AppSegmentedControl(
+              style: AppSegmentStyle.soft,
+              dense: true,
+              selectedIndex: statusIndex < 0 ? 1 : statusIndex,
+              onChanged: (i) => _setStatus(_statuses[i].$1),
+              items: [for (final s in _statuses) AppSegmentItem(label: s.$2)],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Expanded(child: _buildList()),
         ],
       ),
@@ -251,126 +293,222 @@ class _AttendanceEmployeePickerSheetState
       color: AppColors.primary,
       onRefresh: () => _load(reset: true, silent: true),
       child: ListView.separated(
-      controller: _scrollController,
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      itemCount: _items.length + (_loadingMore ? 1 : 0),
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        if (index >= _items.length) {
-          return const Padding(
-            padding: EdgeInsets.all(16),
-            child: Center(
-              child: SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2.2),
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        itemCount: _items.length + (_loadingMore ? 1 : 0),
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          if (index >= _items.length) {
+            return const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2.2),
+                ),
               ),
-            ),
-          );
-        }
-        final emp = _items[index];
-        final selected = emp.id == widget.highlightId;
-        return Material(
-          color: selected
-              ? AppColors.primary.withValues(alpha: 0.08)
-              : AppColors.surface,
-          borderRadius: AppRadius.brCard,
-          child: InkWell(
-            borderRadius: AppRadius.brCard,
+            );
+          }
+          final emp = _items[index];
+          return _EmployeeTile(
+            employee: emp,
+            selected: emp.id == widget.highlightId,
             onTap: () {
               HapticFeedback.selectionClick();
               Navigator.pop(context, emp);
             },
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-              child: Row(
-                children: [
-                  AppAvatar(
-                    name: emp.fullName,
-                    imageUrl: emp.avatarUrl,
-                    size: 44,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          emp.fullName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.style(
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          [
-                            if ((emp.positionTitle ?? '').isNotEmpty)
-                              emp.positionTitle!,
-                            if ((emp.departmentName ?? '').isNotEmpty)
-                              emp.departmentName!,
-                          ].join(' · '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.style(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(
-                    selected
-                        ? Icons.check_circle_rounded
-                        : Icons.chevron_right_rounded,
-                    color: selected
-                        ? AppColors.primary
-                        : AppColors.textTertiary,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    ),
+          );
+        },
+      ),
     );
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip({
-    required this.label,
+/// Sắc chức danh — giúp lướt danh sách nhận ra nhóm nghề nhanh.
+Color _roleTone(String? title) {
+  final t = (title ?? '').toLowerCase();
+  if (t.contains('bác sĩ') || t.startsWith('bs')) return AppColors.info;
+  if (t.contains('điều dưỡng')) return AppColors.roleNurse;
+  if (t.contains('ktv') || t.contains('kỹ thuật')) {
+    return AppColors.roleTechnician;
+  }
+  if (t.contains('hộ sinh')) return AppColors.roleMidwife;
+  if (t.contains('dược')) return AppColors.success;
+  return AppColors.primary;
+}
+
+/// "KHOA GÂY MÊ HỒI SỨC" → "Khoa Gây Mê Hồi Sức" (tên khoa lưu in hoa).
+String _prettyDept(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty || text != text.toUpperCase()) return text;
+  return text
+      .toLowerCase()
+      .split(RegExp(r'\s+'))
+      .map(
+        (w) => w.isEmpty
+            ? w
+            : '${w.characters.first.toUpperCase()}${w.characters.skip(1)}',
+      )
+      .join(' ');
+}
+
+class _EmployeeTile extends StatelessWidget {
+  const _EmployeeTile({
+    required this.employee,
     required this.selected,
     required this.onTap,
   });
 
-  final String label;
+  final EmployeeSummary employee;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final emp = employee;
+    final tone = _roleTone(emp.positionTitle);
+    final dept = _prettyDept(emp.departmentName ?? '');
+    final position = (emp.positionTitle ?? '').trim();
+
     return Material(
-      color: selected
-          ? AppColors.primary.withValues(alpha: 0.12)
-          : AppColors.surfaceMuted,
-      borderRadius: AppRadius.brPill,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brPill,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: selected ? AppColors.primaryDark : AppColors.textSecondary,
+      type: MaterialType.transparency,
+      shape: RoundedRectangleBorder(
+        borderRadius: AppRadius.brCard,
+        side: BorderSide(
+          color: selected
+              ? AppColors.primary.withValues(alpha: 0.45)
+              : AppColors.borderSoft,
+          width: selected ? 1.4 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: selected ? null : AppColors.surface,
+          gradient: selected
+              ? TintedCardBackdrop.gradient(AppColors.primary)
+              : null,
+        ),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: tone.withValues(alpha: 0.35),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: AppAvatar(
+                    name: emp.fullName,
+                    imageUrl: emp.avatarUrl,
+                    size: 42,
+                    showShadow: false,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        emp.fullName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                          height: AppTypography.uppercaseHeight,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          if (position.isNotEmpty) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: tone.withValues(alpha: 0.10),
+                                borderRadius: AppRadius.brPill,
+                              ),
+                              child: Text(
+                                position,
+                                maxLines: 1,
+                                style: AppTypography.style(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  height: AppTypography.uppercaseHeight,
+                                  color: Color.lerp(
+                                    tone,
+                                    AppColors.textPrimary,
+                                    0.2,
+                                  )!,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Expanded(
+                            child: Text(
+                              dept,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.style(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (selected)
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(6, 3, 8, 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: AppRadius.brPill,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.visibility_rounded,
+                          size: 12,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Đang xem',
+                          style: AppTypography.style(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            height: AppTypography.uppercaseHeight,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  const TintedChevron(accent: AppColors.textTertiary),
+              ],
             ),
           ),
         ),

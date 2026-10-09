@@ -184,6 +184,10 @@ class DayShiftSchedule {
   String? get dayShiftTypeName => raw['dayShiftTypeName'] as String?;
   String? get splitDayLabel => raw['splitDayLabel'] as String?;
 
+  /// Phân quyền công: chỉ cần chấm vào sáng + ra chiều (2 mốc), ca sáng/chiều bình thường.
+  bool get twoPunchAttendance => raw['twoPunchAttendance'] as bool? ?? false;
+  String? get twoPunchLabel => raw['twoPunchLabel'] as String?;
+
   bool get isSplitDay => dayShiftKind == 'SPLIT';
   bool get isContinuousDay => continuousShift || dayShiftKind == 'CONTINUOUS';
   bool get youngChild => raw['youngChild'] as bool? ?? false;
@@ -582,7 +586,16 @@ class AttendanceWorkRequest {
   String? get headComment => raw['headComment'] as String?;
   String? get nursingHeadComment => raw['nursingHeadComment'] as String?;
   String? get hrComment => raw['hrComment'] as String?;
+
+  /// Đã có người thực sự duyệt một bước (bước bỏ qua / lập phiếu không tính).
+  bool get approvalStarted => raw['approvalStarted'] == true;
+
+  /// Bước duyệt được bỏ qua vì chính người làm đơn là người duyệt bước đó.
+  bool get headSkipped => raw['headSkipped'] == true;
+  bool get nursingHeadSkipped => raw['nursingHeadSkipped'] == true;
+  bool get hrSkipped => raw['hrSkipped'] == true;
   String? get directorComment => raw['directorComment'] as String?;
+  String? get requesterSignatureUrl => _emptyToNull(raw['requesterSignatureUrl']);
   String? get headSignatureUrl => _emptyToNull(raw['headSignatureUrl']);
   String? get nursingHeadSignatureUrl =>
       _emptyToNull(raw['nursingHeadSignatureUrl']);
@@ -646,9 +659,27 @@ class AttendanceWorkRequest {
       (raw['deploymentCreditedHours'] as num?)?.toDouble();
   bool get deploymentInsideShift =>
       raw['deploymentInsideShift'] as bool? ?? false;
+  bool get deploymentMixedShift =>
+      raw['deploymentMixedShift'] as bool? ?? false;
 
-  bool get canWithdraw =>
-      false; // Đơn đã gửi: người gửi không thu hồi (chỉ ADMIN trên web)
+  /// Thu hồi đơn — khớp quyền backend `withdraw`:
+  /// ADMIN mọi trạng thái; người gửi chỉ khi đơn còn chờ và chưa ai duyệt bước nào.
+  bool canWithdrawBy({
+    required int? myEmployeeId,
+    required String? myUsername,
+    required UserRole role,
+  }) {
+    if (status == 'WITHDRAWN') return false;
+    if (role == UserRole.admin) return true;
+    if (!status.startsWith('PENDING_')) return false;
+    if (approvalStarted) return false;
+    if (requestType == 'DEPLOYMENT') {
+      final head = headReviewerUsername?.trim();
+      final me = myUsername?.trim();
+      return head != null && head.isNotEmpty && me != null && me == head;
+    }
+    return myEmployeeId != null && employeeId == myEmployeeId;
+  }
 
   /// Chỉnh sửa đơn đang chờ duyệt — khớp quyền backend `ensureCanEditWorkRequest`.
   bool canEditPending({

@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_action_button.dart';
 import '../../../core/widgets/app_date_picker.dart';
 import '../../../core/widgets/app_time_picker.dart';
 import '../../../core/widgets/confirm_dialog.dart';
@@ -19,6 +20,8 @@ Future<bool?> showDeploymentEditSheet(
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
+    // Sheet tự vẽ thanh kéo — tắt thanh mặc định của theme để không bị trùng.
+    showDragHandle: false,
     backgroundColor: Colors.transparent,
     builder: (_) => _DeploymentEditSheet(request: request),
   );
@@ -62,10 +65,13 @@ class _DeploymentEditSheetState extends ConsumerState<_DeploymentEditSheet> {
 
   AttendanceWorkRequest get _request => widget.request;
 
+  bool get _isMixed => _request.deploymentMixedShift;
+
   bool get _needsAfternoon =>
-      _shiftScope == 'FULL_DAY' ||
-      _request.requestedAfternoonStart != null ||
-      _request.requestedAfternoonEnd != null;
+      !_isMixed &&
+      (_shiftScope == 'FULL_DAY' ||
+          _request.requestedAfternoonStart != null ||
+          _request.requestedAfternoonEnd != null);
 
   @override
   void initState() {
@@ -171,11 +177,40 @@ class _DeploymentEditSheetState extends ConsumerState<_DeploymentEditSheet> {
     }
   }
 
+  Future<void> _pickRange({
+    required bool afternoon,
+    required bool start,
+  }) async {
+    final current = afternoon
+        ? (start ? _afternoonStart : _afternoonEnd)
+        : (start ? _start : _end);
+    final title = afternoon
+        ? (start ? 'Giờ bắt đầu chiều' : 'Giờ kết thúc chiều')
+        : (start ? 'Giờ bắt đầu' : 'Giờ kết thúc');
+    final t = await _pickTime(current, title);
+    if (t == null) return;
+    setState(() {
+      if (afternoon) {
+        start ? _afternoonStart = t : _afternoonEnd = t;
+      } else {
+        start ? _start = t : _end = t;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
-    final scopeLabel = AttendanceEnums.shiftScopeLabel(_shiftScope);
-    final morningLabel = _shiftScope == 'AFTERNOON' ? 'Ca chiều' : 'Khung giờ';
+    final scopeLabel = _isMixed
+        ? 'Trong ca & ngoài ca'
+        : AttendanceEnums.shiftScopeLabel(_shiftScope);
+    final morningLabel = _isMixed
+        ? 'Khung giờ liên tục'
+        : _shiftScope == 'AFTERNOON'
+        ? 'Ca chiều'
+        : _needsAfternoon
+        ? 'Ca sáng'
+        : 'Khung giờ';
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -183,198 +218,147 @@ class _DeploymentEditSheetState extends ConsumerState<_DeploymentEditSheet> {
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.92,
         ),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: AppRadius.brSheetTop,
+          boxShadow: AppShadows.overlay,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.xs),
             Container(
-              width: 40,
+              width: 36,
               height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.borderSoft,
+              decoration: const BoxDecoration(
+                color: AppColors.surfaceHighest,
                 borderRadius: AppRadius.brPill,
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.page,
-                AppSpacing.sm,
-                AppSpacing.page,
-                AppSpacing.xs,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Chỉnh sửa điều động',
-                          style: AppTypography.style(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        Text(
-                          _request.employeeName ?? '—',
-                          style: AppTypography.style(
-                            fontSize: 12.5,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
+            _SheetHeader(
+              employeeName: _request.employeeName,
+              onClose: _submitting ? null : () => Navigator.of(context).pop(),
             ),
+            const Divider(height: 1),
             Flexible(
               child: ListView(
+                shrinkWrap: true,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.page,
-                  0,
+                  AppSpacing.md,
                   AppSpacing.page,
-                  AppSpacing.sm,
+                  AppSpacing.md,
                 ),
                 children: [
-                  _FieldTile(
-                    label: 'Ngày điều động',
-                    value: AppFormat.date(_workDate),
-                    onTap: _pickDate,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  _FieldTile(
-                    label: 'Buổi',
-                    value: scopeLabel,
-                    onTap: null,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    morningLabel,
-                    style: AppTypography.style(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
+                  const _SectionLabel('Ngày & buổi'),
+                  _GroupCard(
                     children: [
-                      Expanded(
-                        child: _FieldTile(
-                          label: 'Bắt đầu',
-                          value: _start == null ? 'Chọn' : _displayTime(_start!),
-                          onTap: () async {
-                            final t = await _pickTime(_start, 'Giờ bắt đầu');
-                            if (t != null) setState(() => _start = t);
-                          },
-                        ),
+                      _PickerRow(
+                        icon: Icons.event_rounded,
+                        label: 'Ngày điều động',
+                        value: AppFormat.date(_workDate),
+                        caption: AppFormat.weekday(_workDate),
+                        onTap: _submitting ? null : _pickDate,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _FieldTile(
-                          label: 'Kết thúc',
-                          value: _end == null ? 'Chọn' : _displayTime(_end!),
-                          onTap: () async {
-                            final t = await _pickTime(_end, 'Giờ kết thúc');
-                            if (t != null) setState(() => _end = t);
-                          },
-                        ),
+                      _PickerRow(
+                        icon: Icons.wb_twilight_rounded,
+                        label: 'Buổi',
+                        value: scopeLabel,
+                        locked: true,
                       ),
                     ],
                   ),
+                  const SizedBox(height: AppSpacing.lg),
+                  _SectionLabel(
+                    morningLabel,
+                    trailing: _DurationPill(start: _start, end: _end),
+                  ),
+                  _TimeRangeCard(
+                    start: _start,
+                    end: _end,
+                    enabled: !_submitting,
+                    onPickStart: () =>
+                        _pickRange(afternoon: false, start: true),
+                    onPickEnd: () => _pickRange(afternoon: false, start: false),
+                  ),
                   if (_needsAfternoon) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
+                    const SizedBox(height: AppSpacing.lg),
+                    _SectionLabel(
                       'Ca chiều',
-                      style: AppTypography.style(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
+                      trailing: _DurationPill(
+                        start: _afternoonStart,
+                        end: _afternoonEnd,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _FieldTile(
-                            label: 'Bắt đầu',
-                            value: _afternoonStart == null
-                                ? 'Chọn'
-                                : _displayTime(_afternoonStart!),
-                            onTap: () async {
-                              final t = await _pickTime(
-                                _afternoonStart,
-                                'Giờ bắt đầu chiều',
-                              );
-                              if (t != null) {
-                                setState(() => _afternoonStart = t);
-                              }
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _FieldTile(
-                            label: 'Kết thúc',
-                            value: _afternoonEnd == null
-                                ? 'Chọn'
-                                : _displayTime(_afternoonEnd!),
-                            onTap: () async {
-                              final t = await _pickTime(
-                                _afternoonEnd,
-                                'Giờ kết thúc chiều',
-                              );
-                              if (t != null) {
-                                setState(() => _afternoonEnd = t);
-                              }
-                            },
-                          ),
-                        ),
-                      ],
+                    _TimeRangeCard(
+                      start: _afternoonStart,
+                      end: _afternoonEnd,
+                      enabled: !_submitting,
+                      onPickStart: () =>
+                          _pickRange(afternoon: true, start: true),
+                      onPickEnd: () =>
+                          _pickRange(afternoon: true, start: false),
                     ),
                   ],
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: AppSpacing.lg),
+                  const _SectionLabel('Nội dung điều động'),
                   TextField(
                     controller: _reasonController,
-                    maxLines: 4,
+                    enabled: !_submitting,
+                    maxLines: 5,
                     minLines: 3,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: AppTypography.style(
+                      fontSize: 14.5,
+                      height: 1.5,
+                      color: AppColors.textPrimary,
+                    ),
                     decoration: const InputDecoration(
-                      labelText: 'Nội dung điều động',
-                      alignLabelWithHint: true,
+                      hintText: 'Mô tả công việc được điều động…',
+                      fillColor: AppColors.surfaceAlt,
                     ),
                   ),
                 ],
               ),
             ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                AppSpacing.page,
-                AppSpacing.sm,
-                AppSpacing.page,
-                bottom + AppSpacing.sm,
+            DecoratedBox(
+              decoration: const BoxDecoration(
+                color: AppColors.surface,
+                border: Border(top: BorderSide(color: AppColors.borderSoft)),
               ),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _submitting ? null : _save,
-                  icon: _submitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.save_outlined, size: 18),
-                  label: Text(_submitting ? 'Đang lưu...' : 'Lưu thay đổi'),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.page,
+                  AppSpacing.sm,
+                  AppSpacing.page,
+                  bottom + AppSpacing.sm,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: AppActionButton(
+                        variant: AppActionVariant.outlineNeutral,
+                        label: 'Huỷ',
+                        onPressed: _submitting
+                            ? null
+                            : () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      flex: 3,
+                      child: AppActionButton(
+                        variant: AppActionVariant.primary,
+                        icon: Icons.check_rounded,
+                        label: _submitting ? 'Đang lưu…' : 'Lưu thay đổi',
+                        loading: _submitting,
+                        onPressed: _save,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -386,36 +370,499 @@ class _DeploymentEditSheetState extends ConsumerState<_DeploymentEditSheet> {
 }
 
 String _displayTime(TimeOfDay t) =>
-    '${t.hour}h${t.minute.toString().padLeft(2, '0')}';
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
-class _FieldTile extends StatelessWidget {
-  const _FieldTile({
+class _SheetHeader extends StatelessWidget {
+  const _SheetHeader({required this.employeeName, required this.onClose});
+
+  final String? employeeName;
+  final VoidCallback? onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = employeeName?.trim();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.page,
+        AppSpacing.sm,
+        AppSpacing.xs,
+        AppSpacing.sm,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              gradient: AppGradients.tint(AppColors.moduleDeployment),
+              borderRadius: AppRadius.brBase,
+              border: Border.all(
+                color: AppColors.moduleDeployment.withValues(alpha: 0.16),
+              ),
+            ),
+            child: const Icon(
+              Icons.swap_horiz_rounded,
+              color: AppColors.moduleDeployment,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Chỉnh sửa điều động',
+                  style: AppTypography.style(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                    height: 1.35,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.person_outline_rounded,
+                      size: 15,
+                      color: AppColors.textTertiary,
+                    ),
+                    const SizedBox(width: AppSpacing.xxs),
+                    Flexible(
+                      child: Text(
+                        name == null || name.isEmpty ? '—' : name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          height: 1.35,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Đóng',
+            onPressed: onClose,
+            style: IconButton.styleFrom(
+              backgroundColor: AppColors.surfaceMuted,
+              foregroundColor: AppColors.textSecondary,
+              shape: const CircleBorder(),
+            ),
+            icon: const Icon(Icons.close_rounded, size: 20),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text, {this.trailing});
+
+  final String text;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs, left: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              text.toUpperCase(),
+              style: AppTypography.style(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                height: 1.4,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          ?trailing,
+        ],
+      ),
+    );
+  }
+}
+
+/// Khối nhóm các dòng chọn, ngăn cách bằng divider mảnh.
+class _GroupCard extends StatelessWidget {
+  const _GroupCard({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: AppRadius.brCard,
+        border: Border.all(color: AppColors.borderSoft),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0)
+              const Divider(height: 1, indent: 60, color: AppColors.borderSoft),
+            children[i],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PickerRow extends StatelessWidget {
+  const _PickerRow({
+    required this.icon,
     required this.label,
+    required this.value,
+    this.caption,
+    this.onTap,
+    this.locked = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? caption;
+  final VoidCallback? onTap;
+  final bool locked;
+
+  @override
+  Widget build(BuildContext context) {
+    final interactive = onTap != null && !locked;
+    final spoken = caption == null ? value : '$value, $caption';
+    return Semantics(
+      button: interactive,
+      label: '$label: $spoken',
+      excludeSemantics: true,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: interactive ? onTap : null,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 60),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.xs + 2,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: locked
+                          ? AppColors.surfaceHigh
+                          : AppColors.primaryContainer,
+                      borderRadius: AppRadius.brControl,
+                    ),
+                    child: Icon(
+                      icon,
+                      size: 19,
+                      color: locked
+                          ? AppColors.textSecondary
+                          : AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          style: AppTypography.style(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            height: 1.35,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text.rich(
+                          TextSpan(
+                            text: value,
+                            children: [
+                              if (caption != null)
+                                TextSpan(
+                                  text: '  ·  $caption',
+                                  style: AppTypography.style(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            height: 1.4,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (locked)
+                    const _LockedBadge()
+                  else if (interactive)
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppColors.textTertiary,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LockedBadge extends StatelessWidget {
+  const _LockedBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: 3,
+      ),
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceHigh,
+        borderRadius: AppRadius.brPill,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.lock_outline_rounded,
+            size: 12,
+            color: AppColors.textSecondary,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            'Cố định',
+            style: AppTypography.style(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Cặp ô giờ Bắt đầu → Kết thúc trong cùng một khối.
+class _TimeRangeCard extends StatelessWidget {
+  const _TimeRangeCard({
+    required this.start,
+    required this.end,
+    required this.enabled,
+    required this.onPickStart,
+    required this.onPickEnd,
+  });
+
+  final TimeOfDay? start;
+  final TimeOfDay? end;
+  final bool enabled;
+  final VoidCallback onPickStart;
+  final VoidCallback onPickEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: AppRadius.brCard,
+        border: Border.all(color: AppColors.borderSoft),
+      ),
+      padding: const EdgeInsets.all(AppSpacing.xxs + 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: _TimeCell(
+              label: 'Bắt đầu',
+              icon: Icons.login_rounded,
+              value: start,
+              onTap: enabled ? onPickStart : null,
+            ),
+          ),
+          const SizedBox(
+            width: 28,
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 18,
+              color: AppColors.textTertiary,
+            ),
+          ),
+          Expanded(
+            child: _TimeCell(
+              label: 'Kết thúc',
+              icon: Icons.logout_rounded,
+              value: end,
+              onTap: enabled ? onPickEnd : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimeCell extends StatelessWidget {
+  const _TimeCell({
+    required this.label,
+    required this.icon,
     required this.value,
     required this.onTap,
   });
 
   final String label;
-  final String value;
+  final IconData icon;
+  final TimeOfDay? value;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final child = InputDecorator(
-      decoration: InputDecoration(labelText: label),
-      child: Text(
-        value,
-        style: AppTypography.style(
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
+    final time = value;
+    final spoken = time == null ? 'chưa chọn' : _displayTime(time);
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: '$label: $spoken',
+      excludeSemantics: true,
+      child: Material(
+        color: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.brBase,
+          side: BorderSide(
+            color: time == null
+                ? AppColors.primary.withValues(alpha: 0.35)
+                : AppColors.borderSoft,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            height: 64,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(icon, size: 13, color: AppColors.textTertiary),
+                      const SizedBox(width: AppSpacing.xxs),
+                      Text(
+                        label,
+                        style: AppTypography.style(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          height: 1.35,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    time == null ? 'Chọn giờ' : _displayTime(time),
+                    style: time == null
+                        ? AppTypography.style(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                            color: AppColors.primary,
+                          )
+                        : AppTypography.metric(fontSize: 19, height: 1.35),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
-    if (onTap == null) return child;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: AppRadius.brControl,
-      child: child,
+  }
+}
+
+/// Tổng thời lượng khung giờ, chỉ hiện khi giờ kết thúc sau giờ bắt đầu.
+class _DurationPill extends StatelessWidget {
+  const _DurationPill({required this.start, required this.end});
+
+  final TimeOfDay? start;
+  final TimeOfDay? end;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = start;
+    final e = end;
+    if (s == null || e == null) return const SizedBox.shrink();
+    final minutes = (e.hour * 60 + e.minute) - (s.hour * 60 + s.minute);
+    if (minutes <= 0) return const SizedBox.shrink();
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    final text = h == 0
+        ? '$m phút'
+        : m == 0
+        ? '$h giờ'
+        : '$h giờ $m phút';
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: 2,
+      ),
+      decoration: const BoxDecoration(
+        color: AppColors.primaryContainer,
+        borderRadius: AppRadius.brPill,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.schedule_rounded,
+            size: 12,
+            color: AppColors.primaryDark,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: AppTypography.style(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              height: 1.4,
+              tabular: true,
+              color: AppColors.primaryDark,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

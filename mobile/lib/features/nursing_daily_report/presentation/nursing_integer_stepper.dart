@@ -26,9 +26,17 @@ class NursingIntegerStepper extends StatefulWidget {
     required this.onChanged,
     this.enabled = true,
     this.alertWhenPositive = false,
+    this.hint,
+    this.leading,
   });
 
   final String label;
+
+  /// Dòng mô tả nhỏ dưới nhãn (tuỳ chọn).
+  final String? hint;
+
+  /// Widget đứng trước nhãn, vd. huy hiệu cấp chăm sóc (tuỳ chọn).
+  final Widget? leading;
   final int value;
   final ValueChanged<int> onChanged;
   final bool enabled;
@@ -113,39 +121,67 @@ class _NursingIntegerStepperState extends State<NursingIntegerStepper> {
         : (safe > 0 ? AppColors.textPrimary : AppColors.textTertiary);
     final focused = _focusNode.hasFocus;
 
+    final ringColor = focused
+        ? AppColors.primary.withValues(alpha: 0.6)
+        : alerting
+        ? AppColors.error.withValues(alpha: 0.4)
+        : safe > 0
+        ? AppColors.primary.withValues(alpha: 0.28)
+        : AppColors.border;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 9, 10, 9),
+      padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
       child: Row(
         children: [
+          if (widget.leading != null) ...[
+            widget.leading!,
+            const SizedBox(width: 10),
+          ],
           Expanded(
-            child: Text(
-              widget.label,
-              style: AppTypography.style(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                height: 1.32,
-                color: widget.enabled
-                    ? AppColors.textPrimary
-                    : AppColors.textSecondary,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.label,
+                  style: AppTypography.style(
+                    fontSize: 13.5,
+                    fontWeight: safe > 0 ? FontWeight.w700 : FontWeight.w600,
+                    height: 1.35,
+                    color: widget.enabled
+                        ? AppColors.textPrimary
+                        : AppColors.textSecondary,
+                  ),
+                ),
+                if (widget.hint != null)
+                  Text(
+                    widget.hint!,
+                    style: AppTypography.style(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                      height: 1.35,
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(width: 10),
+          // Viên điều khiển: nền trắng nổi, viền teal khi có giá trị/đang gõ.
           AnimatedContainer(
             duration: AppDurations.fast,
+            padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
               color: widget.enabled
-                  ? AppColors.surfaceAlt
+                  ? (alerting
+                        ? Color.alphaBlend(
+                            AppColors.error.withValues(alpha: 0.06),
+                            AppColors.surface,
+                          )
+                        : AppColors.surface)
                   : AppColors.actionDisabledBackground,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: focused
-                    ? AppColors.primary.withValues(alpha: 0.5)
-                    : (alerting
-                          ? AppColors.error.withValues(alpha: 0.3)
-                          : AppColors.borderSoft),
-                width: focused ? 1.4 : 1,
-              ),
+              borderRadius: AppRadius.brPill,
+              border: Border.all(color: ringColor, width: focused ? 1.5 : 1),
+              boxShadow: widget.enabled && !focused ? AppShadows.soft : null,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -155,47 +191,43 @@ class _NursingIntegerStepperState extends State<NursingIntegerStepper> {
                   enabled: widget.enabled && safe > 0,
                   onTap: () => _applyButtonValue(safe - 1),
                 ),
+                // Ô số cao đúng bằng nút −/+ và canh giữa theo chiều dọc.
+                // Theme đặt minHeight 48 cho mọi ô nhập — ở đây phải ghi đè,
+                // nếu không ô cao hơn nút và con số bị đẩy lên phía trên.
                 SizedBox(
-                  width: 44,
+                  width: 48,
+                  height: 38,
                   child: TextField(
                     controller: _controller,
                     focusNode: _focusNode,
                     textAlign: TextAlign.center,
+                    textAlignVertical: TextAlignVertical.center,
+                    expands: true,
+                    maxLines: null,
                     keyboardType: TextInputType.number,
+                    // maxLines: null mặc định là phím xuống dòng — đổi thành "Xong".
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _focusNode.unfocus(),
                     enabled: widget.enabled,
                     maxLength: 6,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    // Chữ số nằm trên baseline, phần chỗ trống cho nét thòng
-                    // bên dưới bỏ không, nên với cách chia leading mặc định
-                    // (theo tỉ lệ ascent/descent) mực chữ bị đẩy cao hơn tâm ô.
-                    // Chia leading đều hai bên thì số nằm đúng hàng với −/+.
-                    style:
-                        AppTypography.metric(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: valueColor,
-                        ).copyWith(
-                          leadingDistribution: TextLeadingDistribution.even,
-                        ),
-                    strutStyle: const StrutStyle(
-                      fontSize: 16,
-                      height: 1.1,
-                      leadingDistribution: TextLeadingDistribution.even,
-                      forceStrutHeight: true,
+                    style: AppTypography.style(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: valueColor,
+                      tabular: true,
+                      height: 1.0,
                     ),
                     cursorWidth: _kCursorWidth,
+                    cursorHeight: 18,
                     decoration: const InputDecoration(
-                      isDense: true,
+                      isCollapsed: true,
+                      constraints: BoxConstraints(),
                       counterText: '',
                       filled: false,
                       // Đệm trái bù đúng phần TextField giữ chỗ cho con trỏ ở
                       // bên phải, nếu không con số canh giữa sẽ lệch trái.
-                      contentPadding: EdgeInsets.fromLTRB(
-                        _kCaretReserve,
-                        8,
-                        0,
-                        8,
-                      ),
+                      contentPadding: EdgeInsets.only(left: _kCaretReserve),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
@@ -209,6 +241,7 @@ class _NursingIntegerStepperState extends State<NursingIntegerStepper> {
                 _StepButton(
                   icon: Icons.add_rounded,
                   enabled: widget.enabled,
+                  primary: true,
                   onTap: () => _applyButtonValue(safe + 1),
                 ),
               ],
@@ -225,23 +258,29 @@ class _StepButton extends StatelessWidget {
     required this.icon,
     required this.enabled,
     required this.onTap,
+    this.primary = false,
   });
 
   final IconData icon;
   final bool enabled;
   final VoidCallback onTap;
 
+  /// Nút "+" tông teal nhạt; "−" tông xám — vẫn nhẹ để 20 hàng không thành
+  /// một dải khối màu chạy dọc trang.
+  final bool primary;
+
   @override
   Widget build(BuildContext context) {
-    // Hai nút cùng sức nặng thị giác: phiếu có 20 chỉ số nên nút "+" tô đặc sẽ
-    // tạo thành một dải khối teal chạy dọc trang. Nút bị khoá vẫn giữ nguyên
-    // hình tròn để cụm điều khiển không bị khuyết một bên.
-    final background = enabled
-        ? AppColors.primary.withValues(alpha: 0.1)
-        : AppColors.textPrimary.withValues(alpha: 0.04);
-    final foreground = enabled
-        ? AppColors.primary
-        : AppColors.textTertiary.withValues(alpha: 0.5);
+    final background = !enabled
+        ? Colors.transparent
+        : primary
+        ? AppColors.primaryContainer
+        : AppColors.surfaceMuted;
+    final foreground = !enabled
+        ? AppColors.textTertiary.withValues(alpha: 0.45)
+        : primary
+        ? AppColors.primaryDark
+        : AppColors.textSecondary;
 
     return Material(
       color: background,
@@ -250,10 +289,9 @@ class _StepButton extends StatelessWidget {
       child: InkWell(
         onTap: enabled ? onTap : null,
         customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Icon(icon, size: 20, color: foreground),
+        child: SizedBox.square(
+          dimension: 38,
+          child: Icon(icon, size: 19, color: foreground),
         ),
       ),
     );
@@ -290,32 +328,44 @@ class NursingReportSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
+            Container(
               padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),
+              decoration: BoxDecoration(
+                gradient: AppGradients.tint(accent),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(AppRadius.md),
+                ),
+              ),
               child: Row(
                 children: [
                   Container(
-                    width: 34,
-                    height: 34,
+                    width: 36,
+                    height: 36,
                     decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(11),
-                      border: Border.all(color: accent.withValues(alpha: 0.16)),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color.lerp(accent, Colors.white, 0.12)!,
+                          Color.lerp(accent, Colors.black, 0.12)!,
+                        ],
+                      ),
+                      borderRadius: AppRadius.brBase,
+                      boxShadow: AppShadows.tinted(accent),
                     ),
                     child: step == null
-                        ? Icon(icon, size: 17, color: accent)
+                        ? Icon(icon, size: 18, color: Colors.white)
                         : Center(
                             child: Text(
                               step!,
-                              style: AppTypography.metric(
-                                fontSize: 13,
-                                color: accent,
-                                fontWeight: FontWeight.w800,
+                              style: AppTypography.display(
+                                fontSize: 13.5,
+                                color: Colors.white,
                               ),
                             ),
                           ),
                   ),
-                  const SizedBox(width: 11),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,9 +373,11 @@ class NursingReportSection extends StatelessWidget {
                         Text(
                           title,
                           style: AppTypography.style(
-                            fontSize: 14.5,
+                            fontSize: 15,
                             fontWeight: FontWeight.w800,
-                            letterSpacing: -0.15,
+                            letterSpacing: -0.25,
+                            height: AppTypography.uppercaseHeight,
+                            color: AppColors.textPrimary,
                           ),
                         ),
                         if (subtitle != null) ...[
@@ -350,8 +402,8 @@ class NursingReportSection extends StatelessWidget {
                 const Divider(height: 1, color: AppColors.borderSoft)
               else
                 const Padding(
-                  padding: EdgeInsets.only(left: 14),
-                  child: Divider(height: 1, color: AppColors.borderSoft),
+                  padding: EdgeInsets.only(left: 14, right: 14),
+                  child: Divider(height: 1, color: AppColors.divider),
                 ),
               child,
             ],

@@ -29,9 +29,10 @@ class MetricStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      // Kính trắng mờ: trên thẻ pha màu vẫn sáng sạch, trên nền trắng như cũ.
       decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: AppRadius.brSm,
+        color: Colors.white.withValues(alpha: 0.78),
+        borderRadius: AppRadius.brBase,
         border: Border.all(color: AppColors.borderSoft),
       ),
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),

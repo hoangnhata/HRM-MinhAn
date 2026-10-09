@@ -1,7 +1,7 @@
 name: hrm_mobile
 description: "HRM Minh An - ung dung di dong noi bo Benh vien Minh An."
 publish_to: 'none'
-version: 1.0.5+9
+version: 1.0.5+10
 
 environment:
   sdk: ^3.12.2
@@ -35,6 +35,8 @@ dependencies:
   # Anh dai dien / chu ky / avatar tai qua API
   cached_network_image: ^3.4.1
   image_picker: ^1.1.2
+  file_picker: ^8.1.7
+  open_filex: ^4.6.0
 
   # Chu ky viet tay (bat buoc thiet lap khi dang nhap lan dau)
   signature: ^5.5.0
@@ -77,3 +79,13 @@ flutter:
           weight: 800
         - asset: assets/fonts/Inter-Black.ttf
           weight: 900
+    # Chữ số hiển thị cho KPI/số liệu lớn — nét hình học thanh thoát hơn số Inter
+    # đậm ở cỡ lớn. Giấy phép OFL (github.com/tokotype/PlusJakartaSans).
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/PlusJakartaSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/PlusJakartaSans-ExtraBold.ttf
+          weight: 800

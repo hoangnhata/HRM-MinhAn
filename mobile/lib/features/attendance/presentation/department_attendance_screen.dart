@@ -3,12 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/utils/attendance_notes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/user_role.dart';
 import '../../../core/widgets/app_month_picker.dart';
+import '../../../core/widgets/app_action_button.dart';
 import '../../../core/widgets/app_ambient_background.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_card.dart';
@@ -16,13 +18,13 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/search_field.dart';
 import '../../../core/widgets/skeleton.dart';
-import '../../../core/widgets/status_chip.dart';
 import '../../../shared/models/attendance_models.dart';
 import '../../../shared/models/employee.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../employees/data/department_repository.dart';
 import '../../employees/presentation/org_unit_picker.dart';
 import '../application/department_attendance_controller.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 
 const _morning = Color(0xFFC2410C);
 const _afternoon = Color(0xFF15803D);
@@ -115,6 +117,7 @@ class _DepartmentAttendanceScreenState
     HapticFeedback.selectionClick();
     showModalBottomSheet<void>(
       context: context,
+      showDragHandle: false,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
@@ -211,6 +214,7 @@ class _DepartmentAttendanceScreenState
                         Expanded(
                           child: _FilterChip(
                             icon: Icons.calendar_month_rounded,
+                            caption: 'Kỳ công',
                             label: 'Tháng ${state.month}/${state.year}',
                             onTap: _pickMonth,
                           ),
@@ -219,6 +223,7 @@ class _DepartmentAttendanceScreenState
                         Expanded(
                           child: _FilterChip(
                             icon: Icons.apartment_rounded,
+                            caption: 'Khoa/Phòng',
                             label: state.departmentId == null && !_deptLocked
                                 ? 'Tất cả khoa'
                                 : deptName,
@@ -326,12 +331,14 @@ class _DepartmentAttendanceScreenState
 class _FilterChip extends StatelessWidget {
   const _FilterChip({
     required this.icon,
+    required this.caption,
     required this.label,
     required this.onTap,
     this.locked = false,
   });
 
   final IconData icon;
+  final String caption;
   final String label;
   final VoidCallback onTap;
   final bool locked;
@@ -339,38 +346,58 @@ class _FilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.surface,
-      borderRadius: AppRadius.brMd,
-      child: InkWell(
-        onTap: locked ? null : onTap,
-        borderRadius: AppRadius.brMd,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.brMd,
-            border: Border.all(color: AppColors.borderSoft),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, size: 16, color: AppColors.primary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+      type: MaterialType.transparency,
+      shape: RoundedRectangleBorder(
+        borderRadius: AppRadius.brCard,
+        side: const BorderSide(color: AppColors.borderSoft),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        color: AppColors.surface,
+        child: InkWell(
+          onTap: locked ? null : onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+            child: Row(
+              children: [
+                TintedIconTile(icon: icon, color: AppColors.primary, size: 30),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        caption.toUpperCase(),
+                        style: AppTypography.uppercase(
+                          fontSize: 9,
+                          letterSpacing: 0.6,
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          height: AppTypography.uppercaseHeight,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              Icon(
-                locked ? Icons.lock_outline_rounded : Icons.expand_more_rounded,
-                size: 18,
-                color: AppColors.textTertiary,
-              ),
-            ],
+                Icon(
+                  locked
+                      ? Icons.lock_outline_rounded
+                      : Icons.expand_more_rounded,
+                  size: 18,
+                  color: AppColors.textTertiary,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -397,29 +424,62 @@ class _SummaryStrip extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         children: [
-          Text(
-            '$count nhân viên',
-            style: AppTypography.style(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w800,
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '$count',
+                  style: AppTypography.metric(
+                    fontSize: 17,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                if (count != totalShown)
+                  TextSpan(
+                    text: '/$totalShown',
+                    style: AppTypography.metric(
+                      fontSize: 12.5,
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                TextSpan(
+                  text: '  nhân viên',
+                  style: AppTypography.style(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
-          if (count != totalShown) ...[
-            const SizedBox(width: 6),
-            Text(
-              '/ $totalShown',
-              style: AppTypography.style(
-                fontSize: 12.5,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
           const Spacer(),
-          Text(
-            AppFormat.monthLabelVi(DateTime(year, month)),
-            style: AppTypography.style(
-              fontSize: 12.5,
-              color: AppColors.textSecondary,
+          Container(
+            padding: const EdgeInsets.fromLTRB(7, 3, 9, 3),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: AppRadius.brPill,
+              border: Border.all(color: AppColors.borderSoft),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.event_rounded,
+                  size: 12,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  AppFormat.monthLabelVi(DateTime(year, month)),
+                  style: AppTypography.style(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    height: AppTypography.uppercaseHeight,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -433,17 +493,26 @@ class _Legend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 6,
-      children: const [
-        _LegendDot(color: _morning, label: 'Sáng'),
-        _LegendDot(color: _afternoon, label: 'Chiều'),
-        _LegendDot(color: _leave, label: 'Nghỉ'),
-        _LegendDot(color: _duty, label: 'Công trực'),
-        _LegendDot(color: _quangTrung, label: 'Quang Trung'),
-        _LegendDot(color: AppColors.primary, label: 'Hôm nay', hollow: true),
-      ],
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.7),
+        borderRadius: AppRadius.brControl,
+        border: Border.all(color: AppColors.borderSoft),
+      ),
+      child: const Wrap(
+        spacing: 12,
+        runSpacing: 6,
+        children: [
+          _LegendDot(color: _morning, label: 'Sáng'),
+          _LegendDot(color: _afternoon, label: 'Chiều'),
+          _LegendDot(color: _leave, label: 'Nghỉ'),
+          _LegendDot(color: _duty, label: 'Công trực'),
+          _LegendDot(color: _quangTrung, label: 'Quang Trung'),
+          _LegendDot(color: AppColors.primary, label: 'Hôm nay', hollow: true),
+        ],
+      ),
     );
   }
 }
@@ -465,26 +534,42 @@ class _LegendDot extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 9,
-          height: 9,
+          width: 12,
+          height: 6,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
+            borderRadius: AppRadius.brPill,
             color: hollow ? Colors.transparent : color,
-            border: Border.all(color: color, width: hollow ? 1.6 : 0),
+            border: hollow ? Border.all(color: color, width: 1.4) : null,
           ),
         ),
         const SizedBox(width: 5),
         Text(
           label,
           style: AppTypography.style(
-            fontSize: 11.5,
+            fontSize: 11,
             fontWeight: FontWeight.w600,
+            height: AppTypography.uppercaseHeight,
             color: AppColors.textSecondary,
           ),
         ),
       ],
     );
   }
+}
+
+/// "BAN GIÁM ĐỐC" → "Ban Giám Đốc" (tên khoa lưu in hoa).
+String _prettyDept(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty || text != text.toUpperCase()) return text;
+  return text
+      .toLowerCase()
+      .split(RegExp(r'\s+'))
+      .map(
+        (w) => w.isEmpty
+            ? w
+            : '${w.characters.first.toUpperCase()}${w.characters.skip(1)}',
+      )
+      .join(' ');
 }
 
 class _EmployeeCard extends StatelessWidget {
@@ -505,23 +590,72 @@ class _EmployeeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stats = row.stats(daysInMonth);
-    final meta = [
-      if (row.position.isNotEmpty) row.position,
-      if (row.employeeCode.isNotEmpty) row.employeeCode,
-    ].join(' · ');
+    final dept = _prettyDept(row.department);
+
+    final flags = <Widget>[
+      if (stats.leaveDays > 0)
+        _FlagTag(
+          icon: Icons.beach_access_rounded,
+          label: 'Nghỉ ${stats.leaveDays} ngày',
+          color: _leave,
+        ),
+      if (stats.missingUnits > 0)
+        _FlagTag(
+          icon: Icons.trending_down_rounded,
+          label: 'Thiếu ${AppFormat.workUnits(stats.missingUnits)} công',
+          color: AppColors.error,
+        ),
+      if (stats.lateMinutes > 0)
+        _FlagTag(
+          icon: Icons.timer_outlined,
+          label: 'Muộn ${stats.lateCount} lần · ${stats.lateMinutes}′',
+          color: AppColors.warning,
+        ),
+      if (row.dutyBonusTotal > 0)
+        _FlagTag(
+          icon: Icons.payments_outlined,
+          label: 'Thưởng trực ${AppFormat.currencyCompact(row.dutyBonusTotal)}',
+          color: AppColors.primary,
+        ),
+      if (row.dutyPostPayTotal > 0)
+        _FlagTag(
+          icon: Icons.bedtime_outlined,
+          label: 'Sau trực ${AppFormat.currencyCompact(row.dutyPostPayTotal)}',
+          color: AppColors.primary,
+        ),
+      if (row.quangTrungAllowance > 0)
+        _FlagTag(
+          icon: Icons.local_hospital_outlined,
+          label: 'PC QT ${AppFormat.currencyCompact(row.quangTrungAllowance)}',
+          color: _quangTrung,
+        ),
+    ];
 
     return AppCard(
       onTap: onTap,
-      accentColor: AppColors.primary,
+      borderRadius: AppRadius.brCard,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       margin: EdgeInsets.zero,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(name: row.fullName, size: 46),
+              Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.28),
+                    width: 1.5,
+                  ),
+                ),
+                child: AppAvatar(
+                  name: row.fullName,
+                  size: 42,
+                  showShadow: false,
+                ),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -534,30 +668,60 @@ class _EmployeeCard extends StatelessWidget {
                       style: AppTypography.style(
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
+                        letterSpacing: -0.3,
+                        height: AppTypography.uppercaseHeight,
+                        color: AppColors.textPrimary,
                       ),
                     ),
-                    if (meta.isNotEmpty) ...[
-                      const SizedBox(height: 2),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        if (row.position.isNotEmpty) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.09),
+                              borderRadius: AppRadius.brPill,
+                            ),
+                            child: Text(
+                              row.position,
+                              style: AppTypography.style(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                height: AppTypography.uppercaseHeight,
+                                color: AppColors.primaryDark,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        if (row.employeeCode.isNotEmpty)
+                          Flexible(
+                            child: Text(
+                              row.employeeCode,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.metric(
+                                fontSize: 11.5,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (dept.isNotEmpty) ...[
+                      const SizedBox(height: 3),
                       Text(
-                        meta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                    if (row.department.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        row.department,
+                        dept,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
                           fontSize: 11.5,
-                          color: AppColors.textTertiary,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ],
@@ -568,91 +732,79 @@ class _EmployeeCard extends StatelessWidget {
               _TotalUnitsBadge(units: stats.totalUnits),
             ],
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _StatBox(
-                  label: 'Chấm công',
-                  value: AppFormat.workUnits(stats.attendanceUnits),
-                  hint: 'Chưa gồm trực',
-                ),
+          const SizedBox(height: 12),
+          _StatStrip(
+            items: [
+              (
+                'Chấm công',
+                AppFormat.workUnits(stats.attendanceUnits),
+                'Chưa gồm trực',
+                stats.attendanceUnits > 0,
+                AppColors.primary,
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _StatBox(
-                  label: 'Công trực',
-                  value: AppFormat.workUnits(stats.dutyUnits),
-                  hint: '${stats.dutyCount} ca',
-                ),
+              (
+                'Công trực',
+                AppFormat.workUnits(stats.dutyUnits),
+                '${stats.dutyCount} ca',
+                stats.dutyUnits > 0,
+                _duty,
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _StatBox(
-                  label: 'Quang Trung',
-                  value: AppFormat.workUnits(stats.quangTrungUnits),
-                  hint: '${stats.quangTrungDays} ngày',
-                ),
+              (
+                'Quang Trung',
+                AppFormat.workUnits(stats.quangTrungUnits),
+                '${stats.quangTrungDays} ngày',
+                stats.quangTrungUnits > 0,
+                _quangTrung,
               ),
             ],
           ),
           const SizedBox(height: 10),
           _WeekStrip(row: row, year: year, month: month),
-          if (stats.leaveDays > 0 ||
-              stats.lateMinutes > 0 ||
-              stats.missingUnits > 0 ||
-              row.dutyBonusTotal > 0 ||
-              row.dutyPostPayTotal > 0 ||
-              row.quangTrungAllowance > 0) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                if (stats.leaveDays > 0)
-                  StatusChip(
-                    label: 'Nghỉ ${stats.leaveDays} ngày',
-                    color: _leave,
-                    dense: true,
-                  ),
-                if (stats.missingUnits > 0)
-                  StatusChip(
-                    label:
-                        'Thiếu ${AppFormat.workUnits(stats.missingUnits)} công',
-                    color: AppColors.error,
-                    dense: true,
-                  ),
-                if (stats.lateMinutes > 0)
-                  StatusChip(
-                    label:
-                        'Muộn ${stats.lateCount} lần · ${stats.lateMinutes}’',
-                    color: AppColors.warning,
-                    dense: true,
-                  ),
-                if (row.dutyBonusTotal > 0)
-                  StatusChip(
-                    label:
-                        'Thưởng trực ${AppFormat.currency(row.dutyBonusTotal)}',
-                    color: AppColors.primary,
-                    dense: true,
-                  ),
-                if (row.dutyPostPayTotal > 0)
-                  StatusChip(
-                    label:
-                        'Sau trực ${AppFormat.currency(row.dutyPostPayTotal)}',
-                    color: AppColors.primary,
-                    dense: true,
-                  ),
-                if (row.quangTrungAllowance > 0)
-                  StatusChip(
-                    label:
-                        'PC QT ${AppFormat.currency(row.quangTrungAllowance)}',
-                    color: _quangTrung,
-                    dense: true,
-                  ),
-              ],
-            ),
+          if (flags.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(spacing: 5, runSpacing: 5, children: flags),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Nhãn cảnh báo / phụ cấp nhỏ dưới thẻ nhân viên.
+class _FlagTag extends StatelessWidget {
+  const _FlagTag({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(6, 3, 8, 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              height: AppTypography.uppercaseHeight,
+              color: Color.lerp(color, AppColors.textPrimary, 0.2)!,
+            ),
+          ),
         ],
       ),
     );
@@ -666,93 +818,123 @@ class _TotalUnitsBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.1),
-        borderRadius: AppRadius.brSm,
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              AppFormat.workUnits(units),
-              maxLines: 1,
-              softWrap: false,
-              style: AppTypography.style(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: AppColors.primaryDark,
-                tabular: true,
-                height: 1.1,
-              ),
-            ),
-            const SizedBox(height: 1),
-            Text(
-              'công',
-              maxLines: 1,
-              softWrap: false,
-              style: AppTypography.style(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                color: AppColors.primaryDark.withValues(alpha: 0.72),
-              ),
-            ),
-          ],
+    final has = units > 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          AppFormat.workUnits(units),
+          maxLines: 1,
+          softWrap: false,
+          style: AppTypography.metric(
+            fontSize: 20,
+            color: has ? AppColors.primaryDark : AppColors.textTertiary,
+            height: 1.1,
+          ),
         ),
-      ),
+        const SizedBox(height: 2),
+        Text(
+          'TỔNG CÔNG',
+          style: AppTypography.uppercase(
+            fontSize: 8.5,
+            letterSpacing: 0.6,
+            color: AppColors.textTertiary,
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _StatBox extends StatelessWidget {
-  const _StatBox({required this.label, required this.value, this.hint});
+/// Rãnh 3 cột chỉ số: nhãn in hoa + chấm sắc, số giữa, gợi ý dưới.
+class _StatStrip extends StatelessWidget {
+  const _StatStrip({required this.items});
 
-  final String label;
-  final String value;
-  final String? hint;
+  /// (nhãn, giá trị, gợi ý, có phát sinh, sắc).
+  final List<(String, String, String, bool, Color)> items;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 9),
       decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: AppRadius.brSm,
+        color: AppColors.surfaceAlt,
+        borderRadius: AppRadius.brControl,
+        border: Border.all(color: AppColors.borderSoft),
       ),
-      child: Column(
-        children: [
-          Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 10.5,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: AppTypography.style(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w800,
-              tabular: true,
-            ),
-          ),
-          if (hint != null) ...[
-            const SizedBox(height: 1),
-            Text(
-              hint!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTypography.style(
-                fontSize: 10,
-                color: AppColors.textTertiary,
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            for (final (i, it) in items.indexed) ...[
+              if (i > 0)
+                const VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: AppColors.divider,
+                ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: it.$4
+                                  ? it.$5
+                                  : AppColors.textTertiary.withValues(
+                                      alpha: 0.45,
+                                    ),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              it.$1.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.uppercase(
+                                fontSize: 8.5,
+                                letterSpacing: 0.4,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        it.$2,
+                        maxLines: 1,
+                        style: AppTypography.metric(
+                          fontSize: 15,
+                          color: it.$4
+                              ? AppColors.textPrimary
+                              : AppColors.textTertiary,
+                        ),
+                      ),
+                      Text(
+                        it.$3,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -791,6 +973,7 @@ class _WeekStrip extends StatelessWidget {
             child: _DayCell(
               date: d,
               weekday: _wd[i],
+              weekend: i >= 5,
               inMonth: d.month == month,
               today: d == today,
               day: byDate[_iso(d)],
@@ -822,12 +1005,14 @@ Color _dayColor(AttendanceMatrixDay? day, AttendanceMatrixDutyDay? duty) {
   return AppColors.surfaceHigh;
 }
 
+/// Ô một ngày trong dải tuần: thứ + ngày, vạch màu trạng thái ở đáy.
 class _DayCell extends StatelessWidget {
   const _DayCell({
     required this.date,
     required this.weekday,
     required this.inMonth,
     required this.today,
+    this.weekend = false,
     this.day,
     this.duty,
   });
@@ -836,6 +1021,7 @@ class _DayCell extends StatelessWidget {
   final String weekday;
   final bool inMonth;
   final bool today;
+  final bool weekend;
   final AttendanceMatrixDay? day;
   final AttendanceMatrixDutyDay? duty;
 
@@ -845,37 +1031,50 @@ class _DayCell extends StatelessWidget {
     final filled =
         duty != null ||
         (day != null && (day!.totalWorkUnits > 0 || day!.isLeave));
+    final numberColor = filled
+        ? Color.lerp(color, AppColors.textPrimary, 0.25)!
+        : AppColors.textSecondary;
+
     return Opacity(
       opacity: inMonth ? 1 : 0.35,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.fromLTRB(2, 6, 2, 5),
         decoration: BoxDecoration(
-          color: filled
-              ? color.withValues(alpha: 0.12)
-              : AppColors.surfaceMuted,
-          borderRadius: AppRadius.brSm,
+          color: filled ? color.withValues(alpha: 0.10) : AppColors.surfaceAlt,
+          borderRadius: AppRadius.brControl,
           border: Border.all(
-            color: today ? AppColors.primary : Colors.transparent,
-            width: today ? 1.4 : 0,
+            color: today
+                ? AppColors.primary
+                : filled
+                ? color.withValues(alpha: 0.22)
+                : AppColors.borderSoft,
+            width: today ? 1.5 : 1,
           ),
         ),
         child: Column(
           children: [
             Text(
               weekday,
-              style: AppTypography.style(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textTertiary,
+              style: AppTypography.uppercase(
+                fontSize: 9,
+                letterSpacing: 0.2,
+                color: weekend
+                    ? AppColors.errorDark.withValues(alpha: 0.7)
+                    : AppColors.textTertiary,
               ),
             ),
             const SizedBox(height: 2),
             Text(
               '${date.day}',
-              style: AppTypography.style(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: filled ? color : AppColors.textSecondary,
+              style: AppTypography.metric(fontSize: 13.5, color: numberColor),
+            ),
+            const SizedBox(height: 4),
+            Container(
+              width: 14,
+              height: 3,
+              decoration: BoxDecoration(
+                color: filled ? color : Colors.transparent,
+                borderRadius: AppRadius.brPill,
               ),
             ),
           ],
@@ -925,11 +1124,12 @@ class _EmployeeMonthSheetState extends State<_EmployeeMonthSheet> {
     final day = row.dayByDate[_selected];
     final duty = row.dutyByDate[_selected];
     final h = MediaQuery.sizeOf(context).height * 0.88;
+    final dept = _prettyDept(row.department);
 
     return Container(
       height: h,
       decoration: const BoxDecoration(
-        color: AppColors.surface,
+        color: AppColors.background,
         borderRadius: AppRadius.brSheetTop,
       ),
       child: Column(
@@ -943,98 +1143,146 @@ class _EmployeeMonthSheetState extends State<_EmployeeMonthSheet> {
               borderRadius: AppRadius.brPill,
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AppAvatar(name: row.fullName, size: 48),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        row.fullName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        [
-                          if (row.position.isNotEmpty) row.position,
-                          if (row.department.isNotEmpty) row.department,
-                        ].join(' · '),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontSize: 12.5,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                _TotalUnitsBadge(units: stats.totalUnits),
-              ],
-            ),
-          ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
               children: [
-                _MonthHeatmap(
-                  year: widget.year,
-                  month: widget.month,
-                  daysInMonth: widget.daysInMonth,
-                  row: row,
-                  selected: _selected,
-                  onSelect: (iso) => setState(() => _selected = iso),
+                // ── Hồ sơ + tổng công ──────────────────────────────────
+                AppCard(
+                  gradient: TintedCardBackdrop.gradient(AppColors.primary),
+                  borderRadius: AppRadius.brCard,
+                  padding: EdgeInsets.zero,
+                  margin: EdgeInsets.zero,
+                  child: TintedCardBackdrop(
+                    accent: AppColors.primary,
+                    watermarkIcon: Icons.calendar_month_rounded,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: AppColors.primary.withValues(alpha: 0.3),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: AppAvatar(
+                              name: row.fullName,
+                              size: 46,
+                              showShadow: false,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  AppFormat.monthLabelVi(
+                                    DateTime(widget.year, widget.month),
+                                  ).toUpperCase(),
+                                  style: AppTypography.uppercase(
+                                    fontSize: 9.5,
+                                    letterSpacing: 0.7,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  row.fullName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.style(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.3,
+                                    height: AppTypography.uppercaseHeight,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  [
+                                    if (row.position.isNotEmpty) row.position,
+                                    if (dept.isNotEmpty) dept,
+                                  ].join(' · '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.style(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          _TotalUnitsBadge(units: stats.totalUnits),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
+                // ── Lịch tháng ───────────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: AppRadius.brCard,
+                    border: Border.all(color: AppColors.borderSoft),
+                    boxShadow: AppShadows.soft,
+                  ),
+                  child: _MonthHeatmap(
+                    year: widget.year,
+                    month: widget.month,
+                    daysInMonth: widget.daysInMonth,
+                    row: row,
+                    selected: _selected,
+                    onSelect: (iso) {
+                      HapticFeedback.selectionClick();
+                      setState(() => _selected = iso);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
                 _SelectedDayCard(date: _selected, day: day, duty: duty),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _StatBox(
-                        label: 'Chấm công',
-                        value: AppFormat.workUnits(stats.attendanceUnits),
-                        hint: 'Chưa gồm trực',
-                      ),
+                _StatStrip(
+                  items: [
+                    (
+                      'Chấm công',
+                      AppFormat.workUnits(stats.attendanceUnits),
+                      'Chưa gồm trực',
+                      stats.attendanceUnits > 0,
+                      AppColors.primary,
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: _StatBox(
-                        label: 'Công trực',
-                        value: AppFormat.workUnits(stats.dutyUnits),
-                        hint: '${stats.dutyCount} ca',
-                      ),
+                    (
+                      'Công trực',
+                      AppFormat.workUnits(stats.dutyUnits),
+                      '${stats.dutyCount} ca',
+                      stats.dutyUnits > 0,
+                      _duty,
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: _StatBox(
-                        label: 'Quang Trung',
-                        value: AppFormat.workUnits(stats.quangTrungUnits),
-                        hint: '${stats.quangTrungDays} ngày',
-                      ),
+                    (
+                      'Quang Trung',
+                      AppFormat.workUnits(stats.quangTrungUnits),
+                      '${stats.quangTrungDays} ngày',
+                      stats.quangTrungUnits > 0,
+                      _quangTrung,
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                FilledButton.icon(
+                AppActionButton(
+                  variant: AppActionVariant.primary,
+                  icon: Icons.open_in_new_rounded,
+                  label: 'Xem bảng công chi tiết',
                   onPressed: widget.onOpenDetail,
-                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                  label: const Text('Xem bảng công chi tiết'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    backgroundColor: AppColors.primary,
-                  ),
                 ),
               ],
             ),
@@ -1077,29 +1325,33 @@ class _MonthHeatmap extends StatelessWidget {
     }
     final byDate = row.dayByDate;
     final duty = row.dutyByDate;
-    final today = _iso(DateTime.now());
+    final now = DateTime.now();
+    final todayDate = DateTime(now.year, now.month, now.day);
+    final today = _iso(now);
 
     return Column(
       children: [
         Row(
           children: [
-            for (final w in _wd)
+            for (final (i, w) in _wd.indexed)
               Expanded(
                 child: Text(
                   w,
                   textAlign: TextAlign.center,
-                  style: AppTypography.style(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textTertiary,
+                  style: AppTypography.uppercase(
+                    fontSize: 10,
+                    letterSpacing: 0.3,
+                    color: i >= 5
+                        ? AppColors.errorDark.withValues(alpha: 0.7)
+                        : AppColors.textTertiary,
                   ),
                 ),
               ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         for (var r = 0; r < cells.length / 7; r++) ...[
-          if (r > 0) const SizedBox(height: 4),
+          if (r > 0) const SizedBox(height: 5),
           Row(
             children: [
               for (var c = 0; c < 7; c++)
@@ -1110,6 +1362,9 @@ class _MonthHeatmap extends StatelessWidget {
                       date: cells[r * 7 + c],
                       selectedIso: selected,
                       todayIso: today,
+                      future:
+                          cells[r * 7 + c] != null &&
+                          cells[r * 7 + c]!.isAfter(todayDate),
                       day: cells[r * 7 + c] == null
                           ? null
                           : byDate[_iso(cells[r * 7 + c]!)],
@@ -1130,11 +1385,14 @@ class _MonthHeatmap extends StatelessWidget {
   }
 }
 
+/// Ô ngày trong lịch tháng: có dữ liệu = pha màu trạng thái; đang chọn = đặc
+/// màu chữ trắng; hôm nay = viền teal; ngày tương lai = mờ.
 class _HeatCell extends StatelessWidget {
   const _HeatCell({
     required this.date,
     required this.selectedIso,
     required this.todayIso,
+    this.future = false,
     this.day,
     this.duty,
     this.onTap,
@@ -1143,43 +1401,84 @@ class _HeatCell extends StatelessWidget {
   final DateTime? date;
   final String selectedIso;
   final String todayIso;
+  final bool future;
   final AttendanceMatrixDay? day;
   final AttendanceMatrixDutyDay? duty;
   final VoidCallback? onTap;
 
+  static const double _height = 40;
+
   @override
   Widget build(BuildContext context) {
-    if (date == null) return const SizedBox(height: 36);
+    if (date == null) return const SizedBox(height: _height);
     final iso = _iso(date!);
     final color = _dayColor(day, duty);
+    final filled =
+        duty != null ||
+        (day != null && (day!.totalWorkUnits > 0 || day!.isLeave));
+    final tone = filled ? color : AppColors.primary;
     final selected = iso == selectedIso;
     final today = iso == todayIso;
-    return Material(
-      color: color.withValues(alpha: selected ? 0.28 : 0.14),
-      borderRadius: AppRadius.brSm,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brSm,
-        child: Container(
-          height: 36,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.brSm,
-            border: Border.all(
-              color: selected
-                  ? color
-                  : today
-                  ? AppColors.primary
-                  : Colors.transparent,
-              width: selected || today ? 1.5 : 0,
+
+    final Color background = selected
+        ? tone
+        : filled
+        ? color.withValues(alpha: 0.13)
+        : AppColors.surfaceAlt;
+    final Color numberColor = selected
+        ? Colors.white
+        : filled
+        ? Color.lerp(color, AppColors.textPrimary, 0.25)!
+        : AppColors.textSecondary;
+
+    return Opacity(
+      opacity: future && !selected ? 0.4 : 1,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: AppRadius.brControl,
+          child: AnimatedContainer(
+            duration: AppDurations.fast,
+            height: _height,
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: AppRadius.brControl,
+              border: Border.all(
+                color: today && !selected
+                    ? AppColors.primary
+                    : filled && !selected
+                    ? color.withValues(alpha: 0.25)
+                    : selected
+                    ? Colors.transparent
+                    : AppColors.borderSoft,
+                width: today && !selected ? 1.5 : 1,
+              ),
+              boxShadow: selected ? AppShadows.tinted(tone) : null,
             ),
-          ),
-          child: Text(
-            '${date!.day}',
-            style: AppTypography.style(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w800,
-              color: color,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Text(
+                  '${date!.day}',
+                  style: AppTypography.metric(
+                    fontSize: 13.5,
+                    color: numberColor,
+                  ),
+                ),
+                if (today)
+                  Positioned(
+                    bottom: 4,
+                    child: Container(
+                      width: 4,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: selected ? Colors.white : AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
@@ -1199,76 +1498,157 @@ class _SelectedDayCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final parsed = DateTime.tryParse(date);
     final title = parsed == null ? date : AppFormat.longDateVi(parsed);
-    return AppCard(
-      accentColor: AppColors.primary,
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      margin: EdgeInsets.zero,
+    final empty = day == null && duty == null;
+    final tone = empty ? AppColors.textTertiary : _dayColor(day, duty);
+
+    final rows = <(String, String, Color)>[
+      if (day?.morningRange != null) ('Ca sáng', day!.morningRange!, _morning),
+      if (day?.afternoonRange != null)
+        ('Ca chiều', day!.afternoonRange!, _afternoon),
+      if (duty != null)
+        (
+          'Công trực',
+          [
+            duty!.displayShort,
+            if (duty!.workUnits > 0)
+              AppFormat.workUnits(duty!.workUnits, suffix: true),
+          ].join(' · '),
+          _duty,
+        ),
+      if (day?.quangTrung == true) ('Địa điểm', 'Quang Trung', _quangTrung),
+      if (day?.isLeave == true)
+        (
+          'Nghỉ',
+          day!.status == 'UNPAID_LEAVE'
+              ? 'Không lương'
+              : day!.status == 'PERSONAL_LEAVE'
+              ? 'Nghỉ chế độ'
+              : 'Nghỉ phép / vắng',
+          _leave,
+        ),
+      if (day != null && day!.lateMinutes > 0 && !day!.lateMinutesExempt)
+        ('Đi muộn', '${day!.lateMinutes} phút', AppColors.warning),
+    ];
+    final units = day?.totalWorkUnits ?? 0;
+    final note = stripAttendanceNoteMarkers(day?.note ?? '');
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brCard,
+        border: Border.all(color: tone.withValues(alpha: 0.2)),
+        boxShadow: AppShadows.soft,
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            title,
-            style: AppTypography.style(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 11, 14, 11),
+            decoration: BoxDecoration(gradient: AppGradients.tint(tone)),
+            child: Row(
+              children: [
+                TintedIconTile(
+                  icon: empty
+                      ? Icons.event_busy_rounded
+                      : Icons.event_available_rounded,
+                  color: empty ? AppColors.textSecondary : tone,
+                  size: 32,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: AppTypography.style(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      height: AppTypography.uppercaseHeight,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                if (units > 0)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        AppFormat.workUnits(units),
+                        style: AppTypography.metric(
+                          fontSize: 17,
+                          color: AppColors.primaryDark,
+                          height: 1.1,
+                        ),
+                      ),
+                      Text(
+                        'CÔNG',
+                        style: AppTypography.uppercase(
+                          fontSize: 8,
+                          letterSpacing: 0.6,
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          if (day == null && duty == null)
-            Text(
-              'Chưa có dữ liệu chấm công ngày này.',
-              style: AppTypography.style(
-                fontSize: 13,
-                color: AppColors.textSecondary,
-              ),
-            )
-          else ...[
-            if (day?.morningRange != null)
-              _kv('Sáng', day!.morningRange!, _morning),
-            if (day?.afternoonRange != null)
-              _kv('Chiều', day!.afternoonRange!, _afternoon),
-            if (duty != null)
-              _kv(
-                'Công trực',
-                [
-                  duty!.displayShort,
-                  if (duty!.workUnits > 0)
-                    AppFormat.workUnits(duty!.workUnits, suffix: true),
-                ].join(' · '),
-                _duty,
-              ),
-            if (day?.quangTrung == true)
-              _kv('Địa điểm', 'Quang Trung', _quangTrung),
-            if (day?.isLeave == true)
-              _kv(
-                'Nghỉ',
-                day!.status == 'UNPAID_LEAVE'
-                    ? 'Không lương'
-                    : day!.status == 'PERSONAL_LEAVE'
-                    ? 'Nghỉ chế độ'
-                    : 'Nghỉ phép / vắng',
-                _leave,
-              ),
-            if (day != null && day!.lateMinutes > 0 && !day!.lateMinutesExempt)
-              _kv('Đi muộn', '${day!.lateMinutes} phút', AppColors.warning),
-            if (day != null && day!.totalWorkUnits > 0)
-              _kv(
-                'Công ngày',
-                AppFormat.workUnits(day!.totalWorkUnits, suffix: true),
-                AppColors.primary,
-              ),
-            if ((day?.note ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                day!.note!.trim(),
+          const Divider(height: 1, color: AppColors.borderSoft),
+          if (empty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Text(
+                'Chưa có dữ liệu chấm công ngày này.',
                 style: AppTypography.style(
-                  fontSize: 12.5,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                   color: AppColors.textSecondary,
-                  height: 1.35,
                 ),
               ),
-            ],
-          ],
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (i, r) in rows.indexed) ...[
+                    if (i > 0)
+                      const Divider(height: 1, color: AppColors.divider),
+                    _kv(r.$1, r.$2, r.$3),
+                  ],
+                  if (rows.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'Không có mốc giờ cho ngày này.',
+                        style: AppTypography.style(
+                          fontSize: 12.5,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  if (note.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceAlt,
+                        borderRadius: AppRadius.brControl,
+                      ),
+                      child: Text(
+                        note,
+                        style: AppTypography.style(
+                          fontSize: 12.5,
+                          color: AppColors.textSecondary,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -1276,28 +1656,35 @@ class _SelectedDayCard extends StatelessWidget {
 
   Widget _kv(String k, String v, Color color) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(
         children: [
           Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            width: 12,
+            height: 6,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: AppRadius.brPill,
+            ),
           ),
           const SizedBox(width: 8),
           Text(
             k,
             style: AppTypography.style(
               fontSize: 12.5,
+              fontWeight: FontWeight.w500,
               color: AppColors.textSecondary,
             ),
           ),
-          const Spacer(),
-          Text(
-            v,
-            style: AppTypography.style(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              v,
+              textAlign: TextAlign.end,
+              style: AppTypography.metric(
+                fontSize: 13.5,
+                color: AppColors.textPrimary,
+              ),
             ),
           ),
         ],

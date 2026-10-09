@@ -212,14 +212,7 @@ class _KpiCard extends StatelessWidget {
         children: [
           Icon(icon, size: 18, color: color),
           const SizedBox(height: 8),
-          Text(
-            value,
-            style: AppTypography.style(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-            ),
-          ),
+          Text(value, style: AppTypography.metric(fontSize: 20)),
           const SizedBox(height: 2),
           Text(
             label,

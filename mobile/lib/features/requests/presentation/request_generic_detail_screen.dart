@@ -7,10 +7,13 @@ import '../../../core/config/app_config.dart';
 import '../../../core/router/route_paths.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/nursing_block.dart';
 import '../../../core/utils/request_edit_access.dart';
+import '../../../core/utils/user_role.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/approval_action_bar.dart';
 import '../../../core/widgets/auth_image_preview.dart';
 import '../../../core/widgets/auth_network_image.dart';
 import '../../../core/widgets/confirm_dialog.dart';
@@ -19,6 +22,7 @@ import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/highlight_pulse.dart';
 import '../../../core/widgets/info_row.dart';
 import '../../../core/widgets/status_chip.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/generic_request_controller.dart';
 import '../data/request_type_config.dart';
@@ -82,13 +86,15 @@ class _RequestGenericDetailScreenState
     String? comment;
     var extra = const <String, dynamic>{};
 
+    final stage = item.stage;
+    if (stage == null) return;
     if (approved) {
-      if (item.stage.approveFields.isNotEmpty) {
+      if (stage.approveFields.isNotEmpty) {
         // Một số bước duyệt yêu cầu nhập thêm dữ liệu (backend chặn nếu thiếu).
         final input = await showApprovalFieldsSheet(
           context,
-          stage: item.stage,
-          title: 'Duyệt ở bước ${item.stage.label}',
+          stage: stage,
+          title: 'Duyệt ở bước ${stage.label}',
         );
         if (input == null) return;
         extra = input.extra;
@@ -140,6 +146,60 @@ class _RequestGenericDetailScreenState
         isError: true,
       );
     }
+  }
+
+  /// Giám đốc sửa quyết định phiếu hội thảo đã xử lý (có công / không công / từ chối).
+  Future<void> _correctSeminar(
+    Map<String, dynamic> raw,
+    RequestReviewStage stage,
+  ) async {
+    final input = await showSeminarDecisionSheet(context, raw: raw);
+    if (input == null || !mounted) return;
+
+    setState(() => _busy = true);
+    final ok = await ref
+        .read(genericRequestControllerProvider(widget.typeKey).notifier)
+        .review(
+          PendingItem(raw: raw, stage: stage),
+          approved: input.approved,
+          comment: input.comment,
+          extra: input.extra,
+        );
+    if (!mounted) return;
+    setState(() => _busy = false);
+
+    if (ok) {
+      HapticFeedback.mediumImpact();
+      showAppSnackBar(context, 'Đã cập nhật quyết định', isSuccess: true);
+      Navigator.of(context).maybePop();
+    } else {
+      showAppSnackBar(
+        context,
+        ref.read(genericRequestControllerProvider(widget.typeKey)).error ??
+            'Thao tác thất bại',
+        isError: true,
+      );
+    }
+  }
+
+  /// Bước duyệt Giám đốc cho phép sửa lại phiếu hội thảo — null nếu không áp dụng.
+  RequestReviewStage? _seminarCorrectionStage(
+    RequestTypeConfig config,
+    Map<String, dynamic> raw,
+    String? status,
+    UserRole role,
+    bool directorApprovalEnabled,
+  ) {
+    if (widget.typeKey != 'seminar-proposal') return null;
+    const processed = {'APPROVED', 'COMPLETED', 'DIRECTOR_REJECTED'};
+    if (!processed.contains(status) || raw['directorReviewedAt'] == null) {
+      return null;
+    }
+    final stages = config
+        .stagesFor(role, directorApprovalEnabled: directorApprovalEnabled)
+        .where((s) => s.reviewSlug == 'director-review')
+        .toList();
+    return stages.isEmpty ? null : stages.first;
   }
 
   Future<void> _cancel(int id) async {
@@ -251,7 +311,17 @@ class _RequestGenericDetailScreenState
       );
     }
 
+    final canActOnPending = pendingItem?.stage != null;
     final status = raw['status'] as String?;
+    final correctionStage = canActOnPending
+        ? null
+        : _seminarCorrectionStage(
+            config,
+            raw,
+            status,
+            role,
+            auth.currentUser?.directorApprovalEnabled ?? false,
+          );
     final canCancel =
         config.canCancel(role) &&
         state.related.any(
@@ -259,7 +329,8 @@ class _RequestGenericDetailScreenState
         ) &&
         (status?.toUpperCase().contains('PENDING') ?? false);
     final inOwnView = fromRelated || _fetched != null;
-    final canEdit = inOwnView &&
+    final canEdit =
+        inOwnView &&
         canEditOwnPendingRequest(
           raw,
           username: auth.currentUser?.username,
@@ -297,23 +368,41 @@ class _RequestGenericDetailScreenState
                         config: config,
                         raw: raw,
                         status: status,
-                        stageLabel: pendingItem?.stage.label,
-                        currentStage: pendingItem?.stage,
+                        stageLabel: canActOnPending
+                            ? pendingItem?.stage?.label
+                            : null,
+                        currentStage: canActOnPending
+                            ? pendingItem?.stage
+                            : null,
                       ),
                     ),
                   ),
                 ),
-                if (pendingItem != null || canCancel || canEdit)
-                  _ActionBar(
+                if (canActOnPending ||
+                    correctionStage != null ||
+                    canCancel ||
+                    canEdit)
+                  ApprovalActionBar(
                     busy: _busy,
-                    onApprove: pendingItem == null
-                        ? null
-                        : () => _review(pendingItem!, true),
-                    onReject: pendingItem == null
-                        ? null
-                        : () => _review(pendingItem!, false),
-                    onCancel:
-                        canCancel ? () => _cancel(widget.requestId) : null,
+                    onApprove: canActOnPending
+                        ? () => _review(pendingItem!, true)
+                        : correctionStage != null
+                        ? () => _correctSeminar(raw!, correctionStage)
+                        : null,
+                    approveLabel: correctionStage != null
+                        ? 'Sửa quyết định'
+                        : 'Duyệt',
+                    approveIcon: correctionStage != null
+                        ? Icons.edit_note_rounded
+                        : Icons.check_rounded,
+                    onReject: canActOnPending
+                        ? () => _review(pendingItem!, false)
+                        : null,
+                    onWithdraw: canCancel
+                        ? () => _cancel(widget.requestId)
+                        : null,
+                    withdrawLabel: 'Huỷ đơn',
+                    withdrawIcon: Icons.delete_outline_rounded,
                     onEdit: canEdit ? () => _edit(raw!) : null,
                   ),
               ],
@@ -356,7 +445,8 @@ class _Body extends StatelessWidget {
         raw: raw,
         status: status,
         stageLabel: stageLabel,
-        bottom: timeline,
+        // Hội thảo tự dựng lịch sử duyệt kèm chữ ký người lập.
+        bottom: config.key == 'seminar-proposal' ? null : timeline,
       );
     }
 
@@ -379,7 +469,7 @@ class _Body extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    AppIconBadge(
+                    TintedIconTile(
                       icon: config.icon,
                       color: config.color,
                       size: 48,
@@ -391,7 +481,7 @@ class _Body extends StatelessWidget {
                         children: [
                           Text(
                             name,
-                            style: const TextStyle(
+                            style: AppTypography.style(
                               fontSize: 15.5,
                               fontWeight: FontWeight.w700,
                               height: 1.25,
@@ -402,7 +492,7 @@ class _Body extends StatelessWidget {
                             const SizedBox(height: 2),
                             Text(
                               department,
-                              style: const TextStyle(
+                              style: AppTypography.style(
                                 fontSize: 12.5,
                                 color: AppColors.textSecondary,
                               ),
@@ -444,7 +534,7 @@ class _Body extends StatelessWidget {
                         Expanded(
                           child: Text(
                             'Đơn đang chờ bạn duyệt ở bước: $stageLabel',
-                            style: const TextStyle(
+                            style: AppTypography.style(
                               fontSize: 11.8,
                               fontWeight: FontWeight.w700,
                               color: AppColors.warning,
@@ -552,8 +642,8 @@ class _TypedRequestValue extends StatelessWidget {
     return Text(
       _friendlyScalar(value),
       textAlign: alignEnd ? TextAlign.end : TextAlign.start,
-      style: const TextStyle(
-        fontSize: 13.2,
+      style: AppTypography.style(
+        fontSize: 13.5,
         fontWeight: FontWeight.w600,
         height: 1.4,
         color: AppColors.textPrimary,
@@ -582,7 +672,7 @@ class _TypedRequestValue extends StatelessWidget {
               ),
               child: Text(
                 _friendlyScalar(item),
-                style: const TextStyle(
+                style: AppTypography.style(
                   fontSize: 12.2,
                   fontWeight: FontWeight.w600,
                 ),
@@ -639,7 +729,7 @@ class _TypedRequestValue extends StatelessWidget {
                 config,
                 entries[index].key.toString(),
               ),
-              style: const TextStyle(
+              style: AppTypography.style(
                 fontSize: 11.8,
                 fontWeight: FontWeight.w600,
                 color: AppColors.textSecondary,
@@ -740,28 +830,34 @@ class _ApprovalTimeline extends StatelessWidget {
 
     if (stages.isEmpty) return const SizedBox.shrink();
 
+    final states = [
+      for (var index = 0; index < stages.length; index++)
+        _stepState(
+          index: index,
+          currentIndex: currentIndex,
+          rejectedIndex: rejectedIndex,
+          completed: completed,
+          stopped: stopped,
+          hasEvidence: _stageHasEvidence(raw, stages[index]),
+        ),
+    ];
+
     return SectionCard(
-      title: 'Tiến trình phê duyệt',
-      icon: Icons.account_tree_outlined,
+      title: 'Lịch sử duyệt',
+      icon: Icons.draw_outlined,
       accentColor: AppColors.info,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (var index = 0; index < stages.length; index++) ...[
+          _RequesterSignatureRow(raw: raw, isLast: stages.isEmpty),
+          for (var index = 0; index < stages.length; index++)
             _ApprovalStepRow(
               stage: stages[index],
               raw: raw,
-              state: _stepState(
-                index: index,
-                currentIndex: currentIndex,
-                rejectedIndex: rejectedIndex,
-                completed: completed,
-                stopped: stopped,
-                hasEvidence: _stageHasEvidence(raw, stages[index]),
-              ),
+              state: states[index],
+              nextState: index + 1 < states.length ? states[index + 1] : null,
+              isLast: index == stages.length - 1,
             ),
-            if (index != stages.length - 1)
-              const Divider(height: AppSpacing.lg),
-          ],
         ],
       ),
     );
@@ -772,32 +868,259 @@ class _ApprovalTimeline extends StatelessWidget {
     Map<String, dynamic> raw,
   ) {
     final status = (raw['status'] as String? ?? '').toUpperCase();
-    final nursingTouched = status.contains('NURSING_HEAD') ||
-        raw['nursingHeadReviewedAt'] != null;
+    final nursingTouched =
+        status.contains('NURSING_HEAD') || raw['nursingHeadReviewedAt'] != null;
     final showNursing =
         nursingTouched ||
-            isNursingBlockTitle(
-              raw['positionTitle'] as String?,
-              (raw['department'] ?? raw['departmentName']) as String?,
-            );
+        isNursingBlockTitle(
+          raw['positionTitle'] as String?,
+          (raw['department'] ?? raw['departmentName']) as String?,
+        );
 
     final isMainDuty = config.key == 'main-duty-authorization';
-    final headTouched = raw['headReviewedAt'] != null ||
+    final headTouched =
+        raw['headReviewedAt'] != null ||
         status == 'PENDING_HEAD' ||
         status == 'HEAD_REJECTED';
 
     return [
       for (final stage in config.stages)
-        if (isNursingHeadStageLabel(stage.label))
-          ...[if (showNursing) stage]
-        else if (isMainDuty &&
+        if (isNursingHeadStageLabel(stage.label)) ...[
+          if (showNursing) stage,
+        ] else if (isMainDuty &&
             showNursing &&
             stage.reviewSlug == 'head-review')
-          // Khối ĐD: thường lập sẵn bởi trưởng khoa — hiện khi đã có dấu vết.
-          ...[if (headTouched) stage]
-        else
+        // Khối ĐD: thường lập sẵn bởi trưởng khoa — hiện khi đã có dấu vết.
+        ...[
+          if (headTouched) stage,
+        ] else
           stage,
     ];
+  }
+}
+
+/// Một mốc trên dòng thời gian duyệt: nút tròn + đường nối xuống mốc sau.
+class _TimelineTile extends StatelessWidget {
+  const _TimelineTile({
+    required this.icon,
+    required this.color,
+    required this.filled,
+    required this.isLast,
+    required this.lineColor,
+    required this.child,
+  });
+
+  final IconData icon;
+  final Color color;
+
+  /// Mốc đã qua / đang xử lý: nút đặc màu; mốc chưa tới: nút viền nhạt.
+  final bool filled;
+  final bool isLast;
+  final Color lineColor;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 34,
+            child: Column(
+              children: [
+                if (filled)
+                  TintedIconTile(icon: icon, color: color, size: 34)
+                else
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(34 * 0.3),
+                      border: Border.all(
+                        color: color.withValues(alpha: 0.35),
+                        width: 1.4,
+                      ),
+                    ),
+                    child: Icon(icon, size: 17, color: color),
+                  ),
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      decoration: BoxDecoration(
+                        color: lineColor,
+                        borderRadius: AppRadius.brPill,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 2 : 18),
+              child: child,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Khung ảnh chữ ký: nền giấy nhạt, nhãn nhỏ, chạm để phóng to.
+class _SignatureBox extends StatelessWidget {
+  const _SignatureBox({required this.url, required this.title});
+
+  final String url;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceAlt,
+      borderRadius: AppRadius.brControl,
+      child: InkWell(
+        onTap: () => showAuthImagePreview(
+          context,
+          url: AppConfig.resolveUrl(url),
+          title: title,
+        ),
+        borderRadius: AppRadius.brControl,
+        child: Container(
+          width: double.infinity,
+          height: 124,
+          padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+          decoration: BoxDecoration(
+            borderRadius: AppRadius.brControl,
+            border: Border.all(color: AppColors.borderSoft),
+          ),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: AuthNetworkImage(
+                  url: AppConfig.resolveUrl(url),
+                  fit: BoxFit.contain,
+                ),
+              ),
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Icon(
+                  Icons.zoom_out_map_rounded,
+                  size: 14,
+                  color: AppColors.textTertiary.withValues(alpha: 0.8),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Viên trạng thái nhỏ cạnh tên bước.
+class _StepPill extends StatelessWidget {
+  const _StepPill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(7, 2, 8, 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        label,
+        style: AppTypography.style(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          height: AppTypography.uppercaseHeight,
+          color: Color.lerp(color, AppColors.textPrimary, 0.2)!,
+        ),
+      ),
+    );
+  }
+}
+
+class _RequesterSignatureRow extends StatelessWidget {
+  const _RequesterSignatureRow({required this.raw, required this.isLast});
+
+  final Map<String, dynamic> raw;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = raw['requestedByUsername']?.toString().trim();
+    final signature = raw['requesterSignatureUrl']?.toString().trim();
+    final createdAt = raw['createdAt']?.toString();
+    final hasSignature = signature != null && signature.isNotEmpty;
+    return _TimelineTile(
+      icon: Icons.edit_document,
+      color: AppColors.success,
+      filled: true,
+      isLast: isLast,
+      lineColor: AppColors.success.withValues(alpha: 0.35),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Người lập phiếu${name != null && name.isNotEmpty ? ' · $name' : ''}',
+            style: AppTypography.style(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              height: 1.35,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _StepPill(
+                label: hasSignature ? 'Đã ký khi gửi' : 'Chưa có chữ ký',
+                color: hasSignature
+                    ? AppColors.success
+                    : AppColors.textSecondary,
+              ),
+              if (createdAt != null && createdAt.isNotEmpty)
+                Text(
+                  AppFormat.dateTime(DateTime.tryParse(createdAt)),
+                  style: AppTypography.style(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (hasSignature)
+            _SignatureBox(url: signature, title: 'Người lập phiếu')
+          else
+            Text(
+              'Phiếu này chưa lưu chữ ký người lập.',
+              style: AppTypography.style(
+                fontSize: 12,
+                height: 1.4,
+                color: AppColors.textSecondary,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -806,11 +1129,17 @@ class _ApprovalStepRow extends StatelessWidget {
     required this.stage,
     required this.raw,
     required this.state,
+    required this.isLast,
+    required this.nextState,
   });
 
   final RequestReviewStage stage;
   final Map<String, dynamic> raw;
   final _ProcessStepState state;
+  final bool isLast;
+
+  /// Trạng thái bước kế tiếp — quyết định màu đường nối.
+  final _ProcessStepState? nextState;
 
   @override
   Widget build(BuildContext context) {
@@ -823,113 +1152,120 @@ class _ApprovalStepRow extends StatelessWidget {
         raw['${prefix}SignaturePath']?.toString().trim();
     final color = _stepColor(state);
     final statusText = _stepLabel(state, signature?.isNotEmpty ?? false);
+    final filled =
+        state == _ProcessStepState.completed ||
+        state == _ProcessStepState.current ||
+        state == _ProcessStepState.rejected;
+    final lineDone =
+        state == _ProcessStepState.completed &&
+        nextState != null &&
+        nextState != _ProcessStepState.upcoming &&
+        nextState != _ProcessStepState.stopped;
+    final hasComment = comment != null && comment.isNotEmpty;
 
     return Semantics(
       container: true,
       label:
           '${stage.label}. $statusText'
-          '${comment == null || comment.isEmpty ? '' : '. Ý kiến: $comment'}',
+          '${hasComment ? '. Ý kiến: $comment' : ''}',
       child: ExcludeSemantics(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-                border: Border.all(color: color.withValues(alpha: 0.25)),
+        child: _TimelineTile(
+          icon: _stepIcon(state),
+          color: color,
+          filled: filled,
+          isLast: isLast,
+          lineColor: lineDone
+              ? AppColors.success.withValues(alpha: 0.35)
+              : AppColors.borderSoft,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                stage.label,
+                style: AppTypography.style(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w800,
+                  height: 1.35,
+                  color: state == _ProcessStepState.upcoming
+                      ? AppColors.textSecondary
+                      : AppColors.textPrimary,
+                ),
               ),
-              child: Icon(_stepIcon(state), size: 18, color: color),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Text(
-                    stage.label,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    statusText,
-                    style: TextStyle(
-                      fontSize: 11.8,
-                      fontWeight: FontWeight.w600,
-                      color: color,
-                    ),
-                  ),
+                  _StepPill(label: statusText, color: color),
                   if ((reviewer != null && reviewer.isNotEmpty) ||
-                      (reviewedAt != null && reviewedAt.isNotEmpty)) ...[
-                    const SizedBox(height: 3),
+                      (reviewedAt != null && reviewedAt.isNotEmpty))
                     Text(
                       [
                         if (reviewer != null && reviewer.isNotEmpty) reviewer,
                         if (reviewedAt != null && reviewedAt.isNotEmpty)
                           AppFormat.dateTime(DateTime.tryParse(reviewedAt)),
                       ].join(' · '),
-                      style: const TextStyle(
+                      style: AppTypography.style(
                         fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
                         color: AppColors.textTertiary,
                       ),
                     ),
-                  ],
-                  if (signature != null && signature.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Material(
-                      color: Colors.white,
-                      borderRadius: AppRadius.brXs,
-                      child: InkWell(
-                        onTap: () => showAuthImagePreview(
-                          context,
-                          url: AppConfig.resolveUrl(signature),
-                          title: stage.label,
-                        ),
-                        borderRadius: AppRadius.brXs,
-                        child: Container(
-                          width: double.infinity,
-                          height: 64,
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            borderRadius: AppRadius.brXs,
-                            border: Border.all(color: AppColors.borderSoft),
-                          ),
-                          child: AuthNetworkImage(
-                            url: AppConfig.resolveUrl(signature),
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (comment != null && comment.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.xs,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceMuted,
-                        borderRadius: AppRadius.brXs,
-                      ),
-                      child: Text(
-                        comment,
-                        style: const TextStyle(fontSize: 12, height: 1.4),
-                      ),
-                    ),
-                  ],
                 ],
               ),
-            ),
-          ],
+              if (signature != null && signature.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _SignatureBox(url: signature, title: stage.label),
+              ],
+              if (hasComment || state == _ProcessStepState.current) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
+                  decoration: BoxDecoration(
+                    color: hasComment
+                        ? color.withValues(alpha: 0.06)
+                        : AppColors.surfaceMuted,
+                    borderRadius: AppRadius.brControl,
+                    border: Border.all(
+                      color: hasComment
+                          ? color.withValues(alpha: 0.16)
+                          : AppColors.borderSoft,
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        hasComment
+                            ? Icons.chat_bubble_outline_rounded
+                            : Icons.hourglass_top_rounded,
+                        size: 14,
+                        color: hasComment ? color : AppColors.textTertiary,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          hasComment ? comment : 'Đang chờ duyệt ký.',
+                          style: AppTypography.style(
+                            fontSize: 12.5,
+                            height: 1.4,
+                            fontWeight: hasComment
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            color: hasComment
+                                ? AppColors.textPrimary
+                                : AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -1021,148 +1357,4 @@ String _stagePrefix(String reviewSlug) {
                 : '${part[0].toUpperCase()}${part.substring(1)}',
           )
           .join();
-}
-
-class _ActionBar extends StatelessWidget {
-  const _ActionBar({
-    required this.busy,
-    required this.onApprove,
-    required this.onReject,
-    required this.onCancel,
-    this.onEdit,
-  });
-
-  final bool busy;
-  final VoidCallback? onApprove;
-  final VoidCallback? onReject;
-  final VoidCallback? onCancel;
-  final VoidCallback? onEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    final edit = onEdit == null
-        ? null
-        : OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primary,
-              side: BorderSide(
-                color: AppColors.primary.withValues(alpha: 0.45),
-              ),
-            ),
-            onPressed: busy ? null : onEdit,
-            icon: const Icon(Icons.edit_outlined, size: 18),
-            label: const Text('Chỉnh sửa'),
-          );
-    final cancel = onCancel == null
-        ? null
-        : OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.error,
-              side: BorderSide(
-                color: AppColors.error.withValues(alpha: 0.45),
-              ),
-            ),
-            onPressed: busy ? null : onCancel,
-            icon: const Icon(Icons.delete_outline_rounded, size: 18),
-            label: const Text('Huỷ đơn'),
-          );
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: const Border(top: BorderSide(color: AppColors.borderSoft)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.textPrimary.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (busy)
-              Semantics(
-                liveRegion: true,
-                label: 'Đang xử lý yêu cầu, vui lòng chờ',
-                child: const LinearProgressIndicator(minHeight: 2),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.page,
-                AppSpacing.sm,
-                AppSpacing.page,
-                AppSpacing.sm,
-              ),
-              child: Column(
-                children: [
-                  if (onApprove != null)
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final textScale = MediaQuery.textScalerOf(
-                          context,
-                        ).scale(1);
-                        final stack =
-                            constraints.maxWidth < 330 || textScale > 1.25;
-                        final reject = OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.error,
-                            side: BorderSide(
-                              color: AppColors.error.withValues(alpha: 0.45),
-                            ),
-                          ),
-                          onPressed: busy ? null : onReject,
-                          icon: const Icon(Icons.close_rounded, size: 18),
-                          label: const Text('Từ chối'),
-                        );
-                        final approve = ElevatedButton.icon(
-                          onPressed: busy ? null : onApprove,
-                          icon: const Icon(Icons.check_rounded, size: 18),
-                          label: const Text('Duyệt'),
-                        );
-                        if (stack) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              approve,
-                              const SizedBox(height: AppSpacing.xs),
-                              reject,
-                            ],
-                          );
-                        }
-                        return Row(
-                          children: [
-                            Expanded(child: reject),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(flex: 2, child: approve),
-                          ],
-                        );
-                      },
-                    ),
-                  if (edit != null || cancel != null) ...[
-                    if (onApprove != null) const SizedBox(height: AppSpacing.xs),
-                    if (edit != null && cancel != null)
-                      Row(
-                        children: [
-                          Expanded(child: edit),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(child: cancel),
-                        ],
-                      )
-                    else if (cancel != null)
-                      SizedBox(width: double.infinity, child: cancel)
-                    else if (edit != null)
-                      SizedBox(width: double.infinity, child: edit),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

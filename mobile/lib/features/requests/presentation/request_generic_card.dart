@@ -8,6 +8,7 @@ import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/highlight_pulse.dart';
 import '../../../core/widgets/status_chip.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 import 'generic_request_ui.dart';
 
 /// Nhãn trạng thái dùng chung cho thẻ và màn chi tiết đơn generic.
@@ -121,125 +122,205 @@ class RequestGenericCard extends StatelessWidget {
               ? AppColors.textSecondary
               : GenericRequestUi.statusColor(status));
 
+    final accent = accentColor ?? AppColors.primary;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs + 2),
       child: HighlightPulse(
         active: highlighted,
         color: AppColors.warning,
         child: AppCard(
           onTap: onTap,
-          padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AppAvatar(name: title, size: 36),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+          gradient: TintedCardBackdrop.gradient(accent),
+          borderRadius: AppRadius.brLg,
+          padding: EdgeInsets.zero,
+          child: TintedCardBackdrop(
+            accent: accent,
+            watermarkIcon: Icons.description_rounded,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          accent.withValues(alpha: 0.55),
+                          accent.withValues(alpha: 0.12),
+                        ],
+                      ),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.surface,
+                      ),
+                      child: AppAvatar(
+                        name: title,
+                        size: 36,
+                        showShadow: false,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.style(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13.5,
-                              height: 1.25,
-                              letterSpacing: -0.1,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.style(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14.5,
+                                  height: AppTypography.uppercaseHeight,
+                                  letterSpacing: -0.2,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
                             ),
-                          ),
+                            if (statusLabel != null) ...[
+                              const SizedBox(width: 8),
+                              StatusChip(
+                                label: statusLabel,
+                                color: statusColor,
+                                dense: true,
+                              ),
+                            ],
+                          ],
                         ),
-                        if (statusLabel != null) ...[
-                          const SizedBox(width: 8),
-                          StatusChip(
-                            label: statusLabel,
-                            color: statusColor,
-                            dense: true,
+                        if (meta.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.apartment_rounded,
+                                size: 14,
+                                color: AppColors.textTertiary,
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  meta,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.style(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w500,
+                                    height: AppTypography.uppercaseHeight,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
-                      ],
-                    ),
-                    if (meta.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        meta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontSize: 11.5,
-                          height: 1.3,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                    if (awaiting) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        'Bước · $stageLabel',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          height: 1.25,
-                          color: AppColors.warning,
-                        ),
-                      ),
-                    ],
-                    if (reason != null && reason.isNotEmpty) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        reason,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontSize: 11.5,
-                          height: 1.35,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                    if (createdAt != null) ...[
-                      const SizedBox(height: 5),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.schedule_rounded,
-                            size: 12,
-                            color: AppColors.textTertiary,
+                        if (awaiting) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.fromLTRB(7, 3, 9, 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.warning.withValues(alpha: 0.1),
+                              borderRadius: AppRadius.brChip,
+                              border: Border.all(
+                                color: AppColors.warning.withValues(
+                                  alpha: 0.24,
+                                ),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.hourglass_top_rounded,
+                                  size: 13,
+                                  color: AppColors.warningText,
+                                ),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    'Bước · $stageLabel',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppTypography.style(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      height: AppTypography.uppercaseHeight,
+                                      color: AppColors.warningText,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(width: 4),
-                          Expanded(
+                        ],
+                        if (reason != null && reason.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.7),
+                              borderRadius: AppRadius.brControl,
+                              border: Border.all(
+                                color: accent.withValues(alpha: 0.12),
+                              ),
+                            ),
                             child: Text(
-                              'Gửi ${AppFormat.dateTime(createdAt)}',
-                              maxLines: 1,
+                              reason,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: AppTypography.metricMuted(
-                                fontSize: 11,
-                                color: AppColors.textTertiary,
+                              style: AppTypography.style(
+                                fontSize: 12.5,
+                                height: 1.4,
+                                color: AppColors.textSecondary,
                               ),
                             ),
                           ),
                         ],
-                      ),
-                    ],
-                  ],
-                ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            if (createdAt != null) ...[
+                              const Icon(
+                                Icons.schedule_rounded,
+                                size: 13,
+                                color: AppColors.textTertiary,
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  'Gửi ${AppFormat.dateTime(createdAt)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.metricMuted(
+                                    fontSize: 11.5,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                ),
+                              ),
+                            ] else
+                              const Spacer(),
+                            TintedChevron(accent: accent),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const Padding(
-                padding: EdgeInsets.only(left: 2, top: 2),
-                child: Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.textTertiary,
-                  size: 18,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

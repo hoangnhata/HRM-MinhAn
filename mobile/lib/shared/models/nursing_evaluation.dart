@@ -24,6 +24,24 @@ class NursingEvaluationRecord {
   String? get overallGrade => raw['overallGrade'] as String?;
   String? get comments => raw['comments'] as String?;
   String? get evaluatorUsername => raw['evaluatorUsername'] as String?;
+
+  /// Họ tên người ký (username thường là SĐT) — rơi về username khi chưa có.
+  String? get evaluatorName =>
+      _nameOr(raw['evaluatorName'], raw['evaluatorUsername']);
+  String? get headReviewerName =>
+      _nameOr(raw['headReviewerName'], raw['headReviewerUsername']);
+  String? get hrReviewerName =>
+      _nameOr(raw['hrReviewerName'], raw['hrReviewerUsername']);
+  String? get directorReviewerName =>
+      _nameOr(raw['directorReviewerName'], raw['directorReviewerUsername']);
+
+  static String? _nameOr(Object? name, Object? username) {
+    final n = name is String ? name.trim() : '';
+    if (n.isNotEmpty) return n;
+    final u = username is String ? username.trim() : '';
+    return u.isEmpty ? null : u;
+  }
+
   String? get evaluatorSignedAt => raw['evaluatorSignedAt'] as String?;
   String? get evaluatorSignatureUrl => raw['evaluatorSignatureUrl'] as String?;
   String? get headComment => raw['headComment'] as String?;

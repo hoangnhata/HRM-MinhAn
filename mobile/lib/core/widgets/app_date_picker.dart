@@ -5,6 +5,8 @@ import '../theme/app_colors.dart';
 import '../theme/app_tokens.dart';
 import '../theme/app_typography.dart';
 import '../utils/formatters.dart';
+import 'app_action_button.dart';
+import 'tinted_card_backdrop.dart';
 
 DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
@@ -192,8 +194,9 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
     final parsed = _parseDateInput(value);
     setState(() {
       if (parsed == null) {
-        _inputError =
-            value.trim().isEmpty ? null : 'Nhập dạng dd/MM/yyyy (vd: 11/08/2026)';
+        _inputError = value.trim().isEmpty
+            ? null
+            : 'Nhập dạng dd/MM/yyyy (vd: 11/08/2026)';
         return;
       }
       if (!_inRange(parsed)) {
@@ -211,9 +214,7 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
     if (_keyboardMode) {
       final parsed = _parseDateInput(_textCtrl.text);
       if (parsed == null) {
-        setState(
-          () => _inputError = 'Ngày không hợp lệ (vd: 11/08/2026)',
-        );
+        setState(() => _inputError = 'Ngày không hợp lệ (vd: 11/08/2026)');
         return;
       }
       if (!_inRange(parsed)) {
@@ -229,8 +230,11 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
   List<DateTime?> _daysInGrid() {
     final first = DateTime(_visibleMonth.year, _visibleMonth.month, 1);
     final lead = first.weekday - 1;
-    final daysInMonth =
-        DateTime(_visibleMonth.year, _visibleMonth.month + 1, 0).day;
+    final daysInMonth = DateTime(
+      _visibleMonth.year,
+      _visibleMonth.month + 1,
+      0,
+    ).day;
     final cells = <DateTime?>[];
     for (var i = 0; i < lead; i++) {
       cells.add(null);
@@ -244,10 +248,29 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
     return cells;
   }
 
+  static const _weekdayNames = [
+    'Thứ Hai',
+    'Thứ Ba',
+    'Thứ Tư',
+    'Thứ Năm',
+    'Thứ Sáu',
+    'Thứ Bảy',
+    'Chủ nhật',
+  ];
+
   @override
   Widget build(BuildContext context) {
     final today = _dateOnly(DateTime.now());
     final cells = _daysInGrid();
+    final canPrev = DateTime(
+      _visibleMonth.year,
+      _visibleMonth.month,
+    ).isAfter(DateTime(widget.firstDate.year, widget.firstDate.month));
+    final canNext = DateTime(
+      _visibleMonth.year,
+      _visibleMonth.month,
+    ).isBefore(DateTime(widget.lastDate.year, widget.lastDate.month));
+    final isToday = _selected == today;
 
     return SafeArea(
       top: false,
@@ -262,63 +285,90 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ── Đầu sheet: ngày đang chọn ─────────────────────────────────
             Row(
               children: [
+                const TintedIconTile(
+                  icon: Icons.event_rounded,
+                  color: AppColors.primary,
+                  size: 40,
+                ),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.title,
-                        style: AppTypography.style(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textSecondary,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      GestureDetector(
-                        onTap: _keyboardMode ? null : _toggleMode,
-                        child: Text(
-                          AppFormat.longDateVi(_selected),
-                          style: AppTypography.style(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.textPrimary,
-                            height: 1.2,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _keyboardMode ? null : _toggleMode,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title.toUpperCase(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.uppercase(
+                            fontSize: 9.5,
+                            letterSpacing: 0.7,
+                            color: AppColors.primary,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 3),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              _fmtDateInput(_selected),
+                              style: AppTypography.metric(
+                                fontSize: 20,
+                                color: AppColors.textPrimary,
+                                height: 1.1,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Padding(
+                                padding: const EdgeInsets.only(bottom: 1),
+                                child: Text(
+                                  isToday
+                                      ? '${_weekdayNames[_selected.weekday - 1]} · hôm nay'
+                                      : _weekdayNames[_selected.weekday - 1],
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.style(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                if (_inRange(today))
-                  TextButton(
-                    onPressed: _goToday,
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: AppColors.primary,
-                    ),
-                    child: const Text('Hôm nay'),
+                const SizedBox(width: 8),
+                if (_inRange(today) && !isToday) ...[
+                  _PillButton(
+                    icon: Icons.today_rounded,
+                    label: 'Hôm nay',
+                    onTap: _goToday,
                   ),
-                IconButton(
-                  tooltip:
-                      _keyboardMode ? 'Chọn trên lịch' : 'Nhập từ bàn phím',
-                  onPressed: _toggleMode,
-                  style: IconButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.08),
-                  ),
-                  icon: Icon(
-                    _keyboardMode
-                        ? Icons.calendar_month_rounded
-                        : Icons.keyboard_rounded,
-                  ),
+                  const SizedBox(width: 6),
+                ],
+                _RoundButton(
+                  icon: _keyboardMode
+                      ? Icons.calendar_month_rounded
+                      : Icons.keyboard_rounded,
+                  tooltip: _keyboardMode
+                      ? 'Chọn trên lịch'
+                      : 'Nhập từ bàn phím',
+                  active: _keyboardMode,
+                  onTap: _toggleMode,
                 ),
               ],
             ),
-            const SizedBox(height: AppSpacing.sm),
+            const SizedBox(height: 14),
             if (_keyboardMode) ...[
               TextField(
                 controller: _textCtrl,
@@ -326,11 +376,9 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
                 autofocus: true,
                 keyboardType: TextInputType.datetime,
                 textInputAction: TextInputAction.done,
-                style: AppTypography.style(
+                style: AppTypography.metric(
                   fontSize: 22,
-                  fontWeight: FontWeight.w800,
                   color: AppColors.primaryDark,
-                  letterSpacing: 0.6,
                 ),
                 decoration: InputDecoration(
                   labelText: 'Nhập ngày',
@@ -340,6 +388,18 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
                   prefixIcon: const Icon(Icons.edit_calendar_rounded),
                   filled: true,
                   fillColor: AppColors.surfaceAlt,
+                  border: OutlineInputBorder(borderRadius: AppRadius.brControl),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: AppRadius.brControl,
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: AppRadius.brControl,
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
+                    ),
+                  ),
                 ),
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9/\-.]')),
@@ -362,11 +422,12 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
                   ? const SizedBox.shrink(key: ValueKey('kb-cal'))
                   : Container(
                       key: const ValueKey('cal'),
-                      padding: const EdgeInsets.fromLTRB(8, 10, 8, 12),
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
                       decoration: BoxDecoration(
-                        color: AppColors.surfaceAlt,
+                        color: AppColors.surface,
                         borderRadius: AppRadius.brCard,
                         border: Border.all(color: AppColors.borderSoft),
+                        boxShadow: AppShadows.soft,
                       ),
                       child: Column(
                         children: [
@@ -374,15 +435,7 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
                             children: [
                               _NavIcon(
                                 icon: Icons.chevron_left_rounded,
-                                enabled: DateTime(
-                                  _visibleMonth.year,
-                                  _visibleMonth.month,
-                                ).isAfter(
-                                  DateTime(
-                                    widget.firstDate.year,
-                                    widget.firstDate.month,
-                                  ),
-                                ),
+                                enabled: canPrev,
                                 onTap: () => _shiftMonth(-1),
                               ),
                               Expanded(
@@ -392,72 +445,65 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
                                   style: AppTypography.style(
                                     fontSize: 15,
                                     fontWeight: FontWeight.w800,
-                                    color: AppColors.primaryDark,
+                                    height: AppTypography.uppercaseHeight,
+                                    color: AppColors.textPrimary,
                                   ),
                                 ),
                               ),
                               _NavIcon(
                                 icon: Icons.chevron_right_rounded,
-                                enabled: DateTime(
-                                  _visibleMonth.year,
-                                  _visibleMonth.month,
-                                ).isBefore(
-                                  DateTime(
-                                    widget.lastDate.year,
-                                    widget.lastDate.month,
-                                  ),
-                                ),
+                                enabled: canNext,
                                 onTap: () => _shiftMonth(1),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Row(
                             children: [
-                              for (final w in _weekdays)
+                              for (final (i, w) in _weekdays.indexed)
                                 Expanded(
                                   child: Text(
                                     w,
                                     textAlign: TextAlign.center,
-                                    style: AppTypography.style(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.textTertiary,
+                                    style: AppTypography.uppercase(
+                                      fontSize: 10,
+                                      letterSpacing: 0.3,
+                                      color: i >= 5
+                                          ? AppColors.errorDark.withValues(
+                                              alpha: 0.7,
+                                            )
+                                          : AppColors.textTertiary,
                                     ),
                                   ),
                                 ),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 6),
                           for (var row = 0; row < cells.length / 7; row++)
                             Padding(
-                              padding: const EdgeInsets.only(top: 2),
+                              padding: const EdgeInsets.only(top: 3),
                               child: Row(
                                 children: [
                                   for (var col = 0; col < 7; col++)
                                     Expanded(
                                       child: _DayCell(
                                         date: cells[row * 7 + col],
-                                        selected: cells[row * 7 + col] !=
-                                                null &&
-                                            _dateOnly(
-                                                  cells[row * 7 + col]!,
-                                                ) ==
+                                        weekend: col >= 5,
+                                        selected:
+                                            cells[row * 7 + col] != null &&
+                                            _dateOnly(cells[row * 7 + col]!) ==
                                                 _selected,
-                                        isToday: cells[row * 7 + col] !=
-                                                null &&
-                                            _dateOnly(
-                                                  cells[row * 7 + col]!,
-                                                ) ==
+                                        isToday:
+                                            cells[row * 7 + col] != null &&
+                                            _dateOnly(cells[row * 7 + col]!) ==
                                                 today,
-                                        enabled: cells[row * 7 + col] !=
-                                                null &&
+                                        enabled:
+                                            cells[row * 7 + col] != null &&
                                             _inRange(cells[row * 7 + col]!),
                                         onTap: cells[row * 7 + col] == null
                                             ? null
                                             : () {
-                                                final d =
-                                                    cells[row * 7 + col]!;
+                                                final d = cells[row * 7 + col]!;
                                                 if (!_inRange(d)) return;
                                                 HapticFeedback.selectionClick();
                                                 _selectDate(d);
@@ -475,27 +521,121 @@ class _AppDatePickerSheetState extends State<_AppDatePickerSheet> {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
+                  flex: 2,
+                  child: AppActionButton(
+                    variant: AppActionVariant.outlineNeutral,
+                    label: widget.cancelLabel,
                     onPressed: () => Navigator.of(context).pop(),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(46),
-                    ),
-                    child: Text(widget.cancelLabel),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: AppSpacing.sm),
                 Expanded(
-                  child: FilledButton(
+                  flex: 3,
+                  child: AppActionButton(
+                    variant: AppActionVariant.primary,
+                    icon: Icons.check_rounded,
+                    label: widget.confirmLabel,
                     onPressed: _confirm,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(46),
-                    ),
-                    child: Text(widget.confirmLabel),
                   ),
                 ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Viên nút nhỏ viền mảnh ("Hôm nay").
+class _PillButton extends StatelessWidget {
+  const _PillButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      type: MaterialType.transparency,
+      shape: RoundedRectangleBorder(
+        borderRadius: AppRadius.brPill,
+        side: BorderSide(color: AppColors.primary.withValues(alpha: 0.25)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        color: AppColors.surface,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 7, 11, 7),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 15, color: AppColors.primary),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: AppTypography.style(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    height: AppTypography.uppercaseHeight,
+                    color: AppColors.primaryDark,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Nút tròn đổi chế độ lịch / bàn phím.
+class _RoundButton extends StatelessWidget {
+  const _RoundButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.active = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: active ? AppColors.primary : AppColors.surface,
+        shape: CircleBorder(
+          side: BorderSide(
+            color: active
+                ? AppColors.primary
+                : AppColors.primary.withValues(alpha: 0.25),
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            width: 38,
+            height: 38,
+            child: Icon(
+              icon,
+              size: 19,
+              color: active ? Colors.white : AppColors.primary,
+            ),
+          ),
         ),
       ),
     );
@@ -516,18 +656,24 @@ class _NavIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.transparent,
-      shape: const CircleBorder(),
+      color: enabled ? AppColors.surfaceAlt : Colors.transparent,
+      shape: CircleBorder(
+        side: BorderSide(
+          color: enabled ? AppColors.borderSoft : Colors.transparent,
+        ),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: enabled ? onTap : null,
-        customBorder: const CircleBorder(),
         child: SizedBox(
-          width: 40,
-          height: 40,
+          width: 36,
+          height: 36,
           child: Icon(
             icon,
-            color: enabled ? AppColors.primary : AppColors.textTertiary,
+            size: 22,
+            color: enabled
+                ? AppColors.primaryDark
+                : AppColors.textTertiary.withValues(alpha: 0.5),
           ),
         ),
       ),
@@ -535,6 +681,9 @@ class _NavIcon extends StatelessWidget {
   }
 }
 
+/// Ô ngày kiểu lịch hiện đại: ngày chọn = hình tròn gradient brand có quầng
+/// sáng; hôm nay = số teal đậm + chấm nhỏ (không khung); cuối tuần = số đỏ
+/// nhạt; ngoài khoảng cho phép = mờ.
 class _DayCell extends StatelessWidget {
   const _DayCell({
     required this.date,
@@ -542,58 +691,92 @@ class _DayCell extends StatelessWidget {
     required this.isToday,
     required this.enabled,
     required this.onTap,
+    this.weekend = false,
   });
 
   final DateTime? date;
   final bool selected;
   final bool isToday;
   final bool enabled;
+  final bool weekend;
   final VoidCallback? onTap;
+
+  static const double _size = 40;
 
   @override
   Widget build(BuildContext context) {
-    if (date == null) {
-      return const SizedBox(height: 40);
-    }
+    if (date == null) return const SizedBox(height: _size);
 
-    final fg = !enabled
+    final Color fg = !enabled
         ? AppColors.textTertiary.withValues(alpha: 0.35)
         : selected
-            ? Colors.white
-            : AppColors.textPrimary;
+        ? Colors.white
+        : isToday
+        ? AppColors.primary
+        : weekend
+        ? AppColors.errorDark.withValues(alpha: 0.8)
+        : AppColors.textPrimary;
 
     return Center(
       child: Material(
-        color: selected
-            ? AppColors.primary
-            : isToday
-                ? AppColors.primary.withValues(alpha: 0.1)
-                : Colors.transparent,
+        type: MaterialType.transparency,
         shape: const CircleBorder(),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: enabled ? onTap : null,
           customBorder: const CircleBorder(),
-          child: Ink(
-            width: 36,
-            height: 36,
+          child: AnimatedContainer(
+            duration: AppDurations.fast,
+            curve: Curves.easeOutCubic,
+            width: _size,
+            height: _size,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: isToday && !selected
-                  ? Border.all(color: AppColors.primary.withValues(alpha: 0.45))
+              gradient: selected
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.appBarMid, AppColors.primaryDark],
+                    )
+                  : null,
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: AppColors.primary.withValues(alpha: 0.35),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ]
                   : null,
             ),
-            child: Center(
-              child: Text(
-                '${date!.day}',
-                style: AppTypography.style(
-                  fontSize: 13.5,
-                  fontWeight: selected || isToday
-                      ? FontWeight.w800
-                      : FontWeight.w600,
-                  color: fg,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Text(
+                  '${date!.day}',
+                  style: AppTypography.metric(
+                    fontSize: 14.5,
+                    color: fg,
+                    fontWeight: selected || isToday
+                        ? FontWeight.w700
+                        : FontWeight.w600,
+                  ),
                 ),
-              ),
+                if (isToday)
+                  Positioned(
+                    bottom: 5,
+                    child: Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AppColors.secondaryLight
+                            : AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),

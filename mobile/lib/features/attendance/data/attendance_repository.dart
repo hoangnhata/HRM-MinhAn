@@ -14,7 +14,7 @@ class AttendanceRepository {
   }) async {
     final response = await _client.get<Map<String, dynamic>>(
       '/v1/attendance/report/matrix',
-      query: {'year': year, 'month': month, ?'departmentId': departmentId},
+      query: {'year': year, 'month': month, 'departmentId': ?departmentId},
     );
     return AttendanceMonthMatrix.fromJson(response.data ?? const {});
   }
@@ -388,6 +388,10 @@ class AttendanceRepository {
     String? comment,
     bool? waiveForgotFine,
     bool? keepOriginalPunchTimes,
+    String? requestedStart,
+    String? requestedEnd,
+    String? requestedAfternoonStart,
+    String? requestedAfternoonEnd,
   }) async {
     await _client.post(
       '/v1/attendance/requests/$id/$endpointSlug',
@@ -396,6 +400,10 @@ class AttendanceRepository {
         if (comment != null && comment.isNotEmpty) 'comment': comment,
         'waiveForgotFine': ?waiveForgotFine,
         'keepOriginalPunchTimes': ?keepOriginalPunchTimes,
+        'requestedStart': ?requestedStart,
+        'requestedEnd': ?requestedEnd,
+        'requestedAfternoonStart': ?requestedAfternoonStart,
+        'requestedAfternoonEnd': ?requestedAfternoonEnd,
       },
     );
   }

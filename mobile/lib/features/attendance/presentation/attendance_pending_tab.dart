@@ -6,11 +6,11 @@ import 'package:go_router/go_router.dart';
 import '../../../core/router/route_paths.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
-import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/app_month_picker.dart';
 import '../../../core/widgets/history_month_bar.dart';
 import '../../../core/widgets/app_segmented_control.dart';
+import '../../../core/widgets/bulk_selection_bar.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/highlight_pulse.dart';
 import '../../../core/widgets/notice_banner.dart';
@@ -350,7 +350,7 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
               AppSpacing.page,
               8,
             ),
-            child: _BulkActionBar(
+            child: BulkSelectionBar(
               count: _selected.length,
               busy: _bulkBusy,
               totalSelectable: filtered.length,
@@ -487,225 +487,6 @@ class _AttendancePendingTabState extends ConsumerState<AttendancePendingTab> {
                 ),
         ),
       ],
-    );
-  }
-}
-
-class _BulkActionBar extends StatelessWidget {
-  const _BulkActionBar({
-    required this.count,
-    required this.busy,
-    required this.totalSelectable,
-    required this.onSelectAll,
-    required this.onClear,
-    required this.onApprove,
-    required this.onReject,
-  });
-
-  final int count;
-  final bool busy;
-  final int totalSelectable;
-  final VoidCallback onSelectAll;
-  final VoidCallback onClear;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
-
-  @override
-  Widget build(BuildContext context) {
-    final allSelected = count >= totalSelectable && totalSelectable > 0;
-
-    return Material(
-      color: AppColors.surface,
-      elevation: 8,
-      shadowColor: Colors.black.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(18),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.12),
-                    borderRadius: AppRadius.brPill,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 18,
-                        height: 18,
-                        decoration: const BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          '$count',
-                          style: AppTypography.style(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            tabular: true,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 7),
-                      Text(
-                        'đã chọn',
-                        style: AppTypography.style(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.primaryDark,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                _BulkLink(
-                  label: allSelected
-                      ? 'Đã chọn hết'
-                      : 'Tất cả ($totalSelectable)',
-                  enabled: !busy && !allSelected,
-                  onTap: onSelectAll,
-                ),
-                const SizedBox(width: 4),
-                Container(
-                  width: 1,
-                  height: 12,
-                  color: AppColors.border.withValues(alpha: 0.7),
-                ),
-                const SizedBox(width: 4),
-                _BulkLink(label: 'Bỏ chọn', enabled: !busy, onTap: onClear),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Material(
-                    color: AppColors.error.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    child: InkWell(
-                      onTap: busy ? null : onReject,
-                      borderRadius: BorderRadius.circular(12),
-                      child: SizedBox(
-                        height: 46,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.close_rounded,
-                              size: 18,
-                              color: busy
-                                  ? AppColors.error.withValues(alpha: 0.4)
-                                  : AppColors.error,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Từ chối',
-                              style: AppTypography.style(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                color: busy
-                                    ? AppColors.error.withValues(alpha: 0.4)
-                                    : AppColors.error,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Material(
-                    color: busy
-                        ? AppColors.primary.withValues(alpha: 0.55)
-                        : AppColors.primary,
-                    borderRadius: BorderRadius.circular(12),
-                    child: InkWell(
-                      onTap: busy ? null : onApprove,
-                      borderRadius: BorderRadius.circular(12),
-                      child: SizedBox(
-                        height: 46,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            if (busy)
-                              const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            else
-                              const Icon(
-                                Icons.check_rounded,
-                                size: 18,
-                                color: Colors.white,
-                              ),
-                            const SizedBox(width: 6),
-                            Text(
-                              busy ? 'Đang xử lý…' : 'Duyệt',
-                              style: AppTypography.style(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BulkLink extends StatelessWidget {
-  const _BulkLink({
-    required this.label,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Text(
-          label,
-          style: AppTypography.style(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w700,
-            color: enabled ? AppColors.primaryDark : AppColors.textTertiary,
-          ),
-        ),
-      ),
     );
   }
 }

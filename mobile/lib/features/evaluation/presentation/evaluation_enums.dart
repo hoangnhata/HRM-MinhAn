@@ -59,11 +59,7 @@ class EvaluationEnums {
       ['PENDING_NURSING_HEAD', 'NURSING_HEAD_REJECTED'],
     ),
     ('HR', 'HCNS', ['PENDING_HR', 'HR_REJECTED']),
-    (
-      'DIRECTOR',
-      'Giám đốc',
-      ['PENDING_DIRECTOR', 'DIRECTOR_REJECTED'],
-    ),
+    ('DIRECTOR', 'Giám đốc', ['PENDING_DIRECTOR', 'DIRECTOR_REJECTED']),
     ('APPROVED', 'Đã duyệt', ['APPROVED']),
     ('CANCELLED', 'Đã thu hồi', ['CANCELLED']),
   ];

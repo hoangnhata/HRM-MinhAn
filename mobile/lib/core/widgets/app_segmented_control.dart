@@ -74,6 +74,30 @@ class AppSegmentedControl extends StatelessWidget {
 
   bool get _brand => style == AppSegmentStyle.brand;
 
+  static const LinearGradient _softTrack = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xFFDDE8E6), Color(0xFFE9F1F0)],
+  );
+
+  static const List<BoxShadow> _softTrackHighlight = [
+    BoxShadow(color: Color(0xCCFFFFFF), offset: Offset(0, 1)),
+  ];
+
+  /// Con trượt trắng nổi bằng bóng hai lớp (mềm + sắc mép) thay cho viền.
+  static List<BoxShadow> get _softThumbShadow => [
+    BoxShadow(
+      color: AppColors.textPrimary.withValues(alpha: 0.10),
+      blurRadius: 8,
+      offset: const Offset(0, 2),
+    ),
+    BoxShadow(
+      color: AppColors.textPrimary.withValues(alpha: 0.06),
+      blurRadius: 1,
+      offset: const Offset(0, 1),
+    ),
+  ];
+
   double get _height => _brand ? (dense ? 40 : 44) : (dense ? 38 : 42);
 
   double get _trackPad => _brand ? 4 : 3;
@@ -96,11 +120,11 @@ class AppSegmentedControl extends StatelessWidget {
     final Widget control;
     if (!expand) {
       control = Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceMuted,
+        padding: const EdgeInsets.all(3),
+        decoration: const BoxDecoration(
+          gradient: _softTrack,
           borderRadius: AppRadius.brPill,
-          border: Border.all(color: AppColors.borderSoft),
+          boxShadow: _softTrackHighlight,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -127,11 +151,10 @@ class AppSegmentedControl extends StatelessWidget {
         height: _height,
         padding: EdgeInsets.all(_trackPad),
         decoration: BoxDecoration(
-          color: AppColors.surfaceMuted,
+          color: _brand ? AppColors.surfaceMuted : null,
+          gradient: _brand ? null : _softTrack,
           borderRadius: _trackRadius,
-          border: _brand
-              ? null
-              : Border.all(color: AppColors.borderSoft.withValues(alpha: 0.9)),
+          boxShadow: _brand ? null : _softTrackHighlight,
         ),
         child: Stack(
           children: [
@@ -147,14 +170,9 @@ class AppSegmentedControl extends StatelessWidget {
                     color: _brand ? null : AppColors.surface,
                     gradient: _brand ? AppGradients.brandSoft : null,
                     borderRadius: _itemRadius,
-                    border: _brand
-                        ? null
-                        : Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.22),
-                          ),
                     boxShadow: _brand
                         ? AppShadows.tinted(AppColors.primary)
-                        : AppShadows.soft,
+                        : _softThumbShadow,
                   ),
                 ),
               ),
@@ -317,7 +335,7 @@ class _CompactTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? AppColors.surface : Colors.transparent,
           borderRadius: AppRadius.brPill,
-          boxShadow: selected ? AppShadows.soft : null,
+          boxShadow: selected ? AppSegmentedControl._softThumbShadow : null,
         ),
         child: Material(
           color: Colors.transparent,
@@ -396,9 +414,9 @@ class _CountBadge extends StatelessWidget {
       foreground = Colors.white;
       border = Colors.transparent;
     } else {
-      background = AppColors.surface;
-      foreground = AppColors.textPrimary;
-      border = AppColors.border;
+      background = Colors.white.withValues(alpha: 0.7);
+      foreground = AppColors.textSecondary;
+      border = Colors.transparent;
     }
 
     return AnimatedContainer(
@@ -406,9 +424,19 @@ class _CountBadge extends StatelessWidget {
       constraints: const BoxConstraints(minWidth: 22),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: background,
+        color: !brand && selected ? null : background,
+        gradient: !brand && selected ? AppGradients.brand : null,
         borderRadius: AppRadius.brPill,
         border: Border.all(color: border),
+        boxShadow: !brand && selected
+            ? [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.3),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ]
+            : null,
       ),
       child: Text(
         '$count',

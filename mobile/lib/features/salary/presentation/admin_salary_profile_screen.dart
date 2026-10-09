@@ -227,6 +227,7 @@ class _AdminSalaryProfileScreenState
   Future<void> _addEarlyRaise() async {
     final result = await showModalBottomSheet<(DateTime, num)>(
       context: context,
+      showDragHandle: false,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => const _EarlyRaiseSheet(),
@@ -1095,12 +1096,9 @@ class _MetricTile extends StatelessWidget {
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppTypography.style(
+            style: AppTypography.metric(
               fontSize: 16,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.2,
               color: muted ? AppColors.textTertiary : AppColors.textPrimary,
-              tabular: true,
             ),
           ),
         ],

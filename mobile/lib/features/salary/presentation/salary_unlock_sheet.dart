@@ -18,6 +18,7 @@ Future<bool> ensureSalaryUnlocked(BuildContext context, WidgetRef ref) async {
 Future<bool?> showSalaryUnlockSheet(BuildContext context, WidgetRef ref) {
   return showModalBottomSheet<bool>(
     context: context,
+    showDragHandle: false,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,

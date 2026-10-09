@@ -26,8 +26,15 @@ final _timeRe = RegExp(r'(\d{1,2}:\d{2}\s*[–\-—]\s*\d{1,2}:\d{2})');
 final _breakdownRe = RegExp(r'\(([^)]*sáng[^)]*)\)', caseSensitive: false);
 final _coeffRe = RegExp(r'×\s*([\d.,]+)');
 
+/// Mốc giờ Quang Trung lưu trong ghi chú cho máy xử lý — không hiển thị cho người dùng.
+final _quangTrungTimesRe = RegExp(r'\s*\[QT:[A-Z_]+=[0-9:,]*\]');
+
+/// Ghi chú ngày công đã bỏ các mốc kỹ thuật (hiển thị dạng văn bản thô).
+String stripAttendanceNoteMarkers(String note) =>
+    note.replaceAll(_quangTrungTimesRe, '').trim();
+
 List<ParsedAttendanceNote> parseAttendanceNotes(String? note) {
-  final raw = note?.trim();
+  final raw = note == null ? null : stripAttendanceNoteMarkers(note);
   if (raw == null || raw.isEmpty) return const [];
   return raw
       .split(';')

@@ -24,9 +24,14 @@ class GenericRequestRepository {
     RequestTypeConfig config,
     RequestReviewStage stage,
   ) async {
-    final response = await _client.get<List<dynamic>>(
-      _url(config, stage.pendingPath),
-    );
+    return pendingByPath(config, stage.pendingPath);
+  }
+
+  Future<List<Map<String, dynamic>>> pendingByPath(
+    RequestTypeConfig config,
+    String path,
+  ) async {
+    final response = await _client.get<List<dynamic>>(_url(config, path));
     return (response.data ?? []).cast<Map<String, dynamic>>();
   }
 

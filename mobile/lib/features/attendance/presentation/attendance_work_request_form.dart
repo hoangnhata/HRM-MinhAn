@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/user_role.dart';
 import '../../../core/widgets/app_ambient_background.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_date_picker.dart';
@@ -70,8 +71,18 @@ class _AttendanceWorkRequestFormState
   bool get _needsAfternoonTimes =>
       _isUpdate && (_isFullDayUpdate || _updateKind == 'AFTERNOON_SUPPLEMENT');
 
-  int get _forgotUnits =>
-      WorkRequestDayLogic.forgotUnitsForChoice(_updateKind, _updateScenario);
+  /// Ca thông tầm / phân quyền công chỉ có 2 mốc chấm (vào đầu ngày, ra cuối ngày)
+  /// → số lần quên chấm tối đa là 2, không phải 4.
+  bool get _twoSlotDay {
+    final sch = _schedule;
+    return sch != null && (sch.isContinuousDay || (sch.twoPunchAttendance && !sch.isSplitDay));
+  }
+
+  int get _forgotUnits {
+    final units =
+        WorkRequestDayLogic.forgotUnitsForChoice(_updateKind, _updateScenario);
+    return _twoSlotDay && units > 2 ? 2 : units;
+  }
 
   @override
   void initState() {
@@ -138,7 +149,16 @@ class _AttendanceWorkRequestFormState
       final schedule = results[0] as DayShiftSchedule;
       final days = results[1] as List<AttendanceDay>;
       final day = days.isEmpty ? null : days.first;
-      final scenario = WorkRequestDayLogic.detectUpdate(day);
+      final twoPunch = schedule.twoPunchAttendance && !schedule.isContinuousDay && !schedule.isSplitDay;
+      final twoSlot = twoPunch || schedule.isContinuousDay;
+      final scenario = twoSlot
+          ? WorkRequestDayLogic.detectTwoSlot(
+              day,
+              twoPunch: twoPunch,
+              morningStart: schedule.morningStart,
+              afternoonEnd: schedule.afternoonEnd,
+            )
+          : WorkRequestDayLogic.detectUpdate(day);
       final slots = WorkRequestDayLogic.detectExplanationSlots(
         day: day,
         schedule: schedule,
@@ -295,11 +315,14 @@ class _AttendanceWorkRequestFormState
       }
     }
     if (_isUpdate) {
-      if (_needsMorningTimes &&
+      if (_twoSlotDay) {
+        if (_morningStart == null || _afternoonEnd == null) {
+          return 'Vui lòng nhập giờ vào sáng và giờ ra chiều';
+        }
+      } else if (_needsMorningTimes &&
           (_morningStart == null || _morningEnd == null)) {
         return 'Vui lòng nhập giờ bắt đầu và kết thúc ca sáng';
-      }
-      if (_needsAfternoonTimes &&
+      } else if (_needsAfternoonTimes &&
           (_afternoonStart == null || _afternoonEnd == null)) {
         return 'Vui lòng nhập giờ bắt đầu và kết thúc ca chiều';
       }
@@ -347,7 +370,11 @@ class _AttendanceWorkRequestFormState
       payload['updateKind'] = _updateKind;
       payload['shiftScope'] =
           WorkRequestDayLogic.shiftScopeFromUpdateKind(_updateKind);
-      if (_isFullDayUpdate) {
+      if (_twoSlotDay && _isFullDayUpdate) {
+        payload['requestedStart'] = _fmtTime(_morningStart);
+        payload['requestedEnd'] = _fmtTime(_afternoonEnd);
+        payload['requestedAfternoonEnd'] = _fmtTime(_afternoonEnd);
+      } else if (_isFullDayUpdate) {
         payload['requestedStart'] = _fmtTime(_morningStart);
         payload['requestedEnd'] = _fmtTime(_morningEnd);
         payload['requestedAfternoonStart'] = _fmtTime(_afternoonStart);
@@ -486,7 +513,12 @@ class _AttendanceWorkRequestFormState
                     AppSpacing.md,
                   ),
                   children: [
-                    _WorkFlowStrip(isExplanation: _isExplanation),
+                    _WorkFlowStrip(
+                      isExplanation: _isExplanation,
+                      steps: _WorkFlowStrip.stepsFor(
+                        ref.read(authControllerProvider).currentUser?.role,
+                      ),
+                    ),
                     const SizedBox(height: AppSpacing.sm),
                     if (_validationMessage != null) ...[
                       NoticeBanner.error(
@@ -704,6 +736,7 @@ class _AttendanceWorkRequestFormState
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       _RequestedTimesCard(
+                        twoSlot: _twoSlotDay,
                         needsMorning: _needsMorningTimes,
                         needsAfternoon: _needsAfternoonTimes,
                         morningStart: _morningStart,
@@ -714,7 +747,7 @@ class _AttendanceWorkRequestFormState
                         onPickMorningStart: () async {
                           final t = await _pickTime(
                             _morningStart,
-                            'Vào ca sáng',
+                            _twoSlotDay ? 'Giờ vào sáng' : 'Vào ca sáng',
                             subtitle: 'Khung giờ đề nghị bổ sung',
                             suggested: _morningStart,
                           );
@@ -747,7 +780,7 @@ class _AttendanceWorkRequestFormState
                         onPickAfternoonEnd: () async {
                           final t = await _pickTime(
                             _afternoonEnd,
-                            'Ra ca chiều',
+                            _twoSlotDay ? 'Giờ ra chiều' : 'Ra ca chiều',
                             subtitle: 'Khung giờ đề nghị bổ sung',
                             suggested: _afternoonEnd,
                           );
@@ -1165,7 +1198,7 @@ class _UpdateKindCard extends StatelessWidget {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  '${opt.label} · trừ $units lần quên chấm',
+                                  '${(scenario?.twoPunch == true && opt.value == 'FULL_DAY_SUPPLEMENT') ? 'Bổ sung vào sáng / ra chiều' : (scenario?.continuous == true && opt.value == 'FULL_DAY_SUPPLEMENT') ? 'Bổ sung vào / ra' : opt.label} · trừ $units lần quên chấm',
                                   style: AppTypography.style(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
@@ -1193,6 +1226,7 @@ class _UpdateKindCard extends StatelessWidget {
 
 class _RequestedTimesCard extends StatelessWidget {
   const _RequestedTimesCard({
+    this.twoSlot = false,
     required this.needsMorning,
     required this.needsAfternoon,
     required this.morningStart,
@@ -1206,6 +1240,7 @@ class _RequestedTimesCard extends StatelessWidget {
     required this.onPickAfternoonEnd,
   });
 
+  final bool twoSlot;
   final bool needsMorning;
   final bool needsAfternoon;
   final TimeOfDay? morningStart;
@@ -1241,7 +1276,48 @@ class _RequestedTimesCard extends StatelessWidget {
               height: 1.35,
             ),
           ),
-          if (needsMorning) ...[
+          if (twoSlot) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Vào sáng / ra chiều',
+              style: AppTypography.style(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primaryDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _TapField(
+                    label: 'Giờ vào sáng',
+                    value: morningStart == null
+                        ? 'Chọn'
+                        : _formatTimeOfDay(morningStart!),
+                    icon: Icons.login_rounded,
+                    onTap: onPickMorningStart,
+                    placeholder: morningStart == null,
+                    compact: true,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _TapField(
+                    label: 'Giờ ra chiều',
+                    value: afternoonEnd == null
+                        ? 'Chọn'
+                        : _formatTimeOfDay(afternoonEnd!),
+                    icon: Icons.logout_rounded,
+                    onTap: onPickAfternoonEnd,
+                    placeholder: afternoonEnd == null,
+                    compact: true,
+                  ),
+                ),
+              ],
+            ),
+          ] else if (needsMorning) ...[
             const SizedBox(height: 12),
             Text(
               'Ca sáng',
@@ -1283,7 +1359,7 @@ class _RequestedTimesCard extends StatelessWidget {
               ],
             ),
           ],
-          if (needsAfternoon) ...[
+          if (!twoSlot && needsAfternoon) ...[
             const SizedBox(height: 12),
             Text(
               'Ca chiều',
@@ -1532,32 +1608,43 @@ class _TapField extends StatelessWidget {
 }
 
 class _WorkFlowStrip extends StatefulWidget {
-  const _WorkFlowStrip({required this.isExplanation});
+  const _WorkFlowStrip({required this.isExplanation, required this.steps});
 
   final bool isExplanation;
+  final List<(IconData, String, String)> steps;
 
-  static const _steps = [
-    (
-      Icons.send_rounded,
-      'Gửi đơn',
-      'Nhân viên',
-    ),
-    (
-      Icons.supervisor_account_rounded,
-      'Lãnh đạo duyệt',
-      'Trưởng khoa / ĐD trưởng',
-    ),
-    (
-      Icons.apartment_rounded,
-      'HCNS duyệt',
-      'Hành chính nhân sự',
-    ),
-    (
-      Icons.verified_rounded,
-      'Giám đốc duyệt',
-      'Quyết định trừ tiền',
-    ),
-  ];
+  /// Bỏ bước duyệt mà chính người gửi đơn là người duyệt (không tự duyệt đơn của mình).
+  static List<(IconData, String, String)> stepsFor(UserRole? role) {
+    // Trưởng phòng Điều dưỡng lập đơn: bỏ bước lãnh đạo — chỉ HCNS → Giám đốc.
+    final isHead = role == UserRole.headDepartment ||
+        role == UserRole.headHr ||
+        role == UserRole.headNursing;
+    final isHr = role == UserRole.hr2 || role == UserRole.headHr;
+    return [
+      (
+        Icons.send_rounded,
+        'Gửi đơn',
+        'Nhân viên',
+      ),
+      if (!isHead)
+        (
+          Icons.supervisor_account_rounded,
+          'Lãnh đạo duyệt',
+          'Trưởng khoa / ĐD trưởng',
+        ),
+      if (!isHr)
+        (
+          Icons.apartment_rounded,
+          'HCNS duyệt',
+          'Hành chính nhân sự',
+        ),
+      (
+        Icons.verified_rounded,
+        'Giám đốc duyệt',
+        'Quyết định trừ tiền',
+      ),
+    ];
+  }
 
   @override
   State<_WorkFlowStrip> createState() => _WorkFlowStripState();
@@ -1570,7 +1657,8 @@ class _WorkFlowStripState extends State<_WorkFlowStrip> {
 
   @override
   Widget build(BuildContext context) {
-    final current = _WorkFlowStrip._steps.first;
+    final steps = widget.steps;
+    final current = steps.first;
     final hint = widget.isExplanation
         ? 'Giải trình muộn/sớm · trừ tiền nếu duyệt'
         : 'Cập nhật quên chấm · trừ tiền nếu duyệt';
@@ -1619,8 +1707,8 @@ class _WorkFlowStripState extends State<_WorkFlowStrip> {
                             duration: AppDurations.fast,
                             child: Text(
                               _expanded
-                                  ? '4 bước · $hint'
-                                  : 'Bước 1/4 · ${current.$2}',
+                                  ? '${steps.length} bước · $hint'
+                                  : 'Bước 1/${steps.length} · ${current.$2}',
                               key: ValueKey('${_expanded}_$hint'),
                               style: AppTypography.style(
                                 fontSize: 11.5,
@@ -1645,7 +1733,7 @@ class _WorkFlowStripState extends State<_WorkFlowStrip> {
                         ),
                       ),
                       child: Text(
-                        'Bước 1/4',
+                        'Bước 1/${steps.length}',
                         style: AppTypography.style(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
@@ -1689,13 +1777,13 @@ class _WorkFlowStripState extends State<_WorkFlowStrip> {
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
               child: Column(
                 children: [
-                  for (var i = 0; i < _WorkFlowStrip._steps.length; i++)
+                  for (var i = 0; i < steps.length; i++)
                     _WorkFlowStep(
-                      icon: _WorkFlowStrip._steps[i].$1,
-                      title: _WorkFlowStrip._steps[i].$2,
-                      subtitle: _WorkFlowStrip._steps[i].$3,
+                      icon: steps[i].$1,
+                      title: steps[i].$2,
+                      subtitle: steps[i].$3,
                       active: i == 0,
-                      isLast: i == _WorkFlowStrip._steps.length - 1,
+                      isLast: i == steps.length - 1,
                     ),
                 ],
               ),

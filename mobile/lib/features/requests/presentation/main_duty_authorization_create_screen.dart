@@ -25,6 +25,7 @@ import '../application/generic_request_controller.dart';
 import '../data/generic_request_repository.dart';
 import '../data/request_type_config.dart';
 import 'request_create_flow_strip.dart';
+import '../../../core/widgets/request_form_widgets.dart';
 
 /// Lập đơn chuyển trực chính — API đồng bộ web, bố cục tối ưu mobile.
 class MainDutyAuthorizationCreateScreen extends ConsumerStatefulWidget {
@@ -59,9 +60,9 @@ class _MainDutyAuthorizationCreateScreenState
   static const _accent = Color(0xFF5B4BB4);
 
   bool get _nursingFlow => isNursingBlockTitle(
-        _employee?.summary.positionTitle,
-        _employee?.summary.departmentName,
-      );
+    _employee?.summary.positionTitle,
+    _employee?.summary.departmentName,
+  );
 
   String get _formLabel {
     final p = (_employee?.summary.positionTitle ?? '').toLowerCase();
@@ -80,11 +81,11 @@ class _MainDutyAuthorizationCreateScreenState
   }
 
   List<RequestFlowStep> get _flowSteps => requestCreateFlowSteps(
-        mainDutyFlowLabels(
-          _employee?.summary.positionTitle,
-          _employee?.summary.departmentName,
-        ),
-      );
+    mainDutyFlowLabels(
+      _employee?.summary.positionTitle,
+      _employee?.summary.departmentName,
+    ),
+  );
 
   @override
   void initState() {
@@ -117,7 +118,9 @@ class _MainDutyAuthorizationCreateScreenState
           .detail(widget.employeeId);
       Map<String, dynamic>? existing;
       if (_isEdit) {
-        existing = await ref.read(genericRequestRepositoryProvider).byId(
+        existing = await ref
+            .read(genericRequestRepositoryProvider)
+            .byId(
               RequestTypeConfig.byKey('main-duty-authorization'),
               widget.requestId!,
             );
@@ -128,12 +131,15 @@ class _MainDutyAuthorizationCreateScreenState
       setState(() {
         _employee = emp;
         if (existing != null) {
-          _accompanyingFrom =
-              DateTime.tryParse(existing['accompanyingFrom']?.toString() ?? '');
-          _accompanyingTo =
-              DateTime.tryParse(existing['accompanyingTo']?.toString() ?? '');
-          _effectiveFrom =
-              DateTime.tryParse(existing['effectiveFrom']?.toString() ?? '');
+          _accompanyingFrom = DateTime.tryParse(
+            existing['accompanyingFrom']?.toString() ?? '',
+          );
+          _accompanyingTo = DateTime.tryParse(
+            existing['accompanyingTo']?.toString() ?? '',
+          );
+          _effectiveFrom = DateTime.tryParse(
+            existing['effectiveFrom']?.toString() ?? '',
+          );
           _reason.text = existing['reason']?.toString() ?? '';
         } else if (hire != null) {
           _accompanyingFrom = hire;
@@ -218,24 +224,19 @@ class _MainDutyAuthorizationCreateScreenState
       };
       final Map<String, dynamic> result;
       if (_isEdit) {
-        result = await ref.read(genericRequestRepositoryProvider).update(
-              config,
-              widget.requestId!,
-              body,
-            );
+        result = await ref
+            .read(genericRequestRepositoryProvider)
+            .update(config, widget.requestId!, body);
       } else {
-        result = await ref.read(genericRequestRepositoryProvider).create(
-              config,
-              body,
-            );
+        result = await ref
+            .read(genericRequestRepositoryProvider)
+            .create(config, body);
       }
       if (!mounted) return;
       ref.invalidate(
         genericRequestControllerProvider('main-duty-authorization'),
       );
-      final id = _isEdit
-          ? widget.requestId
-          : (result['id'] as num?)?.toInt();
+      final id = _isEdit ? widget.requestId : (result['id'] as num?)?.toInt();
       HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
@@ -337,7 +338,6 @@ class _MainDutyAuthorizationCreateScreenState
                       ),
                       const SizedBox(height: 12),
                       AppCard(
-                        accentColor: _accent,
                         padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
                         margin: EdgeInsets.zero,
                         child: Row(
@@ -394,7 +394,6 @@ class _MainDutyAuthorizationCreateScreenState
                       ),
                       const SizedBox(height: 12),
                       AppCard(
-                        accentColor: _accent,
                         padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
                         margin: EdgeInsets.zero,
                         child: Column(
@@ -410,7 +409,11 @@ class _MainDutyAuthorizationCreateScreenState
                             _FactGrid(
                               accent: _accent,
                               items: [
-                                (Icons.person_outline_rounded, 'Họ và tên', s.fullName),
+                                (
+                                  Icons.person_outline_rounded,
+                                  'Họ và tên',
+                                  s.fullName,
+                                ),
                                 (
                                   Icons.work_outline_rounded,
                                   'Chức danh',
@@ -459,7 +462,6 @@ class _MainDutyAuthorizationCreateScreenState
                       ),
                       const SizedBox(height: 12),
                       AppCard(
-                        accentColor: _accent,
                         padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
                         margin: EdgeInsets.zero,
                         child: Column(
@@ -496,8 +498,12 @@ class _MainDutyAuthorizationCreateScreenState
                                   ),
                                 ),
                                 Padding(
-                                  padding:
-                                      const EdgeInsets.fromLTRB(6, 18, 6, 0),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    6,
+                                    18,
+                                    6,
+                                    0,
+                                  ),
                                   child: Icon(
                                     Icons.arrow_forward_rounded,
                                     size: 16,
@@ -543,7 +549,6 @@ class _MainDutyAuthorizationCreateScreenState
                       ),
                       const SizedBox(height: 12),
                       AppCard(
-                        accentColor: _accent,
                         padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
                         margin: EdgeInsets.zero,
                         child: Column(
@@ -634,6 +639,7 @@ class _MiniChip extends StatelessWidget {
     );
   }
 }
+
 class _FactGrid extends StatelessWidget {
   const _FactGrid({required this.accent, required this.items});
 
@@ -650,7 +656,9 @@ class _FactGrid extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: _FactTile(accent: accent, item: items[i])),
+                Expanded(
+                  child: _FactTile(accent: accent, item: items[i]),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: i + 1 < items.length
@@ -728,60 +736,19 @@ class _DateTile extends StatelessWidget {
 
   final String label;
   final String value;
+
+  /// Giữ để không đổi chỗ gọi; ô ngày dùng sắc chung của form.
   final Color accent;
   final VoidCallback onTap;
   final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: emphasized
-          ? accent.withValues(alpha: 0.08)
-          : AppColors.surfaceMuted,
-      borderRadius: AppRadius.brMd,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brMd,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
-          decoration: emphasized
-              ? BoxDecoration(
-                  borderRadius: AppRadius.brMd,
-                  border: Border.all(color: accent.withValues(alpha: 0.28)),
-                )
-              : null,
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: AppTypography.style(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: emphasized ? accent : AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.calendar_today_rounded, size: 16, color: accent),
-            ],
-          ),
-        ),
-      ),
+    return RequestDateTile(
+      label: label,
+      value: value,
+      onTap: onTap,
+      emphasized: emphasized,
     );
   }
 }
@@ -795,6 +762,7 @@ class _BottomBar extends StatelessWidget {
     required this.onSubmit,
   });
 
+  /// Giữ để không đổi chỗ gọi; nút gửi dùng gradient brand chung.
   final Color accent;
   final bool saving;
   final String submitLabel;
@@ -803,68 +771,11 @@ class _BottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      elevation: 8,
-      color: AppColors.surface,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.page,
-            10,
-            AppSpacing.page,
-            12,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: saving ? null : onCancel,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    side: BorderSide(color: accent.withValues(alpha: 0.45)),
-                    foregroundColor: accent,
-                  ),
-                  child: const Text('Huỷ'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 2,
-                child: FilledButton.icon(
-                  onPressed: saving ? null : onSubmit,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: accent,
-                    minimumSize: const Size.fromHeight(48),
-                    elevation: 0,
-                  ),
-                  icon: saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Icon(
-                          submitLabel == 'Lưu thay đổi'
-                              ? Icons.save_outlined
-                              : Icons.send_rounded,
-                          size: 18,
-                        ),
-                  label: Text(
-                    saving
-                        ? (submitLabel == 'Lưu thay đổi'
-                            ? 'Đang lưu…'
-                            : 'Đang gửi…')
-                        : submitLabel,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return RequestFormBottomBar(
+      saving: saving,
+      submitLabel: submitLabel,
+      onCancel: onCancel,
+      onSubmit: onSubmit,
     );
   }
 }

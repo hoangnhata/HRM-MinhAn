@@ -17,11 +17,13 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../../../core/widgets/search_field.dart';
 import '../../../core/widgets/skeleton.dart';
-import '../../../core/widgets/status_chip.dart';
 import '../../../shared/models/employee.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/employee_list_controller.dart';
 import 'employee_filter_sheet.dart';
+import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/gradient_header.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 
 /// Danh sách nhân viên — UI mobile (nav + thẻ), dữ liệu `/v1/employees` đồng bộ web.
 class EmployeesScreen extends ConsumerStatefulWidget {
@@ -386,303 +388,344 @@ class _EmployeesNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primaryDark,
-            AppColors.primary,
-            AppColors.appBarMid,
-          ],
-        ),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryDark.withValues(alpha: 0.28),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
+    final selectedIndex = statusOptions.indexWhere(
+      (o) => o.$1 == selectedStatus,
+    );
+
+    return GradientHeader(
+      safeAreaTop: false,
+      bottomRadius: 28,
+      ornamentIcon: Icons.groups_rounded,
+      ornamentScale: 0.9,
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.page,
+        topInset + AppSpacing.xs,
+        AppSpacing.page,
+        AppSpacing.md,
       ),
-      child: Stack(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Positioned(
-            top: -30,
-            right: -20,
-            child: Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.07),
+          Row(
+            children: [
+              _NavIconButton(
+                icon: Icons.arrow_back_rounded,
+                tooltip: 'Trở về',
+                onTap: () {
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/');
+                  }
+                },
               ),
-            ),
-          ),
-          Positioned(
-            bottom: 40,
-            left: -40,
-            child: Container(
-              width: 110,
-              height: 110,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.05),
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              AppSpacing.page,
-              topInset + 8,
-              AppSpacing.page,
-              16,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _NavIconButton(
-                      icon: Icons.arrow_back_ios_new_rounded,
-                      onTap: () {
-                        if (context.canPop()) {
-                          context.pop();
-                        } else {
-                          context.go('/');
-                        }
-                      },
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Nhân viên',
-                            style: AppTypography.style(
-                              fontSize: 22,
+                    const _NavEyebrow(text: 'Hồ sơ nhân sự'),
+                    const SizedBox(height: 4),
+                    Semantics(
+                      header: true,
+                      child: Text(
+                        'Nhân viên',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            AppTypography.style(
+                              fontSize: 23,
                               fontWeight: FontWeight.w800,
                               color: Colors.white,
-                              letterSpacing: -0.4,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            totalElements > 0
-                                ? '$totalElements hồ sơ · đồng bộ HRM'
-                                : 'Danh sách nhân sự bệnh viện',
-                            style: AppTypography.style(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.white.withValues(alpha: 0.78),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (totalElements > 0)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: AppRadius.brPill,
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.22),
-                          ),
-                        ),
-                        child: Text(
-                          '$totalElements',
-                          style: AppTypography.style(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.12),
-                              blurRadius: 16,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: AppSearchField(
-                          controller: searchController,
-                          hintText: 'Tìm tên, mã NV, CCCD…',
-                          onChanged: onQueryChanged,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Material(
-                      color: hasExtraFilters
-                          ? Colors.white
-                          : Colors.white.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(16),
-                      child: InkWell(
-                        onTap: onOpenFilters,
-                        borderRadius: BorderRadius.circular(16),
-                        child: SizedBox(
-                          width: 50,
-                          height: 50,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Icon(
-                                Icons.tune_rounded,
-                                color: hasExtraFilters
-                                    ? AppColors.primaryDark
-                                    : Colors.white,
-                              ),
-                              if (activeFilterCount > 0)
-                                Positioned(
-                                  right: 8,
-                                  top: 8,
-                                  child: Container(
-                                    width: 16,
-                                    height: 16,
-                                    alignment: Alignment.center,
-                                    decoration: const BoxDecoration(
-                                      color: AppColors.warning,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Text(
-                                      '$activeFilterCount',
-                                      style: AppTypography.style(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                        color: Colors.white,
-                                      ),
-                                    ),
+                              letterSpacing: -0.6,
+                              height: AppTypography.uppercaseHeight,
+                            ).copyWith(
+                              shadows: [
+                                Shadow(
+                                  color: AppColors.primaryDark.withValues(
+                                    alpha: 0.35,
                                   ),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 2),
                                 ),
-                            ],
-                          ),
-                        ),
+                              ],
+                            ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final (index, option) in statusOptions.indexed) ...[
-                        if (index > 0) const SizedBox(width: 8),
-                        _StatusFilterChip(
-                          label: option.$2,
-                          icon: option.$3,
-                          selected: selectedStatus == option.$1,
-                          onTap: () => onStatusChanged(option.$1),
-                        ),
-                      ],
+              ),
+              if (totalElements > 0) ...[
+                const SizedBox(width: AppSpacing.xs),
+                _TotalStat(total: totalElements),
+              ],
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: AppRadius.brCard,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.14),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
                     ],
                   ),
+                  child: AppSearchField(
+                    controller: searchController,
+                    hintText: 'Tìm tên, mã NV, CCCD…',
+                    borderRadius: AppRadius.brCard,
+                    onChanged: onQueryChanged,
+                  ),
                 ),
-                if (extraFilters.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Wrap(spacing: 6, runSpacing: 6, children: extraFilters),
-                ],
-              ],
-            ),
+              ),
+              const SizedBox(width: AppSpacing.xs + 2),
+              _FilterButton(
+                active: hasExtraFilters,
+                count: activeFilterCount,
+                onTap: onOpenFilters,
+              ),
+            ],
           ),
+          const SizedBox(height: AppSpacing.sm),
+          BrandHeaderSegment(
+            dense: true,
+            selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
+            onChanged: (i) => onStatusChanged(statusOptions[i].$1),
+            items: [
+              for (final option in statusOptions)
+                BrandSegmentItem(label: option.$2, icon: option.$3),
+            ],
+          ),
+          if (extraFilters.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(spacing: 6, runSpacing: 6, children: extraFilters),
+          ],
         ],
       ),
     );
   }
 }
 
-class _NavIconButton extends StatelessWidget {
-  const _NavIconButton({required this.icon, required this.onTap});
+/// Nhãn nhỏ trên tiêu đề — chấm vàng đồng, cùng ngôn ngữ với header các tab.
+class _NavEyebrow extends StatelessWidget {
+  const _NavEyebrow({required this.text});
 
-  final IconData icon;
-  final VoidCallback onTap;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white.withValues(alpha: 0.14),
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Icon(icon, size: 18, color: Colors.white),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: AppColors.secondaryLight,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.secondaryLight.withValues(alpha: 0.6),
+                blurRadius: 6,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            text.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.uppercase(
+              color: AppColors.secondaryLight,
+              fontSize: 10.5,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Ô thống kê tổng hồ sơ — số lớn + nhãn nhỏ trong khung kính.
+class _TotalStat extends StatelessWidget {
+  const _TotalStat({required this.total});
+
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '$total hồ sơ nhân sự',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 7),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.22),
+              Colors.white.withValues(alpha: 0.08),
+            ],
+          ),
+          borderRadius: AppRadius.brBase,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.26)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              AppFormat.number(total),
+              style: AppTypography.metric(
+                fontSize: 17,
+                color: Colors.white,
+                height: 1.2,
+              ),
+            ),
+            Text(
+              'HỒ SƠ',
+              style: AppTypography.uppercase(
+                fontSize: 9,
+                letterSpacing: 0.9,
+                color: Colors.white.withValues(alpha: 0.72),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _StatusFilterChip extends StatelessWidget {
-  const _StatusFilterChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
+/// Nút mở bộ lọc nâng cao: kính mờ khi chưa lọc, trắng + badge vàng khi đang lọc.
+class _FilterButton extends StatelessWidget {
+  const _FilterButton({
+    required this.active,
+    required this.count,
     required this.onTap,
   });
 
-  final String label;
-  final IconData icon;
-  final bool selected;
+  final bool active;
+  final int count;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      selected: selected,
-      label: label,
-      child: Material(
-        color: selected ? Colors.white : Colors.white.withValues(alpha: 0.14),
-        borderRadius: AppRadius.brPill,
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: AppDurations.fast,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  icon,
-                  size: 15,
-                  color: selected
-                      ? AppColors.primaryDark
-                      : Colors.white.withValues(alpha: 0.92),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: AppTypography.style(
-                    fontSize: 12.5,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                    color: selected
-                        ? AppColors.primaryDark
-                        : Colors.white.withValues(alpha: 0.92),
+      label: count > 0 ? 'Bộ lọc, đang áp dụng $count' : 'Bộ lọc',
+      excludeSemantics: true,
+      child: Tooltip(
+        message: 'Bộ lọc',
+        child: SizedBox.square(
+          dimension: 50,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: Material(
+                  color: active
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: AppRadius.brCard,
+                    side: BorderSide(
+                      color: active
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.26),
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: onTap,
+                    child: Icon(
+                      Icons.tune_rounded,
+                      color: active ? AppColors.primaryDark : Colors.white,
+                    ),
                   ),
                 ),
-              ],
+              ),
+              if (count > 0)
+                Positioned(
+                  right: -5,
+                  top: -5,
+                  child: IgnorePointer(
+                    child: Container(
+                      constraints: const BoxConstraints(
+                        minWidth: 19,
+                        minHeight: 19,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        gradient: AppGradients.gold,
+                        borderRadius: AppRadius.brPill,
+                        border: Border.all(
+                          color: AppColors.primaryDark,
+                          width: 2,
+                        ),
+                      ),
+                      child: Text(
+                        '$count',
+                        textScaler: TextScaler.noScaling,
+                        style: AppTypography.style(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          height: 1,
+                          tabular: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavIconButton extends StatelessWidget {
+  const _NavIconButton({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: tooltip,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: tooltip,
+        child: Material(
+          color: Colors.white.withValues(alpha: 0.16),
+          shape: CircleBorder(
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.24)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox.square(
+              dimension: 42,
+              child: Icon(icon, size: 21, color: Colors.white),
             ),
           ),
         ),
@@ -747,139 +790,170 @@ class _EmployeeCard extends StatelessWidget {
         !employee.mainDutyAuthorized &&
         !employee.isTrialEmployee;
 
+    final actions = <Widget>[
+      if (showConversionAction)
+        _CardAction(
+          icon: Icons.workspace_premium_rounded,
+          label: 'Lên chính thức',
+          color: AppColors.success,
+          onTap: () => context.push(
+            RoutePaths.requestCreatePath(
+              'probation-conversion',
+              employeeId: employee.id,
+            ),
+          ),
+        ),
+      if (showMainDutyAction)
+        _CardAction(
+          icon: Icons.nights_stay_rounded,
+          label: 'Chuyển trực chính',
+          color: const Color(0xFF5B4BB4),
+          onTap: () => context.push(
+            RoutePaths.requestCreatePath(
+              'main-duty-authorization',
+              employeeId: employee.id,
+            ),
+          ),
+        ),
+    ];
+
     return AppCard(
       onTap: () => context.push(RoutePaths.employeeDetailPath(employee.id)),
-      accentColor: accent,
-      borderRadius: BorderRadius.circular(18),
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      borderRadius: AppRadius.brLg,
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm - 2),
+      padding: EdgeInsets.zero,
+      gradient: TintedCardBackdrop.gradient(accent),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AppAvatar(
-            name: employee.fullName,
-            imageUrl: employee.avatarUrl,
-            size: 48,
-            borderColor: accent.withValues(alpha: 0.22),
-            borderWidth: 2,
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Tên là thông tin quan trọng nhất nên chiếm trọn bề ngang;
-                // chức danh xuống dòng phụ thay vì chen cùng hàng và cắt tên.
-                Text(
-                  employee.fullName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
-                    height: 1.2,
-                  ),
-                ),
-                if (position.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    position,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.style(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: accent,
-                    ),
-                  ),
-                ],
-                if (unitLine.isNotEmpty) ...[
-                  const SizedBox(height: 5),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 1),
-                        child: Icon(
-                          Icons.apartment_rounded,
-                          size: 14,
-                          color: AppColors.textTertiary,
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-                      Expanded(
-                        child: Text(
-                          unitLine,
+          TintedCardBackdrop(
+            accent: accent,
+            watermarkIcon: Icons.badge_rounded,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 10, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _StatusAvatar(employee: employee, accent: accent),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Tên là thông tin quan trọng nhất nên chiếm trọn bề ngang;
+                        // chức danh xuống dòng phụ thay vì chen cùng hàng và cắt tên.
+                        Text(
+                          employee.fullName,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: AppTypography.style(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textSecondary,
-                            height: 1.3,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                            height: AppTypography.uppercaseHeight,
+                            color: AppColors.textPrimary,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-                if (chips.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final chip in chips)
-                        StatusChip(label: chip.$1, color: chip.$2, dense: true),
-                    ],
-                  ),
-                ],
-                if (showConversionAction || showMainDutyAction) ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (showConversionAction)
-                        _ProfileActionChip(
-                          icon: Icons.badge_outlined,
-                          label: 'Lên chính thức',
-                          color: AppColors.success,
-                          onTap: () => context.push(
-                            RoutePaths.requestCreatePath(
-                              'probation-conversion',
-                              employeeId: employee.id,
+                        if (position.isNotEmpty) ...[
+                          const SizedBox(height: 1),
+                          Text(
+                            position,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.style(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              height: AppTypography.uppercaseHeight,
+                              color: accent,
                             ),
                           ),
-                        ),
-                      if (showMainDutyAction)
-                        _ProfileActionChip(
-                          icon: Icons.nights_stay_rounded,
-                          label: 'Chuyển trực chính',
-                          color: const Color(0xFF5B4BB4),
-                          onTap: () => context.push(
-                            RoutePaths.requestCreatePath(
-                              'main-duty-authorization',
-                              employeeId: employee.id,
-                            ),
+                        ],
+                        if (unitLine.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: Icon(
+                                  Icons.apartment_rounded,
+                                  size: 14,
+                                  color: AppColors.textTertiary,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  unitLine,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.style(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors.textSecondary,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                    ],
+                        ],
+                        if (chips.isNotEmpty) ...[
+                          const SizedBox(height: AppSpacing.xs + 2),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (final chip in chips)
+                                _MetaTag(label: chip.$1, color: chip.$2),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(
+                    width: 28,
+                    height: 28,
+                    margin: const EdgeInsets.only(top: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: accent.withValues(alpha: 0.16)),
+                      boxShadow: AppShadows.soft,
+                    ),
+                    child: const Icon(
+                      Icons.chevron_right_rounded,
+                      size: 20,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ],
-              ],
+              ),
             ),
           ),
-          const SizedBox(width: 4),
-          Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: Icon(
-              Icons.chevron_right_rounded,
-              color: accent.withValues(alpha: 0.7),
-              size: 22,
+          if (actions.isNotEmpty)
+            DecoratedBox(
+              decoration: BoxDecoration(
+                // Dải kính mờ — để lộ nền chuyển sắc thay vì một mảng xám phẳng.
+                color: Colors.white.withValues(alpha: 0.55),
+                border: Border(
+                  top: BorderSide(color: accent.withValues(alpha: 0.12)),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                child: Row(
+                  children: [
+                    for (final (i, action) in actions.indexed) ...[
+                      if (i > 0) const SizedBox(width: AppSpacing.xs),
+                      Expanded(child: action),
+                    ],
+                  ],
+                ),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -951,8 +1025,111 @@ class _EmployeeCard extends StatelessWidget {
   }
 }
 
-class _ProfileActionChip extends StatelessWidget {
-  const _ProfileActionChip({
+/// Avatar kèm chấm trạng thái (màu theo trạng thái chính) ở góc dưới phải.
+class _StatusAvatar extends StatelessWidget {
+  const _StatusAvatar({required this.employee, required this.accent});
+
+  final EmployeeSummary employee;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 52,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  accent.withValues(alpha: 0.55),
+                  accent.withValues(alpha: 0.12),
+                ],
+              ),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.surface,
+              ),
+              child: AppAvatar(
+                name: employee.fullName,
+                imageUrl: employee.avatarUrl,
+                size: 44,
+                showShadow: false,
+              ),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: accent,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.surface, width: 2.5),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Nhãn thuộc tính gọn: chấm màu + chữ trên nền pha nhạt, viền mảnh.
+class _MetaTag extends StatelessWidget {
+  const _MetaTag({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    // Chữ đậm hơn một bậc để đủ tương phản trên nền pha 8%.
+    final text = Color.lerp(color, AppColors.textPrimary, 0.25)!;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(7, 3, 9, 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: AppRadius.brChip,
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              height: AppTypography.uppercaseHeight,
+              color: text,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lối tắt lập phiếu cho nhân viên — nút tonal full-width ở chân thẻ.
+class _CardAction extends StatelessWidget {
+  const _CardAction({
     required this.icon,
     required this.label,
     required this.color,
@@ -966,34 +1143,58 @@ class _ProfileActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: color.withValues(alpha: 0.1),
-      borderRadius: AppRadius.brPill,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brPill,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: AppTypography.style(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: color,
-                ),
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: Material(
+        color: color.withValues(alpha: 0.08),
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.brBase,
+          side: BorderSide(color: color.withValues(alpha: 0.18)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          splashColor: color.withValues(alpha: 0.12),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(6, 6, 10, 6),
+              child: Row(
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: AppRadius.brControl,
+                      boxShadow: AppShadows.tinted(color),
+                    ),
+                    child: Icon(icon, size: 16, color: Colors.white),
+                  ),
+                  const SizedBox(width: AppSpacing.xs + 2),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.style(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        height: AppTypography.uppercaseHeight,
+                        color: Color.lerp(color, AppColors.textPrimary, 0.2),
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 17,
+                    color: color.withValues(alpha: 0.85),
+                  ),
+                ],
               ),
-              const SizedBox(width: 2),
-              Icon(
-                Icons.arrow_forward_rounded,
-                size: 14,
-                color: color.withValues(alpha: 0.8),
-              ),
-            ],
+            ),
           ),
         ),
       ),

@@ -18,24 +18,27 @@ class EvaluationRepository {
   }
 
   Future<List<NursingEvaluationRecord>> mine() async {
-    final response =
-        await _client.get<List<dynamic>>('/v1/nursing-evaluations/mine');
+    final response = await _client.get<List<dynamic>>(
+      '/v1/nursing-evaluations/mine',
+    );
     return (response.data ?? [])
         .map((e) => NursingEvaluationRecord.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
   Future<List<NursingEvaluationRecord>> pending() async {
-    final response =
-        await _client.get<List<dynamic>>('/v1/nursing-evaluations/pending');
+    final response = await _client.get<List<dynamic>>(
+      '/v1/nursing-evaluations/pending',
+    );
     return (response.data ?? [])
         .map((e) => NursingEvaluationRecord.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
   Future<List<NursingEvaluationRecord>> history() async {
-    final response =
-        await _client.get<List<dynamic>>('/v1/nursing-evaluations/history');
+    final response = await _client.get<List<dynamic>>(
+      '/v1/nursing-evaluations/history',
+    );
     return (response.data ?? [])
         .map((e) => NursingEvaluationRecord.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -64,11 +67,7 @@ class EvaluationRepository {
   }) async {
     final response = await _client.get<List<dynamic>>(
       '/v1/nursing-evaluations/period-status',
-      query: {
-        'year': year,
-        'month': month,
-        'templateCode': templateCode,
-      },
+      query: {'year': year, 'month': month, 'templateCode': templateCode},
     );
     return (response.data ?? [])
         .map((e) => NursingPeriodStatus.fromJson(e as Map<String, dynamic>))
@@ -82,11 +81,7 @@ class EvaluationRepository {
   }) async {
     final response = await _client.get<List<dynamic>>(
       '/v1/nursing-evaluations/summary',
-      query: {
-        'year': year,
-        'month': month,
-        'templateCode': templateCode,
-      },
+      query: {'year': year, 'month': month, 'templateCode': templateCode},
     );
     return (response.data ?? [])
         .map((e) => NursingEvalSummaryRow.fromJson(e as Map<String, dynamic>))
@@ -94,8 +89,9 @@ class EvaluationRepository {
   }
 
   Future<List<EmployeeSummary>> evaluationRoster() async {
-    final response =
-        await _client.get<List<dynamic>>('/v1/employees/evaluation-roster');
+    final response = await _client.get<List<dynamic>>(
+      '/v1/employees/evaluation-roster',
+    );
     return (response.data ?? [])
         .map((e) => EmployeeSummary.fromJson(e as Map<String, dynamic>))
         .toList();

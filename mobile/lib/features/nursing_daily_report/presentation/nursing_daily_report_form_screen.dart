@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_action_button.dart';
 import '../../../core/widgets/app_ambient_background.dart';
 import '../../../core/widgets/app_motion.dart';
 import '../../../core/widgets/confirm_dialog.dart';
@@ -375,27 +376,37 @@ class _NursingDailyReportFormScreenState
                             accent: section.accent,
                             children: [
                               if (section.step == '02') ...[
-                                InpatientCareLevelAccordion(
-                                  level1:
-                                      _values['inpatientsCareLevel1'] ?? 0,
-                                  level2:
-                                      _values['inpatientsCareLevel2'] ?? 0,
-                                  level3:
-                                      _values['inpatientsCareLevel3'] ?? 0,
-                                  enabled: !_readOnly,
-                                  onChanged: (next) => setState(() {
-                                    _values['inpatientsCareLevel1'] =
-                                        next.level1;
-                                    _values['inpatientsCareLevel2'] =
-                                        next.level2;
-                                    _values['inpatientsCareLevel3'] =
-                                        next.level3;
-                                    _values['inpatients'] = next.level1 +
-                                        next.level2 +
-                                        next.level3;
-                                  }),
+                                // Khối nội trú là thẻ lồng trong nhóm 02 — chừa đệm
+                                // để không dính sát đường kẻ và hai mép thẻ cha.
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    12,
+                                    12,
+                                    6,
+                                  ),
+                                  child: InpatientCareLevelAccordion(
+                                    level1:
+                                        _values['inpatientsCareLevel1'] ?? 0,
+                                    level2:
+                                        _values['inpatientsCareLevel2'] ?? 0,
+                                    level3:
+                                        _values['inpatientsCareLevel3'] ?? 0,
+                                    enabled: !_readOnly,
+                                    onChanged: (next) => setState(() {
+                                      _values['inpatientsCareLevel1'] =
+                                          next.level1;
+                                      _values['inpatientsCareLevel2'] =
+                                          next.level2;
+                                      _values['inpatientsCareLevel3'] =
+                                          next.level3;
+                                      _values['inpatients'] =
+                                          next.level1 +
+                                          next.level2 +
+                                          next.level3;
+                                    }),
+                                  ),
                                 ),
-                                const SizedBox(height: AppSpacing.sm),
                               ],
                               for (final field in section.fields)
                                 NursingIntegerStepper(
@@ -495,7 +506,9 @@ class _FormActionBar extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
-        border: const Border(top: BorderSide(color: AppColors.borderSoft)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.xl),
+        ),
         boxShadow: AppShadows.nav,
       ),
       child: SafeArea(
@@ -516,62 +529,48 @@ class _FormActionBar extends StatelessWidget {
                 const SizedBox(height: 9),
               ],
               if (readOnly) ...[
-                if (canRecall) ...[
-                  SizedBox(
-                    height: 46,
-                    child: OutlinedButton.icon(
-                      onPressed: saving ? null : onRecall,
-                      icon: const Icon(Icons.undo_rounded, size: 18),
-                      label: const Text('Thu hồi báo cáo'),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                SizedBox(
-                  height: 50,
-                  child: FilledButton.icon(
-                    onPressed: canEdit ? onEnableEdit : null,
-                    icon: Icon(
-                      canEdit
-                          ? Icons.edit_outlined
-                          : Icons.lock_outline_rounded,
-                      size: 18,
-                    ),
-                    label: Text(
-                      canEdit ? 'Chỉnh sửa báo cáo' : 'Bạn chỉ có quyền xem',
-                    ),
-                  ),
-                ),
-              ] else
-                SizedBox(
-                  height: 50,
-                  child: ElevatedButton.icon(
-                    onPressed: saving ? null : onSave,
-                    icon: saving
-                        ? const SizedBox.square(
-                            dimension: 17,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : Icon(
-                            dirty || !editing
-                                ? Icons.cloud_upload_outlined
-                                : Icons.cloud_done_outlined,
-                            size: 19,
-                          ),
-                    label: Text(
-                      saving
-                          ? 'Đang đồng bộ…'
-                          : (editing ? 'Cập nhật báo cáo' : 'Gửi báo cáo'),
-                      style: AppTypography.style(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
+                Row(
+                  children: [
+                    if (canRecall) ...[
+                      Expanded(
+                        flex: 2,
+                        child: AppActionButton(
+                          variant: AppActionVariant.outlineDanger,
+                          icon: Icons.undo_rounded,
+                          label: 'Thu hồi',
+                          onPressed: saving ? null : onRecall,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Expanded(
+                      flex: 3,
+                      child: AppActionButton(
+                        variant: canEdit
+                            ? AppActionVariant.primary
+                            : AppActionVariant.outlineNeutral,
+                        icon: canEdit
+                            ? Icons.edit_rounded
+                            : Icons.lock_outline_rounded,
+                        label: canEdit
+                            ? 'Chỉnh sửa báo cáo'
+                            : 'Bạn chỉ có quyền xem',
+                        onPressed: canEdit ? onEnableEdit : null,
                       ),
                     ),
-                  ),
+                  ],
+                ),
+              ] else
+                AppActionButton(
+                  variant: AppActionVariant.primary,
+                  icon: dirty || !editing
+                      ? Icons.cloud_upload_rounded
+                      : Icons.cloud_done_rounded,
+                  label: saving
+                      ? 'Đang đồng bộ…'
+                      : (editing ? 'Cập nhật báo cáo' : 'Gửi báo cáo'),
+                  loading: saving,
+                  onPressed: onSave,
                 ),
             ],
           ),
@@ -632,161 +631,226 @@ class _ReportIdentityCard extends StatelessWidget {
   final NursingDailyReport? existing;
   final bool readOnly;
 
+  /// Tên in hoa toàn bộ → viết hoa đầu chữ ("KHOA SẢN" → "Khoa Sản").
+  static String _pretty(String raw) {
+    final t = raw.trim();
+    final letters = t.replaceAll(RegExp(r'[^A-Za-zÀ-ỹ]'), '');
+    if (letters.isEmpty || letters != letters.toUpperCase()) return t;
+    return t
+        .toLowerCase()
+        .split(' ')
+        .map(
+          (w) => w.isEmpty
+              ? w
+              : '${w.characters.first.toUpperCase()}${w.substring(w.characters.first.length)}',
+        )
+        .join(' ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final report = existing;
     final incidentCount = report?.safetyIncidents ?? 0;
-    final statusColor = readOnly ? AppColors.success : AppColors.warning;
+    // Trên nền teal: bạc hà = đã nộp, vàng = đang nhập.
+    final statusTone = readOnly
+        ? AppColors.onBrandRing
+        : const Color(0xFFFCD34D);
     final updatedBy = report?.updatedByUsername ?? report?.createdByUsername;
 
-    return Container(
-      padding: const EdgeInsets.all(15),
+    return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primary.withValues(alpha: 0.13),
-            AppColors.surface,
-          ],
-        ),
-        borderRadius: AppRadius.brLg,
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.16)),
-        boxShadow: AppShadows.soft,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: AppRadius.brMd,
-                  boxShadow: AppShadows.tinted(AppColors.primary),
-                ),
-                child: const Icon(
-                  Icons.local_hospital_outlined,
-                  color: Colors.white,
-                  size: 21,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      departmentName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        height: 1.28,
-                        letterSpacing: -0.15,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      dateLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      // w500 của metricMuted bị chìm trên nền gradient teal nhạt.
-                      style: AppTypography.style(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary,
-                        tabular: true,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.11),
-                  borderRadius: AppRadius.brPill,
-                  border: Border.all(
-                    color: statusColor.withValues(alpha: 0.24),
-                  ),
-                ),
-                child: Text(
-                  readOnly ? 'Đã nộp' : 'Đang nhập',
-                  style: AppTypography.style(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: statusColor,
-                  ),
-                ),
-              ),
-            ],
+        borderRadius: AppRadius.brXl,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryDark.withValues(alpha: 0.24),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
-          if (report != null) ...[
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                _MiniMetric(
-                  label: 'Đi làm',
-                  value: '${report.workingStaff}/${report.totalStaff}',
-                  color: AppColors.primary,
-                ),
-                const SizedBox(width: 8),
-                _MiniMetric(
-                  label: 'Nội trú',
-                  value: '${report.inpatients}',
-                  color: AppColors.info,
-                ),
-                const SizedBox(width: 8),
-                _MiniMetric(
-                  label: 'Sự cố',
-                  value: '$incidentCount',
-                  color: incidentCount > 0
-                      ? AppColors.error
-                      : AppColors.success,
-                ),
-              ],
-            ),
-            if (updatedBy != null) ...[
-              const SizedBox(height: 11),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: AppRadius.brXl,
+        child: GradientHeader(
+          safeAreaTop: false,
+          bottomRadius: 0,
+          gradient: AppGradients.brandHero,
+          ornamentIcon: Icons.local_hospital_rounded,
+          ornamentScale: 0.8,
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
               Row(
                 children: [
-                  const Icon(
-                    Icons.history_rounded,
-                    size: 14,
-                    color: AppColors.textTertiary,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Cập nhật bởi $updatedBy',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textTertiary,
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Colors.white.withValues(alpha: 0.30),
+                          Colors.white.withValues(alpha: 0.08),
+                        ],
                       ),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.local_hospital_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _pretty(departmentName),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.35,
+                            height: AppTypography.uppercaseHeight,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_month_rounded,
+                              size: 13,
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                            const SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                dateLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.style(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  tabular: true,
+                                  color: Colors.white.withValues(alpha: 0.82),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.16),
+                      borderRadius: AppRadius.brPill,
+                      border: Border.all(
+                        color: statusTone.withValues(alpha: 0.45),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: statusTone,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: statusTone.withValues(alpha: 0.6),
+                                blurRadius: 5,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          readOnly ? 'Đã nộp' : 'Đang nhập',
+                          style: AppTypography.style(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            height: AppTypography.uppercaseHeight,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
+              if (report != null) ...[
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    _MiniMetric(
+                      label: 'Đi làm',
+                      value: '${report.workingStaff}/${report.totalStaff}',
+                      color: AppColors.onBrandRing,
+                    ),
+                    const SizedBox(width: 8),
+                    _MiniMetric(
+                      label: 'Nội trú',
+                      value: '${report.inpatients}',
+                      color: const Color(0xFF93C5FD),
+                    ),
+                    const SizedBox(width: 8),
+                    _MiniMetric(
+                      label: 'Sự cố',
+                      value: '$incidentCount',
+                      color: incidentCount > 0
+                          ? const Color(0xFFFCA5A5)
+                          : AppColors.onBrandRing,
+                    ),
+                  ],
+                ),
+                if (updatedBy != null) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.history_rounded,
+                        size: 14,
+                        color: Colors.white.withValues(alpha: 0.65),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Cập nhật bởi $updatedBy',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.72),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ],
-          ],
-        ],
+          ),
+        ),
       ),
     );
   }
 }
 
+/// Ô chỉ số kính trên nền brand: chấm sắc + nhãn in hoa, số lớn bên dưới.
 class _MiniMetric extends StatelessWidget {
   const _MiniMetric({
     required this.label,
@@ -802,37 +866,55 @@ class _MiniMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        padding: const EdgeInsets.fromLTRB(10, 8, 8, 9),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: AppRadius.brSm,
-          border: Border.all(color: color.withValues(alpha: 0.14)),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.14),
+              Colors.white.withValues(alpha: 0.05),
+            ],
+          ),
+          borderRadius: AppRadius.brBase,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    label.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.uppercase(
+                      fontSize: 8.5,
+                      letterSpacing: 0.5,
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Text(
                 value,
                 maxLines: 1,
-                style: AppTypography.metric(
-                  fontSize: 16,
-                  color: color,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTypography.style(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
+                style: AppTypography.display(fontSize: 19, color: Colors.white),
               ),
             ),
           ],

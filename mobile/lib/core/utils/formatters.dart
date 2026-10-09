@@ -47,11 +47,32 @@ class AppFormat {
     return value.toStringAsFixed(1).replaceAll('.', ',');
   }
 
+  /// Điểm chấm — giữ tối đa 2 chữ số thập phân, bỏ số 0 thừa (1,75 · 0,5 · 8).
+  /// Không dùng [compactNumber] cho điểm: nó làm tròn 1 chữ số (1,75 → 1,8).
+  static String score(num? value) {
+    if (value == null) return '—';
+    var s = value.toStringAsFixed(2);
+    if (s.contains('.')) {
+      s = s.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+    }
+    return s.replaceAll('.', ',');
+  }
+
   /// Công tháng — đồng bộ web `formatWorkUnits` (luôn 2 chữ số thập phân).
   static String workUnits(num? value, {bool suffix = false}) {
     if (value == null) return '—';
-    final s = value.toStringAsFixed(2).replaceAll('.', ',');
+    final s = _normalizeWorkUnits(value.toDouble())
+        .toStringAsFixed(2)
+        .replaceAll('.', ',');
     return suffix ? '$s công' : s;
+  }
+
+  /// Đồng bộ web `normalizeWorkUnits`: công gần bội số 1/3 được làm tròn về 1/3.
+  static double _normalizeWorkUnits(double n) {
+    if (!n.isFinite || n == 0) return 0;
+    final thirds = (n * 3).round();
+    if ((n * 3 - thirds).abs() < 0.05) return thirds / 3;
+    return n;
   }
 
   /// Tiền tệ dạng gọn: 12,5 tr / 950 ng — dùng trong thẻ thống kê hẹp.

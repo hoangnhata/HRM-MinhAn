@@ -341,19 +341,12 @@ class _AppTimePickerSheetState extends State<_AppTimePickerSheet> {
                       textAlign: TextAlign.center,
                       keyboardType: TextInputType.datetime,
                       textInputAction: TextInputAction.done,
-                      style: AppTypography.style(
-                        fontSize: 36,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primaryDark,
-                        letterSpacing: 1.2,
-                        height: 1.1,
-                      ),
+                      style: AppTypography.clock(fontSize: 36),
                       decoration: InputDecoration(
                         isDense: true,
                         hintText: '06:45',
-                        hintStyle: AppTypography.style(
+                        hintStyle: AppTypography.clock(
                           fontSize: 36,
-                          fontWeight: FontWeight.w700,
                           color: AppColors.textTertiary.withValues(alpha: 0.45),
                         ),
                         border: InputBorder.none,
@@ -392,13 +385,7 @@ class _AppTimePickerSheetState extends State<_AppTimePickerSheet> {
                             child: Text(
                               _fmt(_selected),
                               key: ValueKey(_fmt(_selected)),
-                              style: AppTypography.style(
-                                fontSize: 40,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.primaryDark,
-                                height: 1.05,
-                                letterSpacing: 1.2,
-                              ),
+                              style: AppTypography.clock(fontSize: 40),
                             ),
                           ),
                           const SizedBox(height: 2),

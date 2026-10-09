@@ -14,11 +14,16 @@ import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../../../shared/models/attendance_models.dart';
+import '../../../core/utils/user_role.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/attendance_requests_controller.dart';
 import '../data/attendance_repository.dart';
 import 'attendance_enums.dart';
 import 'attendance_work_request_form.dart';
+import '../../../core/widgets/app_action_button.dart';
+import '../../../core/widgets/app_avatar.dart';
+import '../../../core/widgets/request_form_widgets.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 
 class AttendanceRequestFormScreen extends ConsumerStatefulWidget {
   const AttendanceRequestFormScreen({super.key, this.prefill});
@@ -65,6 +70,31 @@ class _AttendanceRequestFormScreenState
       return allowed.every(AttendanceEnums.isLeaveRequestType);
     }
     return _isLeave;
+  }
+
+  /// Sửa đơn: số ngày của chính đơn này đã nằm trong «chờ duyệt» của hạn mức —
+  /// cộng lại để không bị trừ hai lần.
+  int get _editingPendingLeaveDays {
+    final edit = widget.prefill?.editRequest;
+    if (edit == null || edit.requestType != 'LEAVE') return 0;
+    if (!edit.status.startsWith('PENDING_')) return 0;
+    final start = edit.workDate;
+    if (start == null) return 0;
+    final balance = _leaveBalance;
+    if (balance != null && balance.year != start.year) return 0;
+    final end = edit.endDate ?? start;
+    if (end.isBefore(start)) return 0;
+    return end.difference(start).inDays + 1;
+  }
+
+  /// Số ngày phép còn xin được (đã cộng lại ngày của đơn đang sửa).
+  int get _remainingLeaveDays {
+    final balance = _leaveBalance;
+    if (balance == null) return 0;
+    final remaining = balance.remainingDays + _editingPendingLeaveDays;
+    return remaining > balance.entitlementDays
+        ? balance.entitlementDays
+        : remaining;
   }
 
   int get _requestedLeaveDays {
@@ -180,8 +210,8 @@ class _AttendanceRequestFormScreenState
     }
     if (_type == 'LEAVE' && _leaveBalance != null) {
       final days = _requestedLeaveDays;
-      if (days > _leaveBalance!.remainingDays) {
-        return 'Vượt hạn mức phép: còn ${_leaveBalance!.remainingDays}/'
+      if (days > _remainingLeaveDays) {
+        return 'Vượt hạn mức phép: còn $_remainingLeaveDays/'
             '${_leaveBalance!.entitlementDays} ngày, đơn xin $days ngày.';
       }
     }
@@ -298,7 +328,7 @@ class _AttendanceRequestFormScreenState
         ? days > AttendanceEnums.personalLeaveMaxDays
         : unpaid
         ? false
-        : (_leaveBalance != null && days > _leaveBalance!.remainingDays);
+        : (_leaveBalance != null && days > _remainingLeaveDays);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -328,7 +358,11 @@ class _AttendanceRequestFormScreenState
                     AppSpacing.md,
                   ),
                   children: [
-                    const _LeaveFlowStrip(),
+                    _LeaveFlowStrip(
+                      steps: _LeaveFlowStrip.stepsFor(
+                        ref.read(authControllerProvider).currentUser?.role,
+                      ),
+                    ),
                     const SizedBox(height: AppSpacing.sm),
                     AnimatedSwitcher(
                       duration: AppDurations.fast,
@@ -402,6 +436,7 @@ class _AttendanceRequestFormScreenState
                         loading: _loadingBalance,
                         requestedDays: days,
                         overLimit: overLimit,
+                        editingPendingDays: _editingPendingLeaveDays,
                       ),
                       const SizedBox(height: AppSpacing.sm),
                     ] else ...[
@@ -413,13 +448,26 @@ class _AttendanceRequestFormScreenState
                       const SizedBox(height: AppSpacing.sm),
                     ],
                     AppCard(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+                      margin: EdgeInsets.zero,
                       child: Row(
                         children: [
-                          AppIconBadge(
-                            icon: Icons.person_outline_rounded,
-                            color: AppColors.primary,
-                            size: 40,
+                          Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.28,
+                                ),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: AppAvatar(
+                              name: name,
+                              size: 40,
+                              showShadow: false,
+                            ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -427,22 +475,41 @@ class _AttendanceRequestFormScreenState
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
+                                  'NGƯỜI XIN NGHỈ',
+                                  style: AppTypography.uppercase(
+                                    fontSize: 9.5,
+                                    letterSpacing: 0.7,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
                                   name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: AppTypography.style(
-                                    fontSize: 14.5,
+                                    fontSize: 15,
                                     fontWeight: FontWeight.w800,
-                                    height: 1.25,
+                                    letterSpacing: -0.2,
+                                    height: AppTypography.uppercaseHeight,
+                                    color: AppColors.textPrimary,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
                                   (department == null || department.isEmpty)
-                                      ? 'Chưa gắn phòng ban'
+                                      ? 'Chưa gắn khoa/phòng'
                                       : department,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: AppTypography.style(
-                                    fontSize: 12.5,
-                                    color: AppColors.textSecondary,
-                                    height: 1.3,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color:
+                                        (department == null ||
+                                            department.isEmpty)
+                                        ? AppColors.textTertiary
+                                        : AppColors.textSecondary,
                                   ),
                                 ),
                               ],
@@ -454,63 +521,69 @@ class _AttendanceRequestFormScreenState
                     const SizedBox(height: AppSpacing.sm),
                     AppCard(
                       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-                      accentColor: AppColors.primary,
+                      margin: EdgeInsets.zero,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Text(
-                                'Thời gian nghỉ',
+                          _FormSectionHeader(
+                            icon: Icons.date_range_rounded,
+                            title: 'Thời gian nghỉ',
+                            trailing: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: overLimit
+                                    ? AppColors.error.withValues(alpha: 0.1)
+                                    : AppColors.primary.withValues(alpha: 0.1),
+                                borderRadius: AppRadius.brPill,
+                              ),
+                              child: Text(
+                                days <= 0
+                                    ? 'Chọn ngày'
+                                    : personal
+                                    ? 'Xin $days/${AttendanceEnums.personalLeaveMaxDays} ngày'
+                                    : 'Xin $days ngày',
                                 style: AppTypography.style(
-                                  fontSize: 14,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w800,
+                                  height: AppTypography.uppercaseHeight,
+                                  color: overLimit
+                                      ? AppColors.errorDark
+                                      : AppColors.primaryDark,
                                 ),
                               ),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _PickerField(
+                                  label: 'Từ ngày',
+                                  value: AppFormat.date(_workDate),
+                                  icon: Icons.event_outlined,
+                                  onTap: () => _pickDate(isStart: true),
                                 ),
-                                decoration: BoxDecoration(
-                                  color: overLimit
-                                      ? AppColors.error.withValues(alpha: 0.1)
-                                      : AppColors.primary.withValues(
-                                          alpha: 0.1,
-                                        ),
-                                  borderRadius: AppRadius.brPill,
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8),
+                                child: Icon(
+                                  Icons.arrow_forward_rounded,
+                                  size: 16,
+                                  color: AppColors.textTertiary,
                                 ),
-                                child: Text(
-                                  days <= 0
-                                      ? 'Chọn ngày'
-                                      : personal
-                                      ? 'Xin $days/${AttendanceEnums.personalLeaveMaxDays} ngày'
-                                      : 'Xin $days ngày',
-                                  style: AppTypography.style(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                    color: overLimit
-                                        ? AppColors.error
-                                        : AppColors.primaryDark,
-                                  ),
+                              ),
+                              Expanded(
+                                child: _PickerField(
+                                  label: 'Đến ngày',
+                                  value: AppFormat.date(_endDate ?? _workDate),
+                                  icon: Icons.event_available_outlined,
+                                  onTap: () => _pickDate(isStart: false),
                                 ),
                               ),
                             ],
-                          ),
-                          const SizedBox(height: 12),
-                          _PickerField(
-                            label: 'Từ ngày',
-                            value: AppFormat.date(_workDate),
-                            icon: Icons.event_outlined,
-                            onTap: () => _pickDate(isStart: true),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          _PickerField(
-                            label: 'Đến ngày',
-                            value: AppFormat.date(_endDate ?? _workDate),
-                            icon: Icons.event_available_outlined,
-                            onTap: () => _pickDate(isStart: false),
                           ),
                           const SizedBox(height: 8),
                           Text(
@@ -521,7 +594,10 @@ class _AttendanceRequestFormScreenState
                                 : unpaid
                                 ? 'Ngày duyệt ghi 0 công · không trừ phép năm.'
                                 : 'Đơn nghỉ tính cả ngày theo quy định.',
-                            style: AppTypography.caption(
+                            style: AppTypography.style(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                              height: 1.35,
                               color: AppColors.textTertiary,
                             ),
                           ),
@@ -541,7 +617,7 @@ class _AttendanceRequestFormScreenState
                             const SizedBox(height: 8),
                             Text(
                               'Đơn xin $days ngày nhưng chỉ còn '
-                              '${_leaveBalance!.remainingDays} ngày phép.',
+                              '$_remainingLeaveDays ngày phép.',
                               style: AppTypography.style(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w700,
@@ -556,22 +632,21 @@ class _AttendanceRequestFormScreenState
                     const SizedBox(height: AppSpacing.sm),
                     AppCard(
                       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-                      accentColor: AppColors.secondary,
+                      margin: EdgeInsets.zero,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            personal
+                          _FormSectionHeader(
+                            icon: Icons.edit_note_rounded,
+                            color: AppColors.secondary,
+                            title: personal
                                 ? 'Lý do / thông tin sự việc'
                                 : unpaid
                                 ? 'Lý do nghỉ không lương'
                                 : 'Lý do nghỉ phép',
-                            style: AppTypography.style(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                            ),
+                            subtitle: 'Bắt buộc · người duyệt sẽ đọc phần này',
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 12),
                           TextField(
                             controller: _reasonController,
                             maxLines: 5,
@@ -582,22 +657,30 @@ class _AttendanceRequestFormScreenState
                                 setState(() => _validationMessage = null);
                               }
                             },
-                            decoration: InputDecoration(
-                              hintText: personal
-                                  ? (_personalLeaveKind == 'BEREAVEMENT'
-                                        ? 'Ví dụ: Bố đẻ mất ngày 12/09, lo hậu sự tại quê…'
-                                        : 'Ví dụ: Đăng ký kết hôn ngày 20/09, tổ chức lễ cưới…')
-                                  : unpaid
-                                  ? 'Ví dụ: Việc riêng, không dùng phép năm…'
-                                  : 'Ví dụ: Nghỉ phép năm, việc gia đình…',
-                              errorText:
-                                  (_validationMessage != null &&
-                                      _validationMessage!.contains('lý do'))
-                                  ? _validationMessage
-                                  : null,
-                              errorMaxLines: 2,
-                              alignLabelWithHint: true,
+                            style: AppTypography.style(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              height: 1.4,
+                              color: AppColors.textPrimary,
                             ),
+                            decoration:
+                                requestFieldDecoration(
+                                  hint: personal
+                                      ? (_personalLeaveKind == 'BEREAVEMENT'
+                                            ? 'Ví dụ: Bố đẻ mất ngày 12/09, lo hậu sự tại quê…'
+                                            : 'Ví dụ: Đăng ký kết hôn ngày 20/09, tổ chức lễ cưới…')
+                                      : unpaid
+                                      ? 'Ví dụ: Việc riêng, không dùng phép năm…'
+                                      : 'Ví dụ: Nghỉ phép năm, việc gia đình…',
+                                  multiline: true,
+                                ).copyWith(
+                                  errorText:
+                                      (_validationMessage != null &&
+                                          _validationMessage!.contains('lý do'))
+                                      ? _validationMessage
+                                      : null,
+                                  errorMaxLines: 2,
+                                ),
                           ),
                         ],
                       ),
@@ -625,32 +708,44 @@ class _AttendanceRequestFormScreenState
 }
 
 class _LeaveFlowStrip extends StatefulWidget {
-  const _LeaveFlowStrip();
+  const _LeaveFlowStrip({required this.steps});
 
-  static const _steps = [
-    (Icons.send_rounded, 'Gửi đơn', 'Bạn lập và gửi phiếu'),
-    (
-      Icons.supervisor_account_rounded,
-      'Lãnh đạo duyệt',
-      'Trưởng khoa / ĐD trưởng',
-    ),
-    (Icons.apartment_rounded, 'HCNS duyệt', 'Hành chính nhân sự'),
-    (Icons.verified_rounded, 'Giám đốc duyệt', 'Duyệt cuối cùng'),
-  ];
+  final List<(IconData, String, String)> steps;
+
+  /// Bỏ bước duyệt mà chính người gửi đơn là người duyệt (không tự duyệt đơn của mình).
+  static List<(IconData, String, String)> stepsFor(UserRole? role) {
+    // Trưởng phòng Điều dưỡng lập đơn: bỏ bước lãnh đạo — chỉ HCNS → Giám đốc.
+    final isHead = role == UserRole.headDepartment ||
+        role == UserRole.headHr ||
+        role == UserRole.headNursing;
+    final isHr = role == UserRole.hr2 || role == UserRole.headHr;
+    return [
+      (Icons.send_rounded, 'Gửi đơn', 'Bạn lập và gửi phiếu'),
+      if (!isHead)
+        (
+          Icons.supervisor_account_rounded,
+          'Lãnh đạo duyệt',
+          'Trưởng khoa / ĐD trưởng',
+        ),
+      if (!isHr) (Icons.apartment_rounded, 'HCNS duyệt', 'Hành chính nhân sự'),
+      (Icons.verified_rounded, 'Giám đốc duyệt', 'Duyệt cuối cùng'),
+    ];
+  }
 
   @override
   State<_LeaveFlowStrip> createState() => _LeaveFlowStripState();
 }
 
 class _LeaveFlowStripState extends State<_LeaveFlowStrip> {
-  /// Mặc định thu gọn để form gọn hơn; nhấn để xem đủ 4 bước.
+  /// Mặc định thu gọn để form gọn hơn; nhấn để xem đủ các bước.
   bool _expanded = false;
 
   void _toggle() => setState(() => _expanded = !_expanded);
 
   @override
   Widget build(BuildContext context) {
-    final current = _LeaveFlowStrip._steps.first;
+    final steps = widget.steps;
+    final current = steps.first;
 
     return AppCard(
       padding: EdgeInsets.zero,
@@ -696,8 +791,8 @@ class _LeaveFlowStripState extends State<_LeaveFlowStrip> {
                             duration: AppDurations.fast,
                             child: Text(
                               _expanded
-                                  ? '4 bước · đồng bộ với web'
-                                  : 'Bước 1/4 · ${current.$2}',
+                                  ? '${steps.length} bước · đồng bộ với web'
+                                  : 'Bước 1/${steps.length} · ${current.$2}',
                               key: ValueKey(_expanded),
                               style: AppTypography.style(
                                 fontSize: 11.5,
@@ -722,7 +817,7 @@ class _LeaveFlowStripState extends State<_LeaveFlowStrip> {
                         ),
                       ),
                       child: Text(
-                        'Bước 1/4',
+                        'Bước 1/${steps.length}',
                         style: AppTypography.style(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
@@ -766,13 +861,13 @@ class _LeaveFlowStripState extends State<_LeaveFlowStrip> {
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
               child: Column(
                 children: [
-                  for (var i = 0; i < _LeaveFlowStrip._steps.length; i++)
+                  for (var i = 0; i < steps.length; i++)
                     _LeaveFlowStep(
-                      icon: _LeaveFlowStrip._steps[i].$1,
-                      title: _LeaveFlowStrip._steps[i].$2,
-                      subtitle: _LeaveFlowStrip._steps[i].$3,
+                      icon: steps[i].$1,
+                      title: steps[i].$2,
+                      subtitle: steps[i].$3,
                       active: i == 0,
-                      isLast: i == _LeaveFlowStrip._steps.length - 1,
+                      isLast: i == steps.length - 1,
                     ),
                 ],
               ),
@@ -1295,6 +1390,7 @@ class _LeaveBalancePanel extends StatelessWidget {
     required this.loading,
     required this.requestedDays,
     required this.overLimit,
+    this.editingPendingDays = 0,
   });
 
   final LeaveBalance? balance;
@@ -1302,193 +1398,368 @@ class _LeaveBalancePanel extends StatelessWidget {
   final int requestedDays;
   final bool overLimit;
 
+  /// Ngày phép của chính đơn đang sửa — đã nằm trong «chờ duyệt», cộng lại để không trừ hai lần.
+  final int editingPendingDays;
+
   @override
   Widget build(BuildContext context) {
-    final remaining = balance?.remainingDays ?? 0;
     final entitlement = balance?.entitlementDays ?? 0;
     final used = balance?.usedDays ?? 0;
-    final pending = balance?.pendingDays ?? 0;
+    final pending = ((balance?.pendingDays ?? 0) - editingPendingDays).clamp(
+      0,
+      entitlement,
+    );
+    final remaining = ((balance?.remainingDays ?? 0) + editingPendingDays)
+        .clamp(0, entitlement);
+    final after = (remaining - requestedDays).clamp(0, entitlement);
     final year = balance?.year ?? DateTime.now().year;
     final ratio = entitlement == 0
         ? 0.0
         : (remaining / entitlement).clamp(0.0, 1.0);
     final accent = overLimit ? AppColors.error : AppColors.primary;
+    final noData = balance == null && !loading;
 
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: AppRadius.brCard,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            accent.withValues(alpha: 0.12),
-            AppColors.surface,
-            AppColors.surface,
-          ],
-          stops: const [0.0, 0.42, 1.0],
-        ),
-        border: Border.all(color: accent.withValues(alpha: 0.18)),
-        boxShadow: AppShadows.card,
-      ),
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return AppCard(
+      gradient: TintedCardBackdrop.gradient(accent),
+      borderRadius: AppRadius.brCard,
+      padding: EdgeInsets.zero,
+      margin: EdgeInsets.zero,
+      child: TintedCardBackdrop(
+        accent: accent,
+        watermarkIcon: Icons.beach_access_rounded,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.12),
-                  borderRadius: AppRadius.brPill,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.beach_access_rounded, size: 13, color: accent),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Phép $year',
+              Row(
+                children: [
+                  TintedIconTile(
+                    icon: Icons.beach_access_rounded,
+                    color: accent,
+                    size: 32,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Phép năm $year',
                       style: AppTypography.style(
-                        fontSize: 11.5,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w800,
-                        color: overLimit
-                            ? AppColors.errorDark
-                            : AppColors.primaryDark,
+                        height: AppTypography.uppercaseHeight,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  if (loading)
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    _StatusPill(
+                      icon: noData
+                          ? Icons.cloud_off_rounded
+                          : overLimit
+                          ? Icons.error_outline_rounded
+                          : Icons.verified_rounded,
+                      label: noData
+                          ? 'Chưa tải được'
+                          : overLimit
+                          ? 'Vượt hạn mức'
+                          : 'Đã đồng bộ',
+                      color: noData
+                          ? AppColors.textSecondary
+                          : overLimit
+                          ? AppColors.error
+                          : AppColors.success,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (noData)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 1),
+                      child: Icon(
+                        Icons.info_outline_rounded,
+                        size: 15,
+                        color: AppColors.textTertiary,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Chưa tải được số ngày phép. Bạn vẫn có thể gửi đơn, HCNS sẽ đối chiếu khi duyệt.',
+                        style: AppTypography.style(
+                          fontSize: 12.5,
+                          color: AppColors.textSecondary,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              else ...[
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 72,
+                      height: 72,
+                      child: CustomPaint(
+                        painter: _FormLeaveRingPainter(
+                          progress: ratio,
+                          color: accent,
+                          trackColor: accent.withValues(alpha: 0.12),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                '$remaining',
+                                style: AppTypography.display(
+                                  fontSize: 22,
+                                  color: Color.lerp(
+                                    accent,
+                                    AppColors.textPrimary,
+                                    0.2,
+                                  )!,
+                                  height: 1,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'CÒN',
+                                style: AppTypography.uppercase(
+                                  fontSize: 8.5,
+                                  letterSpacing: 0.6,
+                                  color: AppColors.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: AppRadius.brControl,
+                          border: Border.all(color: AppColors.borderSoft),
+                        ),
+                        child: IntrinsicHeight(
+                          child: Row(
+                            children: [
+                              _BalanceCell(
+                                label: 'Định mức',
+                                value: '$entitlement',
+                              ),
+                              const VerticalDivider(
+                                width: 1,
+                                color: AppColors.divider,
+                              ),
+                              _BalanceCell(label: 'Đã dùng', value: '$used'),
+                              const VerticalDivider(
+                                width: 1,
+                                color: AppColors.divider,
+                              ),
+                              _BalanceCell(
+                                label: 'Chờ duyệt',
+                                value: '$pending',
+                                tone: pending > 0 ? AppColors.warning : null,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
-              ),
-              const Spacer(),
-              if (loading)
-                const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                Text(
-                  overLimit ? 'Vượt hạn mức' : 'Đồng bộ web',
-                  style: AppTypography.style(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                    color: overLimit ? AppColors.error : AppColors.success,
+                if (requestedDays > 0) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.07),
+                      borderRadius: AppRadius.brControl,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          overLimit
+                              ? Icons.warning_amber_rounded
+                              : Icons.calculate_outlined,
+                          size: 15,
+                          color: accent,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            overLimit
+                                ? 'Đơn xin $requestedDays ngày, vượt số ngày còn lại.'
+                                : 'Đơn này xin $requestedDays ngày · còn $after ngày sau khi duyệt',
+                            style: AppTypography.style(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              height: 1.35,
+                              color: overLimit
+                                  ? AppColors.errorDark
+                                  : AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
+              ],
             ],
           ),
-          const SizedBox(height: 12),
-          if (balance == null && !loading)
-            Text(
-              'Chưa tải được số ngày phép. Bạn vẫn có thể gửi đơn.',
-              style: AppTypography.style(
-                fontSize: 12.5,
-                color: AppColors.textSecondary,
-                height: 1.35,
-              ),
-            )
-          else ...[
-            Row(
-              children: [
-                SizedBox(
-                  width: 64,
-                  height: 64,
-                  child: CustomPaint(
-                    painter: _FormLeaveRingPainter(
-                      progress: ratio,
-                      color: accent,
-                      trackColor: accent.withValues(alpha: 0.14),
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            '$remaining',
-                            style: AppTypography.style(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: accent,
-                              height: 1,
-                            ),
-                          ),
-                          Text(
-                            'còn',
-                            style: AppTypography.style(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: accent.withValues(alpha: 0.8),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        overLimit
-                            ? 'Đơn xin $requestedDays ngày vượt số còn lại.'
-                            : 'Còn $remaining/$entitlement ngày · đơn này xin $requestedDays ngày.',
-                        style: AppTypography.style(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          _MiniPill(label: 'Định mức $entitlement'),
-                          const SizedBox(width: 6),
-                          _MiniPill(label: 'Đã dùng $used'),
-                          if (pending > 0) ...[
-                            const SizedBox(width: 6),
-                            _MiniPill(label: 'Chờ $pending', warn: true),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BalanceCell extends StatelessWidget {
+  const _BalanceCell({required this.label, required this.value, this.tone});
+
+  final String label;
+  final String value;
+  final Color? tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            value,
+            style: AppTypography.metric(
+              fontSize: 16,
+              color: tone == null
+                  ? AppColors.textPrimary
+                  : Color.lerp(tone, AppColors.textPrimary, 0.25)!,
             ),
-          ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.uppercase(
+              fontSize: 8.5,
+              letterSpacing: 0.4,
+              color: AppColors.textTertiary,
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _MiniPill extends StatelessWidget {
-  const _MiniPill({required this.label, this.warn = false});
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
 
+  final IconData icon;
   final String label;
-  final bool warn;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final color = warn ? AppColors.warning : AppColors.primary;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(6, 3, 9, 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: AppColors.surface,
         borderRadius: AppRadius.brPill,
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      child: Text(
-        label,
-        style: AppTypography.style(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w700,
-          color: warn ? AppColors.warningText : AppColors.primaryDark,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              height: AppTypography.uppercaseHeight,
+              color: Color.lerp(color, AppColors.textPrimary, 0.15)!,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tiêu đề khối trong form: icon đặc + tên + dòng phụ + nhãn phải.
+class _FormSectionHeader extends StatelessWidget {
+  const _FormSectionHeader({
+    required this.icon,
+    required this.title,
+    this.color = AppColors.primary,
+    this.subtitle,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final Color color;
+  final String? subtitle;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        TintedIconTile(icon: icon, color: color, size: 32),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: AppTypography.style(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                  height: AppTypography.uppercaseHeight,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle!,
+                  style: AppTypography.style(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
-      ),
+        if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+      ],
     );
   }
 }
@@ -1511,12 +1782,12 @@ class _FormLeaveRingPainter extends CustomPainter {
     final track = Paint()
       ..color = trackColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 5.5
+      ..strokeWidth = 6
       ..strokeCap = StrokeCap.round;
     final fill = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 5.5
+      ..strokeWidth = 6
       ..strokeCap = StrokeCap.round;
     canvas.drawCircle(center, radius, track);
     canvas.drawArc(
@@ -1549,34 +1820,7 @@ class _PickerField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: '$label: $value',
-      child: ExcludeSemantics(
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: AppRadius.brControl,
-            child: InputDecorator(
-              decoration: InputDecoration(
-                labelText: label,
-                prefixIcon: Icon(icon),
-                suffixIcon: const Icon(Icons.expand_more_rounded, size: 20),
-              ),
-              child: Text(
-                value,
-                style: AppTypography.style(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    return RequestDateTile(label: label, value: value, onTap: onTap);
   }
 }
 
@@ -1598,38 +1842,23 @@ class _SubmitBar extends StatelessWidget {
     return Container(
       padding: EdgeInsets.fromLTRB(
         AppSpacing.page,
-        AppSpacing.sm,
+        12,
         AppSpacing.page,
-        MediaQuery.paddingOf(context).bottom + AppSpacing.sm,
+        MediaQuery.paddingOf(context).bottom + 12,
       ),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        border: const Border(top: BorderSide(color: AppColors.borderSoft)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.textPrimary.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton.icon(
-          onPressed: submitting ? null : onSubmit,
-          icon: submitting
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.2,
-                    color: Colors.white,
-                    strokeCap: StrokeCap.round,
-                  ),
-                )
-              : const Icon(Icons.send_rounded, size: 18),
-          label: Text(submitting ? savingLabel : label),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.xl),
         ),
+        boxShadow: AppShadows.nav,
+      ),
+      child: AppActionButton(
+        variant: AppActionVariant.primary,
+        icon: Icons.send_rounded,
+        label: submitting ? savingLabel : label,
+        loading: submitting,
+        onPressed: onSubmit,
       ),
     );
   }

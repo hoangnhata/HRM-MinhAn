@@ -65,28 +65,92 @@ class AppTypography {
     );
   }
 
+  /// Family chữ số hiển thị (KPI, số liệu lớn) — khai báo trong `pubspec.yaml`.
+  ///
+  /// Số Inter ExtraBold ở cỡ lớn nặng và thô (số 1 có cờ, khoảng tabular
+  /// thừa). Plus Jakarta Sans có chữ số hình học, thanh thoát hơn; chữ không
+  /// có glyph (hiếm) rơi về Inter.
+  static const String displayFamily = 'PlusJakartaSans';
+  static const List<String> _displayFallback = [fontFamily];
+
+  /// Nét tối đa cho số hiển thị: ExtraBold của Plus Jakarta Sans đã rất đậm,
+  /// nên w800/w900 truyền vào được hạ về Bold để số không bị bết.
+  static FontWeight _displayWeight(FontWeight w) =>
+      w.value > FontWeight.w700.value ? FontWeight.w700 : w;
+
+  /// Tracking (em) cho chữ số hiển thị theo cỡ: số càng lớn càng khít nhẹ,
+  /// số nhỏ giữ nguyên để không dính nét. Plus Jakarta Sans vốn đã khít nên
+  /// mức âm giữ ở ngưỡng vừa phải — quá âm làm "1." và "1,5" chạm nhau.
+  static double _displayTracking(double fontSize, {bool proportional = false}) {
+    final em = fontSize >= 40
+        ? -0.028
+        : fontSize >= 28
+        ? -0.022
+        : fontSize >= 18
+        ? -0.014
+        : -0.006;
+    // Chữ số tỷ lệ đã bỏ khoảng đệm tabular nên thả lỏng thêm một chút.
+    return fontSize * (proportional ? em + 0.004 : em);
+  }
+
   /// Số liệu KPI / chart — tương đương `fontFeatureSettings: "tnum"` của web.
+  /// Giữ chữ số đều rộng để cột số thẳng hàng và số không nhảy khi cập nhật.
   static TextStyle metric({
     double fontSize = 24,
     Color color = AppColors.textPrimary,
     FontWeight fontWeight = FontWeight.w700,
+    double? height,
   }) {
-    final tracking = fontSize >= 28
-        ? -0.6
-        : fontSize >= 22
-        ? -0.4
-        : fontSize >= 16
-        ? -0.25
-        : -0.1;
     return TextStyle(
-      fontFamily: fontFamily,
+      fontFamily: displayFamily,
+      fontFamilyFallback: _displayFallback,
       fontSize: fontSize,
-      fontWeight: fontWeight,
+      fontWeight: _displayWeight(fontWeight),
       color: color,
-      height: 1.1,
-      letterSpacing: tracking,
+      height: height ?? 1.1,
+      letterSpacing: _displayTracking(fontSize),
       fontFeatures: _numericFeatures,
     );
+  }
+
+  /// Số hero đứng riêng (tổng nhân lực, điểm tổng…): chữ số theo tỷ lệ để
+  /// "1" không bị chèn khoảng trống như bản tabular, tracking khít hơn.
+  static TextStyle display({
+    double fontSize = 44,
+    Color color = AppColors.textPrimary,
+    FontWeight fontWeight = FontWeight.w700,
+    double? height,
+  }) {
+    return TextStyle(
+      fontFamily: displayFamily,
+      fontFamilyFallback: _displayFallback,
+      fontSize: fontSize,
+      fontWeight: _displayWeight(fontWeight),
+      color: color,
+      height: height ?? 1.05,
+      letterSpacing: _displayTracking(fontSize, proportional: true),
+      fontFeatures: const [
+        FontFeature.proportionalFigures(),
+        FontFeature.liningFigures(),
+        FontFeature.enable('kern'),
+      ],
+    );
+  }
+
+  /// Giờ/phút kiểu "06:45" ở cỡ lớn (bộ chọn giờ, đồng hồ chấm công):
+  /// tabular để chữ số không xê dịch khi quay số, tracking dương nhẹ cho
+  /// dấu hai chấm có khoảng thở.
+  static TextStyle clock({
+    double fontSize = 40,
+    Color color = AppColors.primaryDark,
+    FontWeight fontWeight = FontWeight.w700,
+  }) {
+    return metric(
+      fontSize: fontSize,
+      color: color,
+      fontWeight: fontWeight,
+      height: 1.05,
+    ).copyWith(letterSpacing: fontSize * 0.01);
   }
 
   /// Số phụ trong legend / hàng chi tiết — nhẹ, dễ quét.
@@ -209,109 +273,111 @@ class AppTypography {
   }
 
   static TextTheme textTheme(TextTheme base) {
-    return base.apply(fontFamily: fontFamily).copyWith(
-      displayLarge: style(
-        fontSize: 32,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -1.12,
-        color: AppColors.textPrimary,
-        height: 1.15,
-      ),
-      displayMedium: style(
-        fontSize: 28,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.84,
-        color: AppColors.textPrimary,
-        height: 1.2,
-      ),
-      displaySmall: style(
-        fontSize: 26,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.65,
-        color: AppColors.textPrimary,
-        height: 1.25,
-      ),
-      headlineLarge: style(
-        fontSize: 24,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.72,
-        color: AppColors.textPrimary,
-        height: 1.2,
-      ),
-      headlineMedium: style(
-        fontSize: 22,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.55,
-        color: AppColors.textPrimary,
-        height: 1.25,
-      ),
-      headlineSmall: style(
-        fontSize: 20,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.5,
-        color: AppColors.textPrimary,
-        height: 1.25,
-      ),
-      titleLarge: style(
-        fontSize: 18,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.36,
-        color: AppColors.textPrimary,
-        height: 1.35,
-      ),
-      titleMedium: style(
-        fontSize: 15,
-        fontWeight: FontWeight.w500,
-        letterSpacing: -0.15,
-        color: AppColors.textPrimary,
-        height: 1.5,
-      ),
-      titleSmall: style(
-        fontSize: 13,
-        fontWeight: FontWeight.w500,
-        letterSpacing: -0.08,
-        color: AppColors.textSecondary,
-        height: 1.45,
-      ),
-      bodyLarge: style(
-        fontSize: 15,
-        height: 1.65,
-        letterSpacing: -0.16,
-        color: AppColors.textPrimary,
-      ),
-      bodyMedium: style(
-        fontSize: 13,
-        height: 1.55,
-        letterSpacing: -0.08,
-        color: AppColors.textPrimary,
-      ),
-      bodySmall: style(
-        fontSize: 12,
-        height: 1.5,
-        letterSpacing: 0.12,
-        color: AppColors.textSecondary,
-      ),
-      labelLarge: style(
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.17,
-        height: 1.35,
-      ),
-      labelMedium: style(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-        color: AppColors.textSecondary,
-        letterSpacing: -0.08,
-        height: 1.35,
-      ),
-      labelSmall: style(
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.15,
-        color: AppColors.textTertiary,
-        // StatusChip in hoa nhãn này nên dùng sàn dấu tiếng Việt.
-        height: uppercaseHeight,
-      ),
-    );
+    return base
+        .apply(fontFamily: fontFamily)
+        .copyWith(
+          displayLarge: style(
+            fontSize: 32,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -1.12,
+            color: AppColors.textPrimary,
+            height: 1.15,
+          ),
+          displayMedium: style(
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.84,
+            color: AppColors.textPrimary,
+            height: 1.2,
+          ),
+          displaySmall: style(
+            fontSize: 26,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.65,
+            color: AppColors.textPrimary,
+            height: 1.25,
+          ),
+          headlineLarge: style(
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.72,
+            color: AppColors.textPrimary,
+            height: 1.2,
+          ),
+          headlineMedium: style(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.55,
+            color: AppColors.textPrimary,
+            height: 1.25,
+          ),
+          headlineSmall: style(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.5,
+            color: AppColors.textPrimary,
+            height: 1.25,
+          ),
+          titleLarge: style(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.36,
+            color: AppColors.textPrimary,
+            height: 1.35,
+          ),
+          titleMedium: style(
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+            letterSpacing: -0.15,
+            color: AppColors.textPrimary,
+            height: 1.5,
+          ),
+          titleSmall: style(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            letterSpacing: -0.08,
+            color: AppColors.textSecondary,
+            height: 1.45,
+          ),
+          bodyLarge: style(
+            fontSize: 15,
+            height: 1.65,
+            letterSpacing: -0.16,
+            color: AppColors.textPrimary,
+          ),
+          bodyMedium: style(
+            fontSize: 13,
+            height: 1.55,
+            letterSpacing: -0.08,
+            color: AppColors.textPrimary,
+          ),
+          bodySmall: style(
+            fontSize: 12,
+            height: 1.5,
+            letterSpacing: 0.12,
+            color: AppColors.textSecondary,
+          ),
+          labelLarge: style(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.17,
+            height: 1.35,
+          ),
+          labelMedium: style(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textSecondary,
+            letterSpacing: -0.08,
+            height: 1.35,
+          ),
+          labelSmall: style(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.15,
+            color: AppColors.textTertiary,
+            // StatusChip in hoa nhãn này nên dùng sàn dấu tiếng Việt.
+            height: uppercaseHeight,
+          ),
+        );
   }
 }

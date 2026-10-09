@@ -214,6 +214,10 @@ class AttendanceRequestsController
     String? comment,
     bool? waiveForgotFine,
     bool? keepOriginalPunchTimes,
+    String? requestedStart,
+    String? requestedEnd,
+    String? requestedAfternoonStart,
+    String? requestedAfternoonEnd,
   }) async {
     final slug = AttendanceEnums.reviewEndpointFor(request.status);
     if (slug == null) {
@@ -228,6 +232,10 @@ class AttendanceRequestsController
         comment: comment,
         waiveForgotFine: waiveForgotFine,
         keepOriginalPunchTimes: keepOriginalPunchTimes,
+        requestedStart: requestedStart,
+        requestedEnd: requestedEnd,
+        requestedAfternoonStart: requestedAfternoonStart,
+        requestedAfternoonEnd: requestedAfternoonEnd,
       );
       await refreshAll();
       return true;

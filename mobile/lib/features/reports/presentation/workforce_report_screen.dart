@@ -16,6 +16,7 @@ import '../../../core/widgets/app_motion.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/brand_hero.dart';
 import '../../../shared/models/workforce_report.dart';
 import '../../auth/application/auth_controller.dart';
 import '../data/workforce_report_repository.dart';
@@ -38,6 +39,7 @@ class _WorkforceReportScreenState extends ConsumerState<WorkforceReportScreen> {
   WorkforceReport? _report;
   bool _loading = true;
   String? _error;
+
   /// dept | role | absent — browse mode (không phải port ma trận web).
   String _browse = 'dept';
 
@@ -205,9 +207,8 @@ class _WorkforceReportScreenState extends ConsumerState<WorkforceReportScreen> {
                       onTap: _pickDate,
                       onToday: _goToday,
                       onPrev: () => _shiftDate(-1),
-                      onNext: _date
-                              .add(const Duration(days: 1))
-                              .isAfter(_maxDate)
+                      onNext:
+                          _date.add(const Duration(days: 1)).isAfter(_maxDate)
                           ? null
                           : () => _shiftDate(1),
                     ),
@@ -265,8 +266,9 @@ class _WorkforceReportScreenState extends ConsumerState<WorkforceReportScreen> {
                       child: LinearProgressIndicator(
                         minHeight: 3,
                         color: AppColors.primary,
-                        backgroundColor:
-                            AppColors.primary.withValues(alpha: 0.12),
+                        backgroundColor: AppColors.primary.withValues(
+                          alpha: 0.12,
+                        ),
                       ),
                     ),
                   )
@@ -305,16 +307,16 @@ class _WorkforceReportScreenState extends ConsumerState<WorkforceReportScreen> {
               child: _browse == 'role'
                   ? _RoleSection(roles: roles, total: report.grandTotal)
                   : (_browse == 'absent' && _daily)
-                      ? _AbsentSection(
-                          rows: absent,
-                          reportDateLabel: reportDateLabel,
-                        )
-                      : _DeptSection(
-                          depts: depts,
-                          report: report,
-                          daily: _daily,
-                          reportDateLabel: reportDateLabel,
-                        ),
+                  ? _AbsentSection(
+                      rows: absent,
+                      reportDateLabel: reportDateLabel,
+                    )
+                  : _DeptSection(
+                      depts: depts,
+                      report: report,
+                      daily: _daily,
+                      reportDateLabel: reportDateLabel,
+                    ),
             ),
           ),
         ],
@@ -436,12 +438,9 @@ class _DateBar extends StatelessWidget {
                                   AppFormat.date(date),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: AppTypography.style(
+                                  style: AppTypography.metric(
                                     fontSize: 15,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.2,
                                     height: 1.15,
-                                    tabular: true,
                                   ),
                                 ),
                               ],
@@ -499,11 +498,7 @@ class _DateBarDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 28,
-      color: AppColors.borderSoft,
-    );
+    return Container(width: 1, height: 28, color: AppColors.borderSoft);
   }
 }
 
@@ -577,23 +572,24 @@ class _SummaryHero extends StatelessWidget {
     final rate = headcount <= 0 ? 0.0 : (present / headcount).clamp(0.0, 1.0);
     final ratePct = (rate * 100).round();
     final roles = report.rankedCategories;
+    // Trên nền teal đậm: xanh bạc hà (tốt) · trắng (khá) · vàng đồng (thấp).
     final rateColor = rate >= 0.9
-        ? AppColors.success
-        : (rate >= 0.75 ? AppColors.primary : AppColors.warning);
+        ? AppColors.onBrandRing
+        : (rate >= 0.75 ? Colors.white : AppColors.secondaryLight);
 
     final metrics = <_HeroMetricData>[
       _HeroMetricData(
         icon: Icons.apartment_rounded,
         label: 'Khoa/phòng',
         value: '${report.departmentCount}',
-        accent: AppColors.primary,
+        accent: const Color(0xFF5EEAD4),
         browse: 'dept',
       ),
       _HeroMetricData(
         icon: Icons.badge_rounded,
         label: 'Chức vụ',
         value: '${roles.length}',
-        accent: AppColors.info,
+        accent: const Color(0xFF93C5FD),
         browse: 'role',
       ),
       if (daily)
@@ -601,156 +597,132 @@ class _SummaryHero extends StatelessWidget {
           icon: Icons.person_off_rounded,
           label: 'Vắng mặt',
           value: '$absent',
-          accent: AppColors.warning,
+          accent: const Color(0xFFFCD34D),
           browse: 'absent',
         ),
     ];
+    final eyebrow = daily
+        ? (isToday ? 'Có mặt hôm nay' : 'Có mặt ngày $dateLabel')
+        : 'Tổng nhân lực';
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadius.brCard,
-        border: Border.all(color: AppColors.borderSoft),
-        boxShadow: AppShadows.card,
-      ),
-      clipBehavior: Clip.antiAlias,
+    // Nền gradient thương hiệu + vòng sáng + icon chìm: dùng lại GradientHeader
+    // để thẻ cùng ngôn ngữ với header phía trên, chỉ khác là bo đủ bốn góc.
+    return BrandHeroCard(
+      ornamentIcon: daily
+          ? Icons.event_available_rounded
+          : Icons.groups_rounded,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            height: 3,
-            decoration: const BoxDecoration(
-              gradient: AppGradients.brand,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            (daily
-                                    ? (isToday
-                                        ? 'Có mặt hôm nay'
-                                        : 'Có mặt ngày $dateLabel')
-                                    : 'Tổng nhân lực')
-                                .toUpperCase(),
-                            style: AppTypography.style(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.85,
-                              color: AppColors.primaryDark,
-                              height: 1.2,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(
-                                AppFormat.number(present),
-                                style: AppTypography.metric(
-                                  fontSize: 40,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.textPrimary,
+                    BrandHeroEyebrow(text: eyebrow),
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: present.toDouble()),
+                          duration: AppDurations.slow,
+                          curve: Curves.easeOutCubic,
+                          builder: (context, v, _) => Text(
+                            AppFormat.number(v.round()),
+                            style:
+                                AppTypography.display(
+                                  fontSize: 48,
+                                  color: Colors.white,
+                                ).copyWith(
+                                  shadows: [
+                                    Shadow(
+                                      color: AppColors.primaryDark.withValues(
+                                        alpha: 0.45,
+                                      ),
+                                      blurRadius: 16,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(width: 7),
-                              Text(
-                                daily ? 'người' : 'nhân viên',
-                                style: AppTypography.style(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            ],
                           ),
-                          const SizedBox(height: 5),
-                          Text(
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          daily ? 'người' : 'nhân viên',
+                          style: AppTypography.style(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.78),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          daily
+                              ? Icons.people_alt_outlined
+                              : Icons.apartment_rounded,
+                          size: 14,
+                          color: Colors.white.withValues(alpha: 0.65),
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
                             daily
                                 ? 'Trên tổng biên chế ${AppFormat.number(headcount)} người'
                                 : 'Biên chế hiện hữu · ${report.departmentCount} khoa/phòng',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: AppTypography.style(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w500,
-                              color: AppColors.textSecondary,
-                              height: 1.3,
+                              color: Colors.white.withValues(alpha: 0.78),
+                              height: 1.4,
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    if (daily)
-                      _RateRing(rate: rate, pct: ratePct, color: rateColor)
-                    else
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          gradient: AppGradients.brand,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: AppShadows.tinted(AppColors.primary),
                         ),
-                        child: const Icon(
-                          Icons.groups_rounded,
-                          size: 24,
-                          color: Colors.white,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (daily)
-                  _PresenceBar(
-                    color: rateColor,
-                    present: present,
-                    absent: absent,
-                  )
-                else if (roles.isNotEmpty)
-                  _RoleDistribution(roles: roles, total: present),
-                const SizedBox(height: 14),
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceAlt,
-                    borderRadius: AppRadius.brMd,
-                    border: Border.all(color: AppColors.borderSoft),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: IntrinsicHeight(
-                    child: Row(
-                      children: [
-                        for (var i = 0; i < metrics.length; i++) ...[
-                          if (i > 0)
-                            VerticalDivider(
-                              width: 1,
-                              thickness: 1,
-                              color: AppColors.borderSoft,
-                              indent: 10,
-                              endIndent: 10,
-                            ),
-                          Expanded(
-                            child: _HeroMetricTile(
-                              data: metrics[i],
-                              onTap: () => onBrowse(metrics[i].browse),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              if (daily)
+                _RateRing(rate: rate, pct: ratePct, color: rateColor)
+              else
+                const BrandGlassIconTile(
+                  icon: Icons.groups_rounded,
+                  size: 54,
+                ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          if (daily)
+            _PresenceBar(color: rateColor, present: present, absent: absent)
+          else if (roles.isNotEmpty)
+            _RoleDistribution(roles: roles, total: present),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              for (var i = 0; i < metrics.length; i++) ...[
+                if (i > 0) const SizedBox(width: AppSpacing.xs + 2),
+                Expanded(
+                  child: BrandHeroStat(
+                    icon: metrics[i].icon,
+                    label: metrics[i].label,
+                    value: metrics[i].value,
+                    accent: metrics[i].accent,
+                    onTap: () => onBrowse(metrics[i].browse),
                   ),
                 ),
               ],
-            ),
+            ],
           ),
         ],
       ),
@@ -759,11 +731,7 @@ class _SummaryHero extends StatelessWidget {
 }
 
 class _RateRing extends StatelessWidget {
-  const _RateRing({
-    required this.rate,
-    required this.pct,
-    required this.color,
-  });
+  const _RateRing({required this.rate, required this.pct, required this.color});
 
   final double rate;
   final int pct;
@@ -772,38 +740,33 @@ class _RateRing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 72,
-      height: 72,
+      width: 74,
+      height: 74,
       child: Stack(
         alignment: Alignment.center,
         children: [
           Container(
-            width: 72,
-            height: 72,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.06),
+              color: Colors.black.withValues(alpha: 0.12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
             ),
           ),
-          SizedBox(
-            width: 72,
-            height: 72,
+          SizedBox.expand(
             child: CircularProgressIndicator(
               value: 1,
-              strokeWidth: 5.5,
-              color: color.withValues(alpha: 0.14),
+              strokeWidth: 6,
+              color: Colors.white.withValues(alpha: 0.14),
             ),
           ),
-          SizedBox(
-            width: 72,
-            height: 72,
+          SizedBox.expand(
             child: TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: rate),
               duration: AppDurations.slow,
               curve: Curves.easeOutCubic,
               builder: (context, v, _) => CircularProgressIndicator(
                 value: v,
-                strokeWidth: 5.5,
+                strokeWidth: 6,
                 strokeCap: StrokeCap.round,
                 color: color,
               ),
@@ -815,9 +778,9 @@ class _RateRing extends StatelessWidget {
               Text(
                 '$pct%',
                 style: AppTypography.metric(
-                  fontSize: 16,
+                  fontSize: 17,
                   fontWeight: FontWeight.w800,
-                  color: color,
+                  color: Colors.white,
                 ),
               ),
               Text(
@@ -825,7 +788,7 @@ class _RateRing extends StatelessWidget {
                 style: AppTypography.style(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.textTertiary,
+                  color: Colors.white.withValues(alpha: 0.7),
                   height: 1.1,
                   letterSpacing: 0.1,
                 ),
@@ -857,32 +820,32 @@ class _PresenceBar extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ClipRRect(
-          borderRadius: AppRadius.brPill,
-          child: SizedBox(
-            height: 8,
-            child: Row(
-              children: [
-                if (presentFlex > 0)
-                  Expanded(
-                    flex: presentFlex,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(color: color),
+        BrandGlassTrack(
+          child: Row(
+            children: [
+              if (presentFlex > 0)
+                Expanded(
+                  flex: presentFlex,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: AppRadius.brPill,
                     ),
                   ),
-                if (absentFlex > 0) ...[
-                  if (presentFlex > 0) const SizedBox(width: 2),
-                  Expanded(
-                    flex: absentFlex,
-                    child: const DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceHighest,
-                      ),
+                ),
+              if (absentFlex > 0) ...[
+                if (presentFlex > 0) const SizedBox(width: 2),
+                Expanded(
+                  flex: absentFlex,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      borderRadius: AppRadius.brPill,
                     ),
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
         ),
         const SizedBox(height: 10),
@@ -898,10 +861,9 @@ class _PresenceBar extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: _PresenceStat(
-                color: AppColors.textTertiary,
+                color: Colors.white.withValues(alpha: 0.45),
                 label: 'Vắng',
                 value: absent,
-                muted: true,
               ),
             ),
           ],
@@ -916,23 +878,20 @@ class _PresenceStat extends StatelessWidget {
     required this.color,
     required this.label,
     required this.value,
-    this.muted = false,
   });
 
   final Color color;
   final String label;
   final int value;
-  final bool muted;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: muted
-            ? AppColors.surfaceMuted
-            : color.withValues(alpha: 0.08),
+        color: Colors.white.withValues(alpha: 0.10),
         borderRadius: AppRadius.brSm,
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
       ),
       child: Row(
         children: [
@@ -950,7 +909,7 @@ class _PresenceStat extends StatelessWidget {
               style: AppTypography.style(
                 fontSize: 11.5,
                 fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
+                color: Colors.white.withValues(alpha: 0.78),
               ),
             ),
           ),
@@ -959,7 +918,7 @@ class _PresenceStat extends StatelessWidget {
             style: AppTypography.style(
               fontSize: 13,
               fontWeight: FontWeight.w800,
-              color: muted ? AppColors.textSecondary : color,
+              color: Colors.white,
               tabular: true,
             ),
           ),
@@ -968,6 +927,9 @@ class _PresenceStat extends StatelessWidget {
     );
   }
 }
+
+/// Sắc chart làm sáng để đọc rõ trên nền teal đậm.
+Color _onBrandTone(Color c) => Color.lerp(c, Colors.white, 0.38)!;
 
 /// Thanh phân bổ chức vụ (stacked) — top 5 + nhóm còn lại.
 class _RoleDistribution extends StatelessWidget {
@@ -983,8 +945,9 @@ class _RoleDistribution extends StatelessWidget {
     final restCount = roles.skip(maxSegments).fold<int>(0, (s, e) => s + e.$2);
     final segments = <(String, int, Color)>[
       for (var i = 0; i < head.length; i++)
-        (head[i].$1.label, head[i].$2, workforceRoleColor(i)),
-      if (restCount > 0) ('Khác', restCount, AppColors.textTertiary),
+        (head[i].$1.label, head[i].$2, _onBrandTone(workforceRoleColor(i))),
+      if (restCount > 0)
+        ('Khác', restCount, Colors.white.withValues(alpha: 0.45)),
     ];
     final sum = segments.fold<int>(0, (s, e) => s + e.$2);
     if (sum <= 0) return const SizedBox.shrink();
@@ -992,46 +955,67 @@ class _RoleDistribution extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ClipRRect(
-          borderRadius: AppRadius.brPill,
-          child: SizedBox(
-            height: 8,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var i = 0; i < segments.length; i++)
-                  Expanded(
-                    flex: segments[i].$2,
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        right: i == segments.length - 1 ? 0 : 2,
-                      ),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: segments[i].$3,
-                          borderRadius: BorderRadius.circular(3),
-                        ),
+        Row(
+          children: [
+            Text(
+              'Cơ cấu chức vụ',
+              style: AppTypography.style(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '${segments.length} nhóm',
+              style: AppTypography.style(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: Colors.white.withValues(alpha: 0.65),
+                tabular: true,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        BrandGlassTrack(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < segments.length; i++)
+                Expanded(
+                  flex: segments[i].$2,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      right: i == segments.length - 1 ? 0 : 2,
+                    ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: segments[i].$3,
+                        borderRadius: AppRadius.brPill,
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
         const SizedBox(height: 10),
         Wrap(
-          spacing: 14,
+          spacing: 6,
           runSpacing: 6,
           children: [
             for (final s in segments.take(3))
               _LegendDot(
                 color: s.$3,
-                label: '${s.$1} ${(s.$2 * 100 / sum).round()}%',
+                label: s.$1,
+                value: '${(s.$2 * 100 / sum).round()}%',
               ),
             if (segments.length > 3)
               _LegendDot(
-                color: AppColors.textTertiary,
-                label: '+${segments.length - 3} nhóm khác',
+                color: Colors.white.withValues(alpha: 0.45),
+                label: 'Khác',
+                value: '+${segments.length - 3}',
               ),
           ],
         ),
@@ -1040,32 +1024,58 @@ class _RoleDistribution extends StatelessWidget {
   }
 }
 
+/// Chú thích dạng viên kính: chấm màu · nhãn · số đậm.
 class _LegendDot extends StatelessWidget {
-  const _LegendDot({required this.color, required this.label});
+  const _LegendDot({
+    required this.color,
+    required this.label,
+    required this.value,
+  });
+
   final Color color;
   final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: AppTypography.style(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
-            tabular: true,
+    return Container(
+      padding: const EdgeInsets.fromLTRB(7, 3, 8, 3),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.10),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
-        ),
-      ],
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: Colors.white.withValues(alpha: 0.8),
+              height: AppTypography.uppercaseHeight,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            value,
+            style: AppTypography.style(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              height: AppTypography.uppercaseHeight,
+              tabular: true,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1084,79 +1094,6 @@ class _HeroMetricData {
   final String value;
   final Color accent;
   final String browse;
-}
-
-class _HeroMetricTile extends StatelessWidget {
-  const _HeroMetricTile({required this.data, required this.onTap});
-
-  final _HeroMetricData data;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: '${data.label}: ${data.value}',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            HapticFeedback.selectionClick();
-            onTap();
-          },
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 12, 8, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: data.accent.withValues(alpha: 0.12),
-                        borderRadius: AppRadius.brXs,
-                      ),
-                      child: Icon(data.icon, size: 15, color: data.accent),
-                    ),
-                    const Spacer(),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      size: 16,
-                      color: AppColors.textTertiary.withValues(alpha: 0.85),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  data.value,
-                  maxLines: 1,
-                  style: AppTypography.metric(
-                    fontSize: 19,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  data.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
-                    height: 1.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1183,20 +1120,8 @@ class _BrowseTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tabs = <(String, String, IconData, int, Color)>[
-      (
-        'dept',
-        'Khoa',
-        Icons.apartment_rounded,
-        deptCount,
-        AppColors.primary,
-      ),
-      (
-        'role',
-        'Chức vụ',
-        Icons.badge_rounded,
-        roleCount,
-        AppColors.info,
-      ),
+      ('dept', 'Khoa', Icons.apartment_rounded, deptCount, AppColors.primary),
+      ('role', 'Chức vụ', Icons.badge_rounded, roleCount, AppColors.info),
       if (daily)
         (
           'absent',
@@ -1207,8 +1132,9 @@ class _BrowseTabs extends StatelessWidget {
         ),
     ];
 
-    final selectedIndex =
-        tabs.indexWhere((t) => t.$1 == browse).clamp(0, tabs.length - 1);
+    final selectedIndex = tabs
+        .indexWhere((t) => t.$1 == browse)
+        .clamp(0, tabs.length - 1);
     final slot = tabs.length == 1
         ? 0.0
         : -1 + 2 * selectedIndex / (tabs.length - 1);
@@ -1252,14 +1178,10 @@ class _BrowseTabs extends StatelessWidget {
                   heightFactor: 1,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: tabs[selectedIndex]
-                          .$5
-                          .withValues(alpha: 0.12),
+                      color: tabs[selectedIndex].$5.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(tileRadius),
                       border: Border.all(
-                        color: tabs[selectedIndex]
-                            .$5
-                            .withValues(alpha: 0.18),
+                        color: tabs[selectedIndex].$5.withValues(alpha: 0.18),
                       ),
                     ),
                   ),
@@ -1342,8 +1264,9 @@ class _BrowseTab extends StatelessWidget {
                         curve: Curves.easeOutCubic,
                         style: AppTypography.style(
                           fontSize: 12.5,
-                          fontWeight:
-                              selected ? FontWeight.w800 : FontWeight.w600,
+                          fontWeight: selected
+                              ? FontWeight.w800
+                              : FontWeight.w600,
                           color: fg,
                           letterSpacing: -0.1,
                           height: 1.15,

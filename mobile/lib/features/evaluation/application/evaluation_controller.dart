@@ -62,7 +62,7 @@ bool _isUnlinkedMessage(String? raw) {
 
 class EvaluationController extends StateNotifier<EvaluationState> {
   EvaluationController(this._repository, this._ref)
-      : super(const EvaluationState()) {
+    : super(const EvaluationState()) {
     refreshAll();
   }
 
@@ -202,10 +202,51 @@ class EvaluationController extends StateNotifier<EvaluationState> {
       return false;
     }
   }
+
+  /// Duyệt / từ chối nhiều phiếu ở bước hiện tại của từng phiếu.
+  ///
+  /// Gọi tuần tự (mỗi phiếu ký một snapshot chữ ký riêng ở backend), phiếu lỗi
+  /// không chặn các phiếu sau; tải lại hàng chờ một lần ở cuối.
+  Future<({int succeeded, int failed, String? lastError})> bulkReview(
+    List<NursingEvaluationRecord> records, {
+    required bool approved,
+    String? comment,
+  }) async {
+    var succeeded = 0;
+    var failed = 0;
+    String? lastError;
+
+    for (final record in records) {
+      final stage = stageFor(record.status);
+      if (stage == null) {
+        failed++;
+        lastError = 'Phiếu #${record.id} không còn ở bước chờ duyệt';
+        continue;
+      }
+      try {
+        await _repository.review(
+          record.id,
+          stage,
+          approved: approved,
+          comment: comment,
+        );
+        succeeded++;
+      } on ApiException catch (e) {
+        failed++;
+        lastError = e.message;
+      } catch (_) {
+        failed++;
+        lastError = 'Thao tác thất bại';
+      }
+    }
+
+    await refreshAll();
+    return (succeeded: succeeded, failed: failed, lastError: lastError);
+  }
 }
 
 final evaluationControllerProvider =
     StateNotifierProvider<EvaluationController, EvaluationState>((ref) {
-  ref.watch(sessionEpochProvider);
-  return EvaluationController(ref.watch(evaluationRepositoryProvider), ref);
-});
+      ref.watch(sessionEpochProvider);
+      return EvaluationController(ref.watch(evaluationRepositoryProvider), ref);
+    });

@@ -7,6 +7,8 @@ class UpdateScenario {
     required this.forgotUnits,
     this.partial = false,
     this.locked = false,
+    this.twoPunch = false,
+    this.continuous = false,
     this.missingMorningIn = false,
     this.missingMorningOut = false,
     this.missingAfternoonIn = false,
@@ -21,6 +23,10 @@ class UpdateScenario {
   final int forgotUnits;
   final bool partial;
   final bool locked;
+  /// Ca chỉ cần vào sáng + ra chiều (phân quyền công).
+  final bool twoPunch;
+  /// Ca thông tầm: cũng chỉ 2 mốc vào/ra.
+  final bool continuous;
   final bool missingMorningIn;
   final bool missingMorningOut;
   final bool missingAfternoonIn;
@@ -203,8 +209,125 @@ class WorkRequestDayLogic {
     );
   }
 
+  /// PQ công / ca thông tầm: chỉ vào sáng và ra chiều, tối đa 2 lần quên chấm.
+  static UpdateScenario detectTwoSlot(
+    AttendanceDay? day, {
+    bool twoPunch = true,
+    String? morningStart,
+    String? afternoonEnd,
+  }) {
+    var dayIn = day?.morningCheckInHm ?? '';
+    var dayOut = day?.afternoonCheckOutHm ?? '';
+    if (twoPunch) {
+      final inAnchor = (morningStart != null && morningStart.isNotEmpty)
+          ? morningStart
+          : '06:45';
+      final outAnchor = (afternoonEnd != null && afternoonEnd.isNotEmpty)
+          ? afternoonEnd
+          : '17:00';
+      final punches = _punchList(day);
+      if (dayIn.isNotEmpty && !_inWindow(dayIn, inAnchor, 60, 120)) dayIn = '';
+      if (dayOut.isNotEmpty && !_inWindow(dayOut, outAnchor, 60, 60)) {
+        dayOut = '';
+      }
+      if (dayIn.isEmpty) {
+        for (final t in punches) {
+          if (_inWindow(t, inAnchor, 60, 120)) {
+            dayIn = t;
+            break;
+          }
+        }
+      }
+      if (dayOut.isEmpty) {
+        for (final t in punches.reversed) {
+          if (t != dayIn && _inWindow(t, outAnchor, 60, 60)) {
+            dayOut = t;
+            break;
+          }
+        }
+      }
+    } else if (dayIn.isEmpty && dayOut.isEmpty) {
+      final punches = (day?.punchTimes ?? const <String>[])
+          .map((t) => t.length >= 5 ? t.substring(0, 5) : t)
+          .where((t) => t.isNotEmpty)
+          .toList()
+        ..sort();
+      if (punches.length == 1) {
+        if (_looksLikeAfternoonOut(punches.first)) {
+          dayOut = punches.first;
+        } else {
+          dayIn = punches.first;
+        }
+      } else if (punches.isNotEmpty) {
+        dayIn = punches.first;
+        dayOut = punches.last;
+      }
+    }
+    if (!twoPunch &&
+        dayIn.isNotEmpty &&
+        dayOut.isEmpty &&
+        _looksLikeAfternoonOut(dayIn)) {
+      dayOut = dayIn;
+      dayIn = '';
+    }
+    if (dayIn.isNotEmpty && dayIn == dayOut) {
+      if (_looksLikeAfternoonOut(dayIn)) {
+        dayIn = '';
+      } else {
+        dayOut = '';
+      }
+    }
+    final missingIn = dayIn.isEmpty;
+    final missingOut = dayOut.isEmpty;
+    final missing = (missingIn ? 1 : 0) + (missingOut ? 1 : 0);
+    return UpdateScenario(
+      updateKind: 'FULL_DAY_SUPPLEMENT',
+      forgotUnits: missing,
+      partial: missing == 1,
+      locked: true,
+      twoPunch: twoPunch,
+      continuous: !twoPunch,
+      missingMorningIn: missingIn,
+      missingAfternoonOut: missingOut,
+      existingMorningIn: dayIn.isEmpty ? null : dayIn,
+      existingAfternoonOut: dayOut.isEmpty ? null : dayOut,
+    );
+  }
+
+  static List<String> _punchList(AttendanceDay? day) {
+    final punches = (day?.punchTimes ?? const <String>[])
+        .map((t) => t.length >= 5 ? t.substring(0, 5) : t)
+        .where((t) => t.isNotEmpty)
+        .toList()
+      ..sort();
+    return punches;
+  }
+
+  static bool _inWindow(String time, String anchor, int beforeMin, int afterMin) {
+    final t = _minutes(time);
+    final a = _minutes(anchor);
+    return t >= a - beforeMin && t <= a + afterMin;
+  }
+
+  static int _minutes(String time) {
+    final parts = time.split(':');
+    final hour = int.tryParse(parts.first) ?? 0;
+    final minute = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+    return hour * 60 + minute;
+  }
+
+  static bool _looksLikeAfternoonOut(String time) {
+    final hour = int.tryParse(time.split(':').first) ?? 0;
+    return hour >= 12;
+  }
+
   static int forgotUnitsForChoice(String updateKind, UpdateScenario? scenario) {
     if (scenario == null) return defaultForgotUnits(updateKind);
+    if ((scenario.twoPunch || scenario.continuous) &&
+        updateKind == 'FULL_DAY_SUPPLEMENT') {
+      return (scenario.missingMorningIn ? 1 : 0) +
+          (scenario.missingAfternoonOut ? 1 : 0);
+    }
     if (updateKind == 'MORNING_SUPPLEMENT') {
       final n = (scenario.missingMorningIn ? 1 : 0) +
           (scenario.missingMorningOut ? 1 : 0);

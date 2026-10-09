@@ -27,6 +27,7 @@ import '../data/request_type_config.dart';
 import 'probation_conversion_detail_body.dart';
 import 'probation_score_sheet.dart';
 import 'request_create_flow_strip.dart';
+import '../../../core/widgets/request_form_widgets.dart';
 
 /// Lập đơn chuyển chính thức — API đồng bộ web, bố cục tối ưu mobile.
 class ProbationConversionCreateScreen extends ConsumerStatefulWidget {
@@ -72,16 +73,16 @@ class _ProbationConversionCreateScreenState
 
   bool get _isNurse => _formType == 'NURSE';
   bool get _nursingFlow => isNursingBlockTitle(
-        _employee?.summary.positionTitle,
-        _employee?.summary.departmentName,
-      );
+    _employee?.summary.positionTitle,
+    _employee?.summary.departmentName,
+  );
 
   List<RequestFlowStep> get _flowSteps => requestCreateFlowSteps(
-        probationFlowLabels(
-          _employee?.summary.positionTitle,
-          _employee?.summary.departmentName,
-        ),
-      );
+    probationFlowLabels(
+      _employee?.summary.positionTitle,
+      _employee?.summary.departmentName,
+    ),
+  );
 
   String get _statusPhrase {
     final s = (_employee?.summary.status ?? '').toUpperCase();
@@ -118,7 +119,9 @@ class _ProbationConversionCreateScreenState
           .detail(widget.employeeId);
       Map<String, dynamic>? existing;
       if (_isEdit) {
-        existing = await ref.read(genericRequestRepositoryProvider).byId(
+        existing = await ref
+            .read(genericRequestRepositoryProvider)
+            .byId(
               RequestTypeConfig.byKey('probation-conversion'),
               widget.requestId!,
             );
@@ -131,11 +134,15 @@ class _ProbationConversionCreateScreenState
 
       final formType = _isEdit
           ? ((existing!['formType'] as String?)?.toUpperCase() ??
-              (meta['formType'] as String?)?.toUpperCase() ??
-              'STAFF')
+                (meta['formType'] as String?)?.toUpperCase() ??
+                'STAFF')
           : ((meta['formType'] as String?)?.toUpperCase() ?? 'STAFF');
-      final criteria = ProbationScoreCatalog.fromApi(meta['criteria'], formType);
-      final formTypeLabel = _isEdit &&
+      final criteria = ProbationScoreCatalog.fromApi(
+        meta['criteria'],
+        formType,
+      );
+      final formTypeLabel =
+          _isEdit &&
               (existing!['formTypeLabel'] as String?)?.trim().isNotEmpty == true
           ? (existing['formTypeLabel'] as String).trim()
           : (meta['formTypeLabel'] as String?)?.trim().isNotEmpty == true
@@ -143,9 +150,9 @@ class _ProbationConversionCreateScreenState
           : ProbationScoreCatalog.formTypeLabel(formType);
       final maxScore = _isEdit
           ? ((existing!['maxScore'] as num?)?.toInt() ??
-              ProbationScoreCatalog.maxScoreOf(formType))
+                ProbationScoreCatalog.maxScoreOf(formType))
           : ((meta['maxScore'] as num?)?.toInt() ??
-              ProbationScoreCatalog.maxScoreOf(formType));
+                ProbationScoreCatalog.maxScoreOf(formType));
 
       setState(() {
         _employee = emp;
@@ -159,8 +166,9 @@ class _ProbationConversionCreateScreenState
           ..clear()
           ..addEntries(criteria.map((c) => MapEntry(c.code, 0)));
         if (existing != null) {
-          _officialDate =
-              DateTime.tryParse(existing['officialDate']?.toString() ?? '');
+          _officialDate = DateTime.tryParse(
+            existing['officialDate']?.toString() ?? '',
+          );
           _reason.text = existing['reason']?.toString() ?? '';
           _mentor.text = existing['mentorComment']?.toString() ?? '';
           _headDept.text = existing['headDeptComment']?.toString() ?? '';
@@ -208,7 +216,9 @@ class _ProbationConversionCreateScreenState
 
   Future<void> _trySyncContact(EmployeeDetail emp) async {
     try {
-      await ref.read(employeeRepositoryProvider).updateContact(
+      await ref
+          .read(employeeRepositoryProvider)
+          .updateContact(
             emp.summary.id,
             status: emp.summary.status ?? 'PROBATION',
             fullName: emp.summary.fullName,
@@ -265,22 +275,17 @@ class _ProbationConversionCreateScreenState
       };
       final Map<String, dynamic> result;
       if (_isEdit) {
-        result = await ref.read(genericRequestRepositoryProvider).update(
-              config,
-              widget.requestId!,
-              body,
-            );
+        result = await ref
+            .read(genericRequestRepositoryProvider)
+            .update(config, widget.requestId!, body);
       } else {
-        result = await ref.read(genericRequestRepositoryProvider).create(
-              config,
-              body,
-            );
+        result = await ref
+            .read(genericRequestRepositoryProvider)
+            .create(config, body);
       }
       if (!mounted) return;
       ref.invalidate(genericRequestControllerProvider('probation-conversion'));
-      final id = _isEdit
-          ? widget.requestId
-          : (result['id'] as num?)?.toInt();
+      final id = _isEdit ? widget.requestId : (result['id'] as num?)?.toInt();
       HapticFeedback.mediumImpact();
       showAppSnackBar(
         context,
@@ -289,9 +294,7 @@ class _ProbationConversionCreateScreenState
       );
       context.pop();
       if (id != null) {
-        context.push(
-          RoutePaths.requestDetailPath('probation-conversion', id),
-        );
+        context.push(RoutePaths.requestDetailPath('probation-conversion', id));
       }
     } on ApiException catch (e) {
       if (mounted) showAppSnackBar(context, e.message, isError: true);
@@ -353,7 +356,9 @@ class _ProbationConversionCreateScreenState
                     ? 'Chỉnh sửa đề nghị ký HĐLĐ'
                     : 'Đề nghị ký HĐLĐ chính thức',
                 icon: Icons.badge_outlined,
-                eyebrow: _isEdit ? 'Chỉnh sửa phiếu' : 'Lập đơn chuyển chính thức',
+                eyebrow: _isEdit
+                    ? 'Chỉnh sửa phiếu'
+                    : 'Lập đơn chuyển chính thức',
                 subtitle: s.fullName,
                 onBack: () => context.pop(),
               ),
@@ -382,7 +387,6 @@ class _ProbationConversionCreateScreenState
                       ),
                       const SizedBox(height: 12),
                       AppCard(
-                        accentColor: _accent,
                         padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
                         margin: EdgeInsets.zero,
                         child: Row(
@@ -452,7 +456,6 @@ class _ProbationConversionCreateScreenState
                       ),
                       const SizedBox(height: 12),
                       AppCard(
-                        accentColor: _accent,
                         padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
                         margin: EdgeInsets.zero,
                         child: Column(
@@ -480,17 +483,15 @@ class _ProbationConversionCreateScreenState
                               hint:
                                   'VD: Hoàn thành thời gian thử việc, đề nghị ký HĐLĐ chính thức…',
                               accent: _accent,
-                              validator: (v) =>
-                                  (v == null || v.trim().isEmpty)
-                                      ? 'Nhập lý do đề nghị'
-                                      : null,
+                              validator: (v) => (v == null || v.trim().isEmpty)
+                                  ? 'Nhập lý do đề nghị'
+                                  : null,
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 12),
                       AppCard(
-                        accentColor: _accent,
                         padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
                         margin: EdgeInsets.zero,
                         child: Column(
@@ -534,7 +535,6 @@ class _ProbationConversionCreateScreenState
                       ],
                       const SizedBox(height: 12),
                       AppCard(
-                        accentColor: _accent,
                         padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
                         margin: EdgeInsets.zero,
                         child: Column(
@@ -629,6 +629,7 @@ class _MiniChip extends StatelessWidget {
     );
   }
 }
+
 class _DateTile extends StatelessWidget {
   const _DateTile({
     required this.label,
@@ -639,53 +640,18 @@ class _DateTile extends StatelessWidget {
 
   final String label;
   final String value;
+
+  /// Giữ để không đổi chỗ gọi; ô ngày dùng sắc chung của form.
   final Color accent;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: accent.withValues(alpha: 0.08),
-      borderRadius: AppRadius.brMd,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brMd,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.brMd,
-            border: Border.all(color: accent.withValues(alpha: 0.28)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: AppTypography.style(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: accent,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      value,
-                      style: AppTypography.style(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.calendar_today_rounded, size: 16, color: accent),
-            ],
-          ),
-        ),
-      ),
+    return RequestDateTile(
+      label: label,
+      value: value,
+      onTap: onTap,
+      emphasized: true,
     );
   }
 }
@@ -778,6 +744,7 @@ class _BottomBar extends StatelessWidget {
     required this.onSubmit,
   });
 
+  /// Giữ để không đổi chỗ gọi; nút gửi dùng gradient brand chung.
   final Color accent;
   final bool saving;
   final String submitLabel;
@@ -786,70 +753,11 @@ class _BottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      elevation: 8,
-      color: AppColors.surface,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.page,
-            10,
-            AppSpacing.page,
-            12,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: saving ? null : onCancel,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    side: BorderSide(color: accent.withValues(alpha: 0.45)),
-                    foregroundColor: accent,
-                  ),
-                  child: const Text('Huỷ'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 2,
-                child: FilledButton.icon(
-                  onPressed: saving ? null : onSubmit,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: accent,
-                    minimumSize: const Size.fromHeight(48),
-                    elevation: 0,
-                  ),
-                  icon: saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Icon(
-                          submitLabel == 'Lưu thay đổi'
-                              ? Icons.save_outlined
-                              : Icons.send_rounded,
-                          size: 18,
-                        ),
-                  label: Text(
-                    saving
-                        ? (submitLabel == 'Lưu thay đổi'
-                            ? 'Đang lưu…'
-                            : 'Đang gửi…')
-                        : submitLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return RequestFormBottomBar(
+      saving: saving,
+      submitLabel: submitLabel,
+      onCancel: onCancel,
+      onSubmit: onSubmit,
     );
   }
 }

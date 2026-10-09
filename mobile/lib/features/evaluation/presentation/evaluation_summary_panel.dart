@@ -33,8 +33,10 @@ class _EvaluationSummaryPanelState
   final _search = TextEditingController();
   String _query = '';
   String _dept = '';
+
   /// Lọc nhanh: '', approved, pending, rejected.
   String _bucket = '';
+
   /// Lọc chi tiết theo nhóm trạng thái web (sheet).
   String _statusFilter = '';
 
@@ -60,10 +62,9 @@ class _EvaluationSummaryPanelState
       _error = null;
     });
     try {
-      final rows = await ref.read(evaluationRepositoryProvider).monthlySummary(
-            year: _year,
-            month: _month,
-          );
+      final rows = await ref
+          .read(evaluationRepositoryProvider)
+          .monthlySummary(year: _year, month: _month);
       if (!mounted) return;
       setState(() {
         _rows = rows;
@@ -174,11 +175,10 @@ class _EvaluationSummaryPanelState
     var status = _statusFilter;
     final result = await showModalBottomSheet<({String dept, String status})>(
       context: context,
+      showDragHandle: false,
       isScrollControlled: true,
       backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: AppRadius.brSheetTop,
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: AppRadius.brSheetTop),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocal) {
@@ -279,10 +279,8 @@ class _EvaluationSummaryPanelState
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => Navigator.pop(
-                              ctx,
-                              (dept: '', status: ''),
-                            ),
+                            onPressed: () =>
+                                Navigator.pop(ctx, (dept: '', status: '')),
                             child: const Text('Đặt lại'),
                           ),
                         ),
@@ -290,10 +288,10 @@ class _EvaluationSummaryPanelState
                         Expanded(
                           flex: 2,
                           child: FilledButton(
-                            onPressed: () => Navigator.pop(
-                              ctx,
-                              (dept: dept, status: status),
-                            ),
+                            onPressed: () => Navigator.pop(ctx, (
+                              dept: dept,
+                              status: status,
+                            )),
                             child: const Text('Áp dụng'),
                           ),
                         ),
@@ -428,9 +426,8 @@ class _EvaluationSummaryPanelState
                 AppChoiceChip(
                   label: 'Tất cả',
                   count: total,
-                  selected: _bucket.isEmpty &&
-                      _statusFilter.isEmpty &&
-                      _dept.isEmpty,
+                  selected:
+                      _bucket.isEmpty && _statusFilter.isEmpty && _dept.isEmpty,
                   onTap: () => setState(() {
                     _bucket = '';
                     _statusFilter = '';
@@ -473,7 +470,8 @@ class _EvaluationSummaryPanelState
                     label: EvaluationEnums.statusFilterGroups
                         .firstWhere(
                           (g) => g.$1 == _statusFilter,
-                          orElse: () => (_statusFilter, _statusFilter, const []),
+                          orElse: () =>
+                              (_statusFilter, _statusFilter, const []),
                         )
                         .$2,
                     selected: true,
@@ -530,8 +528,8 @@ class _EvaluationSummaryPanelState
                     row: row,
                     onTap: row.evaluationId > 0
                         ? () => context.push(
-                              RoutePaths.evaluationDetailPath(row.evaluationId),
-                            )
+                            RoutePaths.evaluationDetailPath(row.evaluationId),
+                          )
                         : null,
                   ),
                 ),
@@ -648,10 +646,9 @@ class _SummaryHero extends StatelessWidget {
                 children: [
                   Text(
                     '$total',
-                    style: AppTypography.metric(
+                    style: AppTypography.display(
                       fontSize: 42,
                       color: Colors.white,
-                      fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -772,7 +769,6 @@ class _HeroStatTap extends StatelessWidget {
     );
   }
 }
-
 
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({required this.row, this.onTap});
@@ -903,18 +899,72 @@ class _SummaryCard extends StatelessWidget {
 
 String _fold(String raw) {
   const map = {
-    'à': 'a', 'á': 'a', 'ạ': 'a', 'ả': 'a', 'ã': 'a',
-    'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ậ': 'a', 'ẩ': 'a', 'ẫ': 'a',
-    'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ặ': 'a', 'ẳ': 'a', 'ẵ': 'a',
-    'è': 'e', 'é': 'e', 'ẹ': 'e', 'ẻ': 'e', 'ẽ': 'e',
-    'ê': 'e', 'ề': 'e', 'ế': 'e', 'ệ': 'e', 'ể': 'e', 'ễ': 'e',
-    'ì': 'i', 'í': 'i', 'ị': 'i', 'ỉ': 'i', 'ĩ': 'i',
-    'ò': 'o', 'ó': 'o', 'ọ': 'o', 'ỏ': 'o', 'õ': 'o',
-    'ô': 'o', 'ồ': 'o', 'ố': 'o', 'ộ': 'o', 'ổ': 'o', 'ỗ': 'o',
-    'ơ': 'o', 'ờ': 'o', 'ớ': 'o', 'ợ': 'o', 'ở': 'o', 'ỡ': 'o',
-    'ù': 'u', 'ú': 'u', 'ụ': 'u', 'ủ': 'u', 'ũ': 'u',
-    'ư': 'u', 'ừ': 'u', 'ứ': 'u', 'ự': 'u', 'ử': 'u', 'ữ': 'u',
-    'ỳ': 'y', 'ý': 'y', 'ỵ': 'y', 'ỷ': 'y', 'ỹ': 'y',
+    'à': 'a',
+    'á': 'a',
+    'ạ': 'a',
+    'ả': 'a',
+    'ã': 'a',
+    'â': 'a',
+    'ầ': 'a',
+    'ấ': 'a',
+    'ậ': 'a',
+    'ẩ': 'a',
+    'ẫ': 'a',
+    'ă': 'a',
+    'ằ': 'a',
+    'ắ': 'a',
+    'ặ': 'a',
+    'ẳ': 'a',
+    'ẵ': 'a',
+    'è': 'e',
+    'é': 'e',
+    'ẹ': 'e',
+    'ẻ': 'e',
+    'ẽ': 'e',
+    'ê': 'e',
+    'ề': 'e',
+    'ế': 'e',
+    'ệ': 'e',
+    'ể': 'e',
+    'ễ': 'e',
+    'ì': 'i',
+    'í': 'i',
+    'ị': 'i',
+    'ỉ': 'i',
+    'ĩ': 'i',
+    'ò': 'o',
+    'ó': 'o',
+    'ọ': 'o',
+    'ỏ': 'o',
+    'õ': 'o',
+    'ô': 'o',
+    'ồ': 'o',
+    'ố': 'o',
+    'ộ': 'o',
+    'ổ': 'o',
+    'ỗ': 'o',
+    'ơ': 'o',
+    'ờ': 'o',
+    'ớ': 'o',
+    'ợ': 'o',
+    'ở': 'o',
+    'ỡ': 'o',
+    'ù': 'u',
+    'ú': 'u',
+    'ụ': 'u',
+    'ủ': 'u',
+    'ũ': 'u',
+    'ư': 'u',
+    'ừ': 'u',
+    'ứ': 'u',
+    'ự': 'u',
+    'ử': 'u',
+    'ữ': 'u',
+    'ỳ': 'y',
+    'ý': 'y',
+    'ỵ': 'y',
+    'ỷ': 'y',
+    'ỹ': 'y',
     'đ': 'd',
   };
   final lower = raw.toLowerCase();

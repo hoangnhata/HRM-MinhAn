@@ -5,8 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/approval_action_bar.dart';
 import '../../../core/widgets/auth_image_preview.dart';
 import '../../../core/widgets/auth_network_image.dart';
 import '../../../core/widgets/confirm_dialog.dart';
@@ -14,9 +15,9 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/highlight_pulse.dart';
 import '../../../core/widgets/info_row.dart';
-import '../../../core/widgets/status_chip.dart';
 import '../../../shared/models/nursing_evaluation.dart';
 import '../application/evaluation_controller.dart';
+import '../data/evaluation_repository.dart';
 import 'evaluation_enums.dart';
 
 class EvaluationDetailScreen extends ConsumerStatefulWidget {
@@ -188,10 +189,16 @@ class _EvaluationDetailScreenState
                         ),
                       ),
                       if (canReview)
-                        _ActionBar(
+                        ApprovalActionBar(
                           busy: _busy,
                           onApprove: () => _review(record, true),
                           onReject: () => _review(record, false),
+                          approveLabel: 'Duyệt & ký',
+                          approveIcon: Icons.draw_outlined,
+                          approveSemanticLabel: 'Duyệt và ký phiếu đánh giá',
+                          rejectSemanticLabel: 'Từ chối phiếu đánh giá',
+                          busySemanticLabel:
+                              'Đang xử lý phiếu đánh giá, vui lòng chờ',
                         ),
                     ],
                   ),
@@ -220,18 +227,8 @@ class _Body extends StatelessWidget {
           padding: AppSpacing.pageH,
           child: _ScoreCard(record: r),
         ),
-        if (r.scores.isNotEmpty)
-          SectionCard(
-            title: 'Chi tiết tiêu chí',
-            icon: Icons.checklist_rounded,
-            accentColor: AppColors.primary,
-            child: Column(
-              children: [
-                for (final entry in r.scores.entries)
-                  _CriterionRow(label: entry.key, raw: entry.value),
-              ],
-            ),
-          ),
+        const SizedBox(height: AppSpacing.md),
+        if (r.scores.isNotEmpty) _CriteriaSection(record: r),
         if (r.comments != null && r.comments!.isNotEmpty)
           SectionCard(
             title: 'Nhận xét chung',
@@ -250,7 +247,7 @@ class _Body extends StatelessWidget {
             children: [
               _SignatureRow(
                 role: 'Người lập (Trưởng khoa/ĐDT)',
-                username: r.evaluatorUsername,
+                username: r.evaluatorName,
                 reviewedAt: r.evaluatorSignedAt,
                 signatureUrl: r.evaluatorSignatureUrl,
                 state: stepStates[0],
@@ -259,6 +256,7 @@ class _Body extends StatelessWidget {
               const _SignatureDivider(),
               _SignatureRow(
                 role: 'Trưởng phòng ĐD',
+                username: r.headReviewerName,
                 reviewedAt: r.headReviewedAt,
                 signatureUrl: r.headSignatureUrl,
                 comment: r.headComment,
@@ -267,6 +265,7 @@ class _Body extends StatelessWidget {
               const _SignatureDivider(),
               _SignatureRow(
                 role: 'Hành chính - Nhân sự',
+                username: r.hrReviewerName,
                 reviewedAt: r.hrReviewedAt,
                 signatureUrl: r.hrSignatureUrl,
                 comment: r.hrComment,
@@ -275,6 +274,7 @@ class _Body extends StatelessWidget {
               const _SignatureDivider(),
               _SignatureRow(
                 role: 'Giám đốc',
+                username: r.directorReviewerName,
                 reviewedAt: r.directorReviewedAt,
                 signatureUrl: r.directorSignatureUrl,
                 comment: r.directorComment,
@@ -288,131 +288,566 @@ class _Body extends StatelessWidget {
   }
 }
 
-/// Thẻ nổi bật hiển thị tổng điểm và xếp loại của kỳ đánh giá.
+/// Mẫu phiếu theo mã — để hiện tên/điểm tối đa từng tiêu chí ở màn chi tiết.
+final _detailTemplateProvider =
+    FutureProvider.family<NursingEvalTemplate, String>((ref, code) {
+      return ref.watch(evaluationRepositoryProvider).template(code: code);
+    });
+
+/// Điểm của một tiêu chí: hỗ trợ cả dạng số trơn lẫn dạng `{points, note}`.
+double? _criterionPoints(NursingEvaluationRecord r, String id) {
+  final raw = r.scores[id];
+  if (raw is num) return raw.toDouble();
+  return r.scorePoints(id);
+}
+
+/// Thẻ hero tổng điểm: vòng điểm (số nằm trong vòng) + người được đánh giá,
+/// xếp loại, trạng thái; chân thẻ là dải kỳ đánh giá · ngày lập phiếu.
 class _ScoreCard extends StatelessWidget {
   const _ScoreCard({required this.record});
 
   final NursingEvaluationRecord record;
 
+  /// Sắc xếp loại trên nền teal đậm (dùng cho vòng điểm).
+  static Color _gradeTone(String? grade) {
+    final g = (grade ?? '').toUpperCase();
+    if (g.contains('XUẤT SẮC') || g == 'A') return const Color(0xFFFCD34D);
+    if (g.contains('TỐT')) return AppColors.onBrandRing;
+    if (g.contains('KHÁ') || g == 'B') return const Color(0xFF93C5FD);
+    if (g.contains('TRUNG BÌNH') || g == 'C') return const Color(0xFFFDBA74);
+    if (g.isEmpty) return AppColors.onBrandRing;
+    return const Color(0xFFFCA5A5);
+  }
+
+  /// Sắc trạng thái trên nền teal đậm.
+  static Color _statusTone(String status) {
+    if (status.contains('REJECT')) return const Color(0xFFFCA5A5);
+    if (status == 'APPROVED' || status == 'COMPLETED') {
+      return AppColors.onBrandRing;
+    }
+    return const Color(0xFFFCD34D);
+  }
+
   @override
   Widget build(BuildContext context) {
     final r = record;
-    final gradeColor = EvaluationEnums.gradeColor(r.overallGrade);
+    final name = (r.employeeName ?? '').trim();
+    final dept = (r.departmentName ?? '').trim();
+    final signedAt = r.evaluatorSignedAt == null
+        ? null
+        : DateTime.tryParse(r.evaluatorSignedAt!);
 
-    return AppCard(
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(gradient: AppGradients.tint(gradeColor)),
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: AppSpacing.md,
-              runSpacing: AppSpacing.sm,
-              children: [
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: AppRadius.brXl,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryDark.withValues(alpha: 0.26),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: AppRadius.brXl,
+        child: GradientHeader(
+          safeAreaTop: false,
+          bottomRadius: 0,
+          gradient: AppGradients.brandHero,
+          ornamentIcon: Icons.workspace_premium_rounded,
+          ornamentScale: 0.85,
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                child: Row(
                   children: [
-                    const OverlineLabel(text: 'Tổng điểm'),
-                    const SizedBox(height: 2),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          r.totalScore == null
-                              ? '—'
-                              : r.totalScore!.toStringAsFixed(1),
-                          style: TextStyle(
-                            fontSize: 30,
-                            fontWeight: FontWeight.w700,
-                            height: 1,
-                            letterSpacing: -1,
-                            color: gradeColor,
+                    _BigScoreRing(
+                      score: r.totalScore,
+                      color: _gradeTone(r.overallGrade),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: AppColors.secondaryLight,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.secondaryLight
+                                          .withValues(alpha: 0.6),
+                                      blurRadius: 6,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'KẾT QUẢ ĐÁNH GIÁ',
+                                style: AppTypography.uppercase(
+                                  fontSize: 9.5,
+                                  letterSpacing: 1.0,
+                                  color: AppColors.secondaryLight,
+                                ),
+                              ),
+                            ],
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            name.isEmpty ? 'Phiếu đánh giá' : name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                AppTypography.style(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.4,
+                                  height: AppTypography.uppercaseHeight,
+                                  color: Colors.white,
+                                ).copyWith(
+                                  shadows: [
+                                    Shadow(
+                                      color: AppColors.primaryDark.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                          ),
+                          if (dept.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Icon(
+                                    Icons.apartment_rounded,
+                                    size: 13,
+                                    color: Colors.white.withValues(alpha: 0.65),
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    dept,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppTypography.style(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w500,
+                                      height: 1.4,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.8,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 9),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              if (r.overallGrade != null)
+                                _HeroBadge(
+                                  icon: Icons.workspace_premium_rounded,
+                                  label: r.overallGrade!,
+                                  gold: true,
+                                ),
+                              _HeroBadge(
+                                dotColor: _statusTone(r.status),
+                                label: EvaluationEnums.statusLabel(r.status),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Chân thẻ: dải kính tối, hai mốc thời gian ngăn bằng vạch mảnh.
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 11, 16, 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.14),
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.10),
+                    ),
+                  ),
+                ),
+                child: IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _FooterInfo(
+                          icon: Icons.calendar_month_rounded,
+                          label: 'Kỳ đánh giá',
+                          value: 'Tháng ${r.periodMonth}/${r.periodYear}',
                         ),
-                        const SizedBox(width: 3),
-                        const Text(
-                          'điểm',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary,
+                      ),
+                      if (signedAt != null) ...[
+                        VerticalDivider(
+                          width: 24,
+                          thickness: 1,
+                          color: Colors.white.withValues(alpha: 0.14),
+                        ),
+                        Expanded(
+                          child: _FooterInfo(
+                            icon: Icons.send_rounded,
+                            label: 'Ngày lập phiếu',
+                            value: AppFormat.dateTime(signedAt),
                           ),
                         ),
                       ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (r.overallGrade != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.sm,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: gradeColor,
-                          borderRadius: AppRadius.brPill,
-                          boxShadow: AppShadows.tinted(gradeColor),
-                        ),
-                        child: Text(
-                          'Xếp loại ${r.overallGrade}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 6),
-                    StatusChip(
-                      label: EvaluationEnums.statusLabel(r.status),
-                      color: EvaluationEnums.statusColor(r.status),
-                      dense: true,
-                    ),
-                  ],
-                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Vòng điểm lớn: số điểm (font hiển thị) + "/100" nằm giữa vòng.
+class _BigScoreRing extends StatelessWidget {
+  const _BigScoreRing({required this.score, required this.color});
+
+  final double? score;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = score;
+    return SizedBox.square(
+      dimension: 96,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Quầng sáng cùng sắc xếp loại phía sau vòng.
+          Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.black.withValues(alpha: 0.14),
+              boxShadow: [
+                BoxShadow(color: color.withValues(alpha: 0.28), blurRadius: 22),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Column(
-              children: [
-                if (r.employeeName != null)
-                  InfoRow(
-                    label: 'Nhân viên',
-                    value: r.employeeName!,
-                    icon: Icons.person_outline_rounded,
-                  ),
-                if (r.departmentName != null)
-                  InfoRow(
-                    label: 'Khoa/phòng',
-                    value: r.departmentName!,
-                    icon: Icons.apartment_outlined,
-                  ),
-                InfoRow(
-                  label: 'Kỳ đánh giá',
-                  value: 'Tháng ${r.periodMonth}/${r.periodYear}',
-                  icon: Icons.event_outlined,
+          SizedBox.expand(
+            child: CircularProgressIndicator(
+              value: 1,
+              strokeWidth: 7,
+              color: Colors.white.withValues(alpha: 0.12),
+            ),
+          ),
+          if (value != null)
+            SizedBox.expand(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: (value / 100).clamp(0.0, 1.0)),
+                duration: AppDurations.slow,
+                curve: Curves.easeOutCubic,
+                builder: (context, v, _) => CircularProgressIndicator(
+                  value: v,
+                  strokeWidth: 7,
+                  strokeCap: StrokeCap.round,
+                  color: color,
                 ),
-                if (r.evaluatorSignedAt != null)
-                  InfoRow(
-                    label: 'Ngày lập phiếu',
-                    value: AppFormat.dateTime(
-                      DateTime.tryParse(r.evaluatorSignedAt!),
-                    ),
-                    icon: Icons.send_outlined,
-                  ),
-              ],
+              ),
+            ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                value == null ? '—' : AppFormat.score(value),
+                style: AppTypography.display(fontSize: 30, color: Colors.white),
+              ),
+              Text(
+                '/ 100 điểm',
+                style: AppTypography.style(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  height: 1.2,
+                  color: Colors.white.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FooterInfo extends StatelessWidget {
+  const _FooterInfo({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.12),
+            borderRadius: AppRadius.brControl,
+          ),
+          child: Icon(icon, size: 15, color: Colors.white),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.uppercase(
+                  fontSize: 8.5,
+                  letterSpacing: 0.6,
+                  color: Colors.white.withValues(alpha: 0.62),
+                ),
+              ),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.style(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  height: AppTypography.uppercaseHeight,
+                  tabular: true,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HeroBadge extends StatelessWidget {
+  const _HeroBadge({
+    required this.label,
+    this.icon,
+    this.dotColor,
+    this.gold = false,
+  });
+
+  final String label;
+  final IconData? icon;
+  final Color? dotColor;
+  final bool gold;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+      decoration: BoxDecoration(
+        gradient: gold ? AppGradients.gold : null,
+        color: gold ? null : Colors.black.withValues(alpha: 0.16),
+        borderRadius: AppRadius.brPill,
+        border: gold
+            ? null
+            : Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        boxShadow: gold
+            ? [
+                BoxShadow(
+                  color: AppColors.secondaryDark.withValues(alpha: 0.4),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: Colors.white),
+            const SizedBox(width: 4),
+          ] else if (dotColor != null) ...[
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: dotColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.style(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                height: AppTypography.uppercaseHeight,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Chi tiết tiêu chí nhóm theo phần của mẫu phiếu: số thứ tự, tên, điểm/tối đa
+/// và thanh tỉ lệ. Không tải được mẫu thì liệt kê theo mã như trước.
+class _CriteriaSection extends ConsumerWidget {
+  const _CriteriaSection({required this.record});
+
+  final NursingEvaluationRecord record;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final r = record;
+    final template = ref.watch(_detailTemplateProvider(r.templateCode)).value;
+    final criteria = template?.criteriaGroups ?? const <NursingEvalCriterion>[];
+    final known = criteria.where((c) => r.scores.containsKey(c.id)).toList();
+
+    final Widget body;
+    if (known.isEmpty) {
+      body = Column(
+        children: [
+          for (final (i, id) in r.scores.keys.indexed) ...[
+            if (i > 0) const Divider(height: 1, color: AppColors.divider),
+            _CriterionRow(
+              no: id,
+              title: null,
+              points: _criterionPoints(r, id),
+              max: null,
+              note: r.scoreNote(id),
+            ),
+          ],
+        ],
+      );
+    } else {
+      final sections = <String, List<NursingEvalCriterion>>{};
+      for (final c in known) {
+        sections.putIfAbsent(c.section, () => []).add(c);
+      }
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (si, entry) in sections.entries.indexed) ...[
+            if (si > 0) const SizedBox(height: AppSpacing.sm),
+            _SectionHeader(
+              title: entry.key,
+              got: entry.value.fold<double>(
+                0,
+                (s, c) => s + (_criterionPoints(r, c.id) ?? 0),
+              ),
+              max: entry.value.first.sectionPoints,
+            ),
+            for (final (i, c) in entry.value.indexed) ...[
+              if (i > 0) const Divider(height: 1, color: AppColors.divider),
+              _CriterionRow(
+                no: c.no.isEmpty ? c.id : c.no,
+                title: c.title.isEmpty ? null : c.title,
+                points: _criterionPoints(r, c.id),
+                max: c.maxPoints,
+                note: r.scoreNote(c.id),
+                bonus: c.bonus,
+                penalty: c.penalty,
+              ),
+            ],
+          ],
+        ],
+      );
+    }
+
+    return SectionCard(
+      title: 'Chi tiết tiêu chí',
+      icon: Icons.checklist_rounded,
+      accentColor: AppColors.primary,
+      trailing: r.totalScore == null
+          ? null
+          : Text(
+              '${AppFormat.score(r.totalScore)}/100',
+              style: AppTypography.display(
+                fontSize: 14,
+                color: AppColors.primaryDark,
+              ),
+            ),
+      child: body,
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, required this.got, this.max});
+
+  final String title;
+  final double got;
+  final double? max;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.fromLTRB(10, 7, 10, 7),
+      decoration: BoxDecoration(
+        gradient: AppGradients.tint(AppColors.primary),
+        borderRadius: AppRadius.brSm,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.style(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                height: AppTypography.uppercaseHeight,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            max == null
+                ? AppFormat.score(got)
+                : '${AppFormat.score(got)}/${AppFormat.score(max)}',
+            style: AppTypography.display(
+              fontSize: 13,
+              color: AppColors.primaryDark,
             ),
           ),
         ],
@@ -422,84 +857,180 @@ class _ScoreCard extends StatelessWidget {
 }
 
 class _CriterionRow extends StatelessWidget {
-  const _CriterionRow({required this.label, required this.raw});
+  const _CriterionRow({
+    required this.no,
+    required this.title,
+    required this.points,
+    required this.max,
+    this.note,
+    this.bonus = false,
+    this.penalty = false,
+  });
 
-  final String label;
-  final dynamic raw;
+  final String no;
+  final String? title;
+  final double? points;
+  final double? max;
+  final String? note;
+  final bool bonus;
+  final bool penalty;
 
   @override
   Widget build(BuildContext context) {
-    final points = raw is Map ? raw['points'] : raw;
-    final maxPoints = raw is Map ? raw['maxPoints'] ?? raw['max'] : null;
-    final note = raw is Map ? raw['note'] as String? : null;
-
-    final value = (points as num?)?.toDouble();
-    final max = (maxPoints as num?)?.toDouble();
-    final ratio = (value != null && max != null && max > 0)
-        ? (value / max).clamp(0.0, 1.0)
+    final value = points;
+    final ratio = (value != null && max != null && max! > 0)
+        ? (value / max!).clamp(0.0, 1.0)
         : null;
-    final color = ratio == null
+    final color = penalty
+        ? AppColors.error
+        : bonus
+        ? AppColors.success
+        : ratio == null
         ? AppColors.primary
         : ratio >= 0.8
         ? AppColors.success
         : ratio >= 0.5
         ? AppColors.warning
         : AppColors.error;
+    final ink = Color.lerp(color, AppColors.textPrimary, 0.2)!;
+    final sign = penalty && (value ?? 0) > 0 ? '−' : (bonus ? '+' : '');
+    final valueText = value == null ? '—' : AppFormat.score(value);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Column(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    height: 1.35,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
+          Container(
+            constraints: const BoxConstraints(minWidth: 30),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceMuted,
+              borderRadius: AppRadius.brChipSmall,
+            ),
+            child: Text(
+              no,
+              style: AppTypography.style(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textSecondary,
+                tabular: true,
+                height: AppTypography.uppercaseHeight,
               ),
-              const SizedBox(width: AppSpacing.xs),
-              Text(
-                max == null
-                    ? '${AppFormat.compactNumber(value)} điểm'
-                    : '${AppFormat.compactNumber(value)}/${AppFormat.compactNumber(max)}',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-              ),
-            ],
+            ),
           ),
-          if (ratio != null) ...[
-            const SizedBox(height: 5),
-            ClipRRect(
-              borderRadius: AppRadius.brPill,
-              child: LinearProgressIndicator(
-                value: ratio,
-                minHeight: 4,
-                backgroundColor: AppColors.surfaceMuted,
-                valueColor: AlwaysStoppedAnimation(color),
-              ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title ?? 'Tiêu chí $no',
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          height: 1.4,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.10),
+                        borderRadius: AppRadius.brPill,
+                      ),
+                      child: Text.rich(
+                        TextSpan(
+                          text: '$sign$valueText',
+                          style: AppTypography.display(
+                            fontSize: 13,
+                            color: ink,
+                          ),
+                          children: [
+                            TextSpan(
+                              text: max == null
+                                  ? ' đ'
+                                  : '/${AppFormat.score(max)}',
+                              style: AppTypography.style(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: ink.withValues(alpha: 0.7),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (ratio != null && !bonus && !penalty) ...[
+                  const SizedBox(height: 7),
+                  Container(
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.10),
+                      borderRadius: AppRadius.brPill,
+                    ),
+                    alignment: Alignment.centerLeft,
+                    child: FractionallySizedBox(
+                      heightFactor: 1,
+                      widthFactor: ratio,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: AppRadius.brPill,
+                          gradient: LinearGradient(
+                            colors: [
+                              Color.lerp(color, Colors.white, 0.3)!,
+                              color,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                if (note != null && note!.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(top: 1),
+                        child: Icon(
+                          Icons.sticky_note_2_outlined,
+                          size: 13,
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          note!,
+                          style: AppTypography.style(
+                            fontSize: 12,
+                            height: 1.4,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
-          ],
-          if (note != null && note.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              note,
-              style: const TextStyle(
-                fontSize: 11.8,
-                fontStyle: FontStyle.italic,
-                color: AppColors.textTertiary,
-              ),
-            ),
-          ],
+          ),
         ],
       ),
     );
@@ -743,104 +1274,4 @@ IconData _evaluationStepIcon(_EvaluationStepState state) {
     _EvaluationStepState.upcoming => Icons.lock_outline_rounded,
     _EvaluationStepState.stopped => Icons.block_rounded,
   };
-}
-
-class _ActionBar extends StatelessWidget {
-  const _ActionBar({
-    required this.busy,
-    required this.onApprove,
-    required this.onReject,
-  });
-
-  final bool busy;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: const Border(top: BorderSide(color: AppColors.borderSoft)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.textPrimary.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (busy)
-              Semantics(
-                liveRegion: true,
-                label: 'Đang xử lý phiếu đánh giá, vui lòng chờ',
-                child: const LinearProgressIndicator(minHeight: 2),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.page,
-                AppSpacing.sm,
-                AppSpacing.page,
-                AppSpacing.sm,
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final textScale = MediaQuery.textScalerOf(context).scale(1);
-                  final stack = constraints.maxWidth < 330 || textScale > 1.25;
-                  final reject = Semantics(
-                    button: true,
-                    enabled: !busy,
-                    label: 'Từ chối phiếu đánh giá',
-                    child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.error,
-                      side: BorderSide(
-                        color: AppColors.error.withValues(alpha: 0.45),
-                      ),
-                    ),
-                    onPressed: busy ? null : onReject,
-                    icon: const Icon(Icons.close_rounded, size: 18),
-                    label: const Text('Từ chối'),
-                    ),
-                  );
-                  final approve = Semantics(
-                    button: true,
-                    enabled: !busy,
-                    label: 'Duyệt và ký phiếu đánh giá',
-                    child: ElevatedButton.icon(
-                    onPressed: busy ? null : onApprove,
-                    icon: const Icon(Icons.draw_outlined, size: 18),
-                    label: const Text('Duyệt & ký'),
-                    ),
-                  );
-                  if (stack) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        approve,
-                        const SizedBox(height: AppSpacing.xs),
-                        reject,
-                      ],
-                    );
-                  }
-                  return Row(
-                    children: [
-                      Expanded(child: reject),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(flex: 3, child: approve),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

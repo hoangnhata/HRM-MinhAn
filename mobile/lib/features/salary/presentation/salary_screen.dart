@@ -17,6 +17,8 @@ import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/info_row.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/widgets/status_chip.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
+import '../../../core/widgets/brand_hero.dart';
 import '../../../shared/models/salary_models.dart';
 import '../../auth/application/auth_controller.dart';
 import '../data/salary_repository.dart';
@@ -68,8 +70,8 @@ class SalaryScreen extends ConsumerWidget {
               icon: Icons.payments_rounded,
               subtitle: isManager
                   ? (unlocked
-                      ? 'Đã mở khóa quản lý lương toàn viện'
-                      : 'Lương cá nhân · quản lý cần mở khóa')
+                        ? 'Đã mở khóa quản lý lương toàn viện'
+                        : 'Lương cá nhân · quản lý cần mở khóa')
                   : 'Thông tin lương, thâm niên và bậc lương',
               trailing: canView || isManager
                   ? _HeaderScaleButton(
@@ -163,13 +165,13 @@ class SalaryScreen extends ConsumerWidget {
                                     'Hồ sơ lương của bạn chưa được mở quyền xem.',
                               )
                             : employeeId == null
-                                ? const EmptyState(
-                                    icon: Icons.link_off_rounded,
-                                    title: 'Chưa liên kết hồ sơ nhân viên',
-                                    message:
-                                        'Tài khoản chưa gắn hồ sơ nhân viên nên chưa xem được lương cá nhân.',
-                                  )
-                                : _MySalarySection(employeeId: employeeId),
+                            ? const EmptyState(
+                                icon: Icons.link_off_rounded,
+                                title: 'Chưa liên kết hồ sơ nhân viên',
+                                message:
+                                    'Tài khoản chưa gắn hồ sơ nhân viên nên chưa xem được lương cá nhân.',
+                              )
+                            : _MySalarySection(employeeId: employeeId),
                       ),
                     ],
                   ),
@@ -288,51 +290,53 @@ class _HubTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.primary.withValues(alpha: 0.08),
-      borderRadius: AppRadius.brMd,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brMd,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.14),
-                  borderRadius: AppRadius.brSm,
-                ),
-                child: Icon(icon, size: 18, color: AppColors.primaryDark),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
+      type: MaterialType.transparency,
+      shape: RoundedRectangleBorder(
+        borderRadius: AppRadius.brCard,
+        side: BorderSide(color: AppColors.primary.withValues(alpha: 0.16)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: TintedCardBackdrop.gradient(AppColors.primary),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 11, 10, 11),
+            child: Row(
+              children: [
+                TintedIconTile(icon: icon, color: AppColors.primary, size: 34),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          height: AppTypography.uppercaseHeight,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
-                    ),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 11,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -364,11 +368,7 @@ class _HeaderScaleButton extends StatelessWidget {
             child: SizedBox(
               width: 44,
               height: 44,
-              child: Icon(
-                Icons.stairs_rounded,
-                color: onBrand,
-                size: 20,
-              ),
+              child: Icon(Icons.stairs_rounded, color: onBrand, size: 20),
             ),
           ),
         ),
@@ -448,21 +448,9 @@ class _BodyState extends State<_Body> {
             ),
             child: _OverviewStrip(
               items: [
-                (
-                  Icons.calendar_month_rounded,
-                  'Bắt đầu',
-                  startDate,
-                ),
-                (
-                  Icons.trending_up_rounded,
-                  'Thâm niên',
-                  seniorityLabel,
-                ),
-                (
-                  Icons.military_tech_rounded,
-                  'Bậc',
-                  profile.gradeLabel ?? '—',
-                ),
+                (Icons.calendar_month_rounded, 'Bắt đầu', startDate),
+                (Icons.trending_up_rounded, 'Thâm niên', seniorityLabel),
+                (Icons.military_tech_rounded, 'Bậc', profile.gradeLabel ?? '—'),
               ],
             ),
           ),
@@ -561,145 +549,107 @@ class _SalaryHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 16, 14, 18),
-      decoration: BoxDecoration(
-        gradient: AppGradients.brand,
-        borderRadius: AppRadius.brLg,
-        boxShadow: AppShadows.tinted(AppColors.primary),
-      ),
-      child: Stack(
+    return BrandHeroCard(
+      ornamentIcon: Icons.account_balance_wallet_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Positioned(
-            right: -28,
-            top: -34,
-            child: Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.08),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 40,
-            bottom: -40,
-            child: Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.05),
-              ),
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.16),
-                      borderRadius: AppRadius.brSm,
-                    ),
-                    child: const Icon(
-                      Icons.account_balance_wallet_rounded,
-                      color: Colors.white,
-                      size: 19,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'TỔNG LƯƠNG HIỆN TẠI',
-                          style: AppTypography.style(
-                            color: Colors.white.withValues(alpha: 0.78),
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.65,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          objectLabel,
-                          style: AppTypography.style(
-                            color: Colors.white.withValues(alpha: 0.92),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (canReveal)
-                    Semantics(
-                      button: true,
-                      label: showAmounts ? 'Ẩn số tiền' : 'Hiện số tiền',
-                      child: Material(
-                        color: Colors.white.withValues(alpha: 0.14),
-                        shape: const CircleBorder(),
-                        clipBehavior: Clip.antiAlias,
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: onToggleReveal,
-                          child: SizedBox(
-                            width: 44,
-                            height: 44,
-                            child: Icon(
-                              showAmounts
-                                  ? Icons.visibility_off_rounded
-                                  : Icons.visibility_rounded,
-                              color: Colors.white,
-                              size: 19,
-                            ),
-                          ),
-                        ),
+              const BrandGlassIconTile(
+                icon: Icons.account_balance_wallet_rounded,
+                size: 42,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const BrandHeroEyebrow(text: 'Tổng lương hiện tại'),
+                    const SizedBox(height: 5),
+                    Text(
+                      objectLabel,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.style(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
                       ),
                     ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 16),
-              Semantics(
-                label: 'Tổng lương: $totalSemantic',
-                child: ExcludeSemantics(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      totalLabel,
-                      style: AppTypography.metric(
-                        fontSize: 30,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
+              if (canReveal) ...[
+                const SizedBox(width: 8),
+                Semantics(
+                  button: true,
+                  label: showAmounts ? 'Ẩn số tiền' : 'Hiện số tiền',
+                  child: Material(
+                    type: MaterialType.transparency,
+                    shape: CircleBorder(
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.24),
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Ink(
+                      color: Colors.white.withValues(alpha: 0.14),
+                      child: InkWell(
+                        onTap: onToggleReveal,
+                        child: SizedBox(
+                          width: 42,
+                          height: 42,
+                          child: Icon(
+                            showAmounts
+                                ? Icons.visibility_off_rounded
+                                : Icons.visibility_rounded,
+                            color: Colors.white,
+                            size: 19,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _HeroPill(
-                    icon: Icons.military_tech_rounded,
-                    label: gradeLabel,
+              ],
+            ],
+          ),
+          const SizedBox(height: 18),
+          Semantics(
+            label: 'Tổng lương: $totalSemantic',
+            child: ExcludeSemantics(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  totalLabel,
+                  style: AppTypography.display(
+                    fontSize: 32,
+                    color: Colors.white,
+                    height: 1.1,
                   ),
-                  if (coefficient != null && coefficient! > 0)
-                    _HeroPill(
-                      icon: Icons.functions_rounded,
-                      label: 'Hệ số $coefficient',
-                    ),
-                ],
+                ),
               ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _HeroPill(
+                icon: Icons.military_tech_rounded,
+                label: gradeLabel,
+                tone: AppColors.secondaryLight,
+              ),
+              if (coefficient != null && coefficient! > 0)
+                _HeroPill(
+                  icon: Icons.functions_rounded,
+                  label: 'Hệ số $coefficient',
+                  tone: AppColors.onBrandRing,
+                ),
             ],
           ),
         ],
@@ -709,24 +659,29 @@ class _SalaryHero extends StatelessWidget {
 }
 
 class _HeroPill extends StatelessWidget {
-  const _HeroPill({required this.icon, required this.label});
+  const _HeroPill({
+    required this.icon,
+    required this.label,
+    this.tone = Colors.white,
+  });
 
   final IconData icon;
   final String label;
+  final Color tone;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.fromLTRB(8, 5, 11, 5),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.15),
+        color: Colors.black.withValues(alpha: 0.14),
         borderRadius: AppRadius.brPill,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        border: Border.all(color: tone.withValues(alpha: 0.35)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Colors.white.withValues(alpha: 0.92)),
+          Icon(icon, size: 14, color: tone),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
@@ -734,9 +689,10 @@ class _HeroPill extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTypography.style(
-                color: Colors.white,
+                color: tone,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
+                height: AppTypography.uppercaseHeight,
               ),
             ),
           ),
@@ -754,51 +710,55 @@ class _OverviewStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
-      child: Row(
-        children: [
-          for (final (i, item) in items.indexed) ...[
-            if (i > 0)
-              Container(
-                width: 1,
-                height: 42,
-                color: AppColors.textTertiary.withValues(alpha: 0.18),
-              ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Column(
-                  children: [
-                    Icon(item.$1, size: 18, color: AppColors.primary),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.$2,
-                      textAlign: TextAlign.center,
-                      style: AppTypography.style(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textTertiary,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            for (final (i, item) in items.indexed) ...[
+              if (i > 0)
+                const VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: AppColors.divider,
+                ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(
+                    children: [
+                      TintedIconTile(
+                        icon: item.$1,
+                        color: AppColors.primary,
+                        size: 30,
                       ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      item.$3,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 12.8,
-                        fontWeight: FontWeight.w800,
-                        height: 1.2,
-                        color: AppColors.textPrimary,
+                      const SizedBox(height: 8),
+                      Text(
+                        item.$2.toUpperCase(),
+                        textAlign: TextAlign.center,
+                        style: AppTypography.uppercase(
+                          fontSize: 9.5,
+                          letterSpacing: 0.6,
+                          color: AppColors.textTertiary,
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 3),
+                      Text(
+                        item.$3,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.metric(
+                          fontSize: 13.5,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -811,35 +771,24 @@ class _ScaleShortcut extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brLg,
-        child: Ink(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.brLg,
-            color: AppColors.surface,
-            border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.12),
-            ),
-            boxShadow: AppShadows.soft,
-          ),
+    const accent = AppColors.primary;
+    return AppCard(
+      onTap: onTap,
+      gradient: TintedCardBackdrop.gradient(accent),
+      borderRadius: AppRadius.brLg,
+      padding: EdgeInsets.zero,
+      margin: EdgeInsets.zero,
+      child: TintedCardBackdrop(
+        accent: accent,
+        watermarkIcon: Icons.stairs_rounded,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
           child: Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  gradient: AppGradients.brand,
-                  borderRadius: AppRadius.brMd,
-                ),
-                child: const Icon(
-                  Icons.stairs_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
+              const TintedIconTile(
+                icon: Icons.stairs_rounded,
+                color: accent,
+                size: 44,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -851,6 +800,8 @@ class _ScaleShortcut extends StatelessWidget {
                       style: AppTypography.style(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w800,
+                        height: AppTypography.uppercaseHeight,
+                        color: AppColors.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -861,19 +812,8 @@ class _ScaleShortcut extends StatelessWidget {
                   ],
                 ),
               ),
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.08),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.arrow_forward_rounded,
-                  size: 16,
-                  color: AppColors.primary,
-                ),
-              ),
+              const SizedBox(width: 8),
+              const TintedChevron(accent: accent),
             ],
           ),
         ),
@@ -900,8 +840,8 @@ class _SalaryDetailsCard extends StatelessWidget {
     final isEmployee = profile.salaryCategory == 'EMPLOYEE';
     final isDoctor = profile.salaryCategory == 'DOCTOR';
     final grade = profile.computedGrade;
-    final hasSplit = (profile.insuranceSalary ?? 0) > 0 ||
-        (profile.productSalary ?? 0) > 0;
+    final hasSplit =
+        (profile.insuranceSalary ?? 0) > 0 || (profile.productSalary ?? 0) > 0;
     final conversions = profile.earlyRaiseConversions;
 
     return Padding(
@@ -929,21 +869,35 @@ class _SalaryDetailsCard extends StatelessWidget {
                   top: Radius.circular(AppRadius.md),
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(
-                    'Chi tiết lương',
-                    style: AppTypography.style(
-                      fontSize: 16.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.2,
-                    ),
+                  const TintedIconTile(
+                    icon: Icons.receipt_rounded,
+                    color: AppColors.success,
+                    size: 36,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Kết quả tính theo cấu hình hiện tại',
-                    style: AppTypography.caption(),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Chi tiết lương',
+                          style: AppTypography.style(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.2,
+                            height: AppTypography.uppercaseHeight,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Kết quả tính theo cấu hình hiện tại',
+                          style: AppTypography.caption(),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -1005,9 +959,9 @@ class _SalaryDetailsCard extends StatelessWidget {
                   if (conversions.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Theme(
-                      data: Theme.of(context).copyWith(
-                        dividerColor: Colors.transparent,
-                      ),
+                      data: Theme.of(
+                        context,
+                      ).copyWith(dividerColor: Colors.transparent),
                       child: ExpansionTile(
                         tilePadding: EdgeInsets.zero,
                         childrenPadding: const EdgeInsets.only(bottom: 4),
@@ -1051,7 +1005,8 @@ class _SalaryDetailsCard extends StatelessWidget {
                       ),
                     ),
                   ],
-                  if (isEmployee && (profile.qualification?.isNotEmpty ?? false))
+                  if (isEmployee &&
+                      (profile.qualification?.isNotEmpty ?? false))
                     _DetailLine(
                       label: 'Trình độ',
                       value: profile.qualification!,
@@ -1130,12 +1085,7 @@ class _DetailLine extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 11),
         decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: AppColors.textTertiary.withValues(alpha: 0.22),
-              style: BorderStyle.solid,
-            ),
-          ),
+          border: Border(bottom: BorderSide(color: AppColors.divider)),
         ),
         child: ExcludeSemantics(
           child: Row(
@@ -1216,6 +1166,8 @@ class _PayrollCardState extends State<_PayrollCard> {
           : 'Chạm hai lần để xem chi tiết',
       child: AppCard(
         onTap: () => setState(() => _expanded = !_expanded),
+        gradient: TintedCardBackdrop.gradient(color),
+        borderRadius: AppRadius.brCard,
         padding: const EdgeInsets.all(AppSpacing.sm + 2),
         child: ExcludeSemantics(
           child: AnimatedSize(
@@ -1227,8 +1179,8 @@ class _PayrollCardState extends State<_PayrollCard> {
               children: [
                 Row(
                   children: [
-                    AppIconBadge(
-                      icon: Icons.calendar_month_outlined,
+                    TintedIconTile(
+                      icon: Icons.calendar_month_rounded,
                       color: color,
                       size: 42,
                     ),
@@ -1243,7 +1195,7 @@ class _PayrollCardState extends State<_PayrollCard> {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            'Ngày công: ${AppFormat.compactNumber(row.workingDays)}',
+                            'Ngày công: ${AppFormat.score(row.workingDays)}',
                             style: AppTypography.listSubtitle(),
                           ),
                         ],
@@ -1252,9 +1204,21 @@ class _PayrollCardState extends State<_PayrollCard> {
                     AnimatedRotation(
                       turns: _expanded ? 0.5 : 0,
                       duration: AppDurations.fast,
-                      child: const Icon(
-                        Icons.keyboard_arrow_down_rounded,
-                        color: AppColors.textTertiary,
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: color.withValues(alpha: 0.18),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 20,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ),
                   ],
@@ -1268,10 +1232,9 @@ class _PayrollCardState extends State<_PayrollCard> {
                         alignment: Alignment.centerLeft,
                         child: Text(
                           widget.amountFormatter(row.netAmount),
-                          style: AppTypography.metric(
-                            fontSize: 17,
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w700,
+                          style: AppTypography.display(
+                            fontSize: 20,
+                            color: AppColors.primaryDark,
                           ),
                         ),
                       ),

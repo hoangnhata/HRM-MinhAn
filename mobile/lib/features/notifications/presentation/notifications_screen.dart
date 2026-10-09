@@ -9,6 +9,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_action_button.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_ambient_background.dart';
 import '../../../core/widgets/app_motion.dart';
@@ -16,6 +17,7 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 import '../../../core/widgets/list_section_title.dart';
 import '../../../shared/models/app_notification.dart';
 import '../application/notification_controller.dart';
@@ -208,47 +210,13 @@ class _LoadMoreButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      borderRadius: AppRadius.brMd,
-      child: InkWell(
-        onTap: loading ? null : onTap,
-        borderRadius: AppRadius.brMd,
-        child: Container(
-          height: 44,
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.brMd,
-            border: Border.all(color: AppColors.borderSoft),
-          ),
-          child: Center(
-            child: loading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.expand_more_rounded,
-                        size: 18,
-                        color: AppColors.primaryDark,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Xem thông báo cũ hơn',
-                        style: AppTypography.style(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primaryDark,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        ),
-      ),
+    return AppActionButton(
+      variant: AppActionVariant.tonalPrimary,
+      compact: true,
+      icon: Icons.expand_more_rounded,
+      label: 'Xem thông báo cũ hơn',
+      loading: loading,
+      onPressed: onTap,
     );
   }
 }
@@ -338,142 +306,154 @@ class _NotificationCard extends ConsumerWidget {
     final color = NotificationUi.colorFor(item.category, title: item.title);
     final unread = !item.read;
 
+    final icon = NotificationUi.iconFor(item.category, title: item.title);
+    // Chưa đọc: nền pha sắc loại tin + icon đặc; đã đọc: nền trắng, icon nhạt
+    // để mắt dừng ở tin mới khi lướt.
     final card = AppCard(
       onTap: () => _open(context, ref),
       borderRadius: AppRadius.brCard,
-      accentColor: unread ? color : null,
-      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  color.withValues(alpha: 0.16),
-                  color.withValues(alpha: 0.06),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: color.withValues(alpha: 0.18)),
-            ),
-            child: Icon(
-              NotificationUi.iconFor(item.category, title: item.title),
-              color: color,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        item.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontWeight: unread
-                              ? FontWeight.w800
-                              : FontWeight.w700,
-                          fontSize: 14.5,
-                          height: 1.25,
-                          letterSpacing: -0.2,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                    ),
-                    if (unread)
-                      Container(
-                        width: 8,
-                        height: 8,
-                        margin: const EdgeInsets.only(left: 8, top: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.secondary,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.secondary.withValues(alpha: 0.4),
-                              blurRadius: 4,
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item.message,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 12.5,
-                    color: AppColors.textSecondary,
-                    height: 1.4,
-                    fontWeight: unread ? FontWeight.w500 : FontWeight.w400,
+      gradient: unread ? TintedCardBackdrop.gradient(color) : null,
+      padding: EdgeInsets.zero,
+      child: TintedCardBackdrop(
+        accent: unread ? color : AppColors.textTertiary,
+        watermarkIcon: unread ? icon : null,
+        glowOffset: const Offset(-40, -44),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (unread)
+                TintedIconTile(icon: icon, color: color, size: 46)
+              else
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(46 * 0.3),
+                    border: Border.all(color: color.withValues(alpha: 0.14)),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color.withValues(alpha: 0.8),
+                    size: 22,
                   ),
                 ),
-                const SizedBox(height: 10),
-                Row(
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _MetaChip(
-                      label: NotificationUi.labelFor(
-                        item.category,
-                        title: item.title,
-                      ),
-                      color: color,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.style(
+                              fontWeight: unread
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                              fontSize: 14.5,
+                              height: 1.25,
+                              letterSpacing: -0.2,
+                              color: unread
+                                  ? AppColors.textPrimary
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                        if (unread)
+                          Container(
+                            width: 10,
+                            height: 10,
+                            margin: const EdgeInsets.only(left: 8, top: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.secondary,
+                              border: Border.all(
+                                color: AppColors.surface,
+                                width: 1.5,
+                              ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.secondary.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
-                    if (item.sensitive) ...[
-                      const SizedBox(width: 6),
-                      const _MetaChip(
-                        label: 'Nhạy cảm',
-                        color: AppColors.error,
-                      ),
-                    ],
-                    const Spacer(),
-                    Icon(
-                      Icons.schedule_rounded,
-                      size: 12,
-                      color: AppColors.textTertiary,
-                    ),
-                    const SizedBox(width: 4),
+                    const SizedBox(height: 4),
                     Text(
-                      AppFormat.relativeFromNow(item.createdAt),
+                      item.message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: AppTypography.style(
-                        fontSize: 11,
-                        color: AppColors.textTertiary,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 12.5,
+                        color: AppColors.textSecondary,
+                        height: 1.4,
+                        fontWeight: unread ? FontWeight.w500 : FontWeight.w400,
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: _MetaChip(
+                            label: NotificationUi.labelFor(
+                              item.category,
+                              title: item.title,
+                            ),
+                            color: color,
+                            solid: unread,
+                          ),
+                        ),
+                        if (item.sensitive) ...[
+                          const SizedBox(width: 6),
+                          const _MetaChip(
+                            label: 'Nhạy cảm',
+                            color: AppColors.error,
+                            icon: Icons.lock_rounded,
+                          ),
+                        ],
+                        const SizedBox(width: 8),
+                        const Spacer(),
+                        Icon(
+                          Icons.schedule_rounded,
+                          size: 12,
+                          color: AppColors.textTertiary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          AppFormat.relativeFromNow(item.createdAt),
+                          style: AppTypography.style(
+                            fontSize: 11,
+                            color: AppColors.textTertiary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(top: 9),
+                child: TintedChevron(
+                  accent: unread ? color : AppColors.textTertiary,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: AppColors.surfaceMuted,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.borderSoft),
-            ),
-            child: const Icon(
-              Icons.chevron_right_rounded,
-              size: 18,
-              color: AppColors.textTertiary,
-            ),
-          ),
-        ],
+        ),
       ),
     );
 
@@ -533,26 +513,55 @@ class _NotificationCard extends ConsumerWidget {
 }
 
 class _MetaChip extends StatelessWidget {
-  const _MetaChip({required this.label, required this.color});
+  const _MetaChip({
+    required this.label,
+    required this.color,
+    this.solid = false,
+    this.icon,
+  });
 
   final String label;
   final Color color;
 
+  /// Tin chưa đọc: viên nền trắng viền sắc, nổi trên nền pha màu của thẻ.
+  final bool solid;
+  final IconData? icon;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.fromLTRB(7, 3, 8, 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: solid ? AppColors.surface : color.withValues(alpha: 0.08),
         borderRadius: AppRadius.brPill,
+        border: Border.all(color: color.withValues(alpha: solid ? 0.28 : 0.12)),
       ),
-      child: Text(
-        label,
-        style: AppTypography.style(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w800,
-          color: color,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null)
+            Icon(icon, size: 10, color: color)
+          else
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.style(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                height: AppTypography.uppercaseHeight,
+                color: Color.lerp(color, AppColors.textPrimary, 0.15)!,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

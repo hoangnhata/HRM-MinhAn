@@ -11,7 +11,9 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/approval_action_bar.dart';
 import '../../../core/widgets/approval_signatures_section.dart';
+import '../../../core/widgets/app_time_picker.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
@@ -42,12 +44,88 @@ class AttendanceRequestDetailScreen extends ConsumerStatefulWidget {
 class _AttendanceRequestDetailScreenState
     extends ConsumerState<AttendanceRequestDetailScreen> {
   bool _busy = false;
+  int? _deployTimesRequestId;
+  TimeOfDay? _deployStart;
+  TimeOfDay? _deployEnd;
+  TimeOfDay? _deployAfternoonStart;
+  TimeOfDay? _deployAfternoonEnd;
+
+  bool _canAdjustDeployment(AttendanceWorkRequest r, bool canReview) {
+    return canReview &&
+        r.requestType == 'DEPLOYMENT' &&
+        (r.status == 'PENDING_HR' || r.status == 'PENDING_NURSING_HEAD');
+  }
+
+  void _syncDeployTimes(AttendanceWorkRequest r) {
+    if (_deployTimesRequestId == r.id) return;
+    _deployTimesRequestId = r.id;
+    _deployStart = _parseHm(r.requestedStart);
+    _deployEnd = _parseHm(r.requestedEnd);
+    _deployAfternoonStart = _parseHm(r.requestedAfternoonStart);
+    _deployAfternoonEnd = _parseHm(r.requestedAfternoonEnd);
+  }
+
+  bool _needsAfternoon(AttendanceWorkRequest r) =>
+      r.requestedAfternoonStart != null || r.requestedAfternoonEnd != null;
+
+  bool _sameTime(TimeOfDay a, TimeOfDay b) =>
+      a.hour == b.hour && a.minute == b.minute;
+
+  String? _deployTimeError(AttendanceWorkRequest r) {
+    if (_deployStart == null ||
+        _deployEnd == null ||
+        _sameTime(_deployStart!, _deployEnd!)) {
+      return 'Nhập khung giờ điều động hợp lệ.';
+    }
+    if (_needsAfternoon(r) &&
+        (_deployAfternoonStart == null ||
+            _deployAfternoonEnd == null ||
+            _sameTime(_deployAfternoonStart!, _deployAfternoonEnd!))) {
+      return 'Nhập đủ khung giờ điều động buổi chiều.';
+    }
+    return null;
+  }
+
+  String _fmtApi(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _pickDeployTime(String field) async {
+    final current = switch (field) {
+      'start' => _deployStart,
+      'end' => _deployEnd,
+      'afternoonStart' => _deployAfternoonStart,
+      _ => _deployAfternoonEnd,
+    };
+    final title = switch (field) {
+      'start' => 'Bắt đầu điều động',
+      'end' => 'Kết thúc điều động',
+      'afternoonStart' => 'Bắt đầu buổi chiều',
+      _ => 'Kết thúc buổi chiều',
+    };
+    final picked = await showAppTimePicker(
+      context,
+      initialTime: current ?? TimeOfDay.now(),
+      title: title,
+      confirmLabel: 'Chọn',
+      cancelLabel: 'Huỷ',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      switch (field) {
+        case 'start':
+          _deployStart = picked;
+        case 'end':
+          _deployEnd = picked;
+        case 'afternoonStart':
+          _deployAfternoonStart = picked;
+        default:
+          _deployAfternoonEnd = picked;
+      }
+    });
+  }
 
   AttendanceWorkRequest? _findInPending(AttendanceRequestsState state) =>
       state.pending.where((r) => r.id == widget.requestId).firstOrNull;
-
-  AttendanceWorkRequest? _findInMine(AttendanceRequestsState state) =>
-      state.mine.where((r) => r.id == widget.requestId).firstOrNull;
 
   AttendanceWorkRequest? _find(AttendanceRequestsState state) {
     for (final list in [state.pending, state.mine, state.history]) {
@@ -117,6 +195,24 @@ class _AttendanceRequestDetailScreenState
     String? comment;
     bool? waiveForgotFine;
     bool? keepOriginalPunchTimes;
+    String? requestedStart;
+    String? requestedEnd;
+    String? requestedAfternoonStart;
+    String? requestedAfternoonEnd;
+
+    if (approved && _canAdjustDeployment(r, true)) {
+      final error = _deployTimeError(r);
+      if (error != null) {
+        showAppSnackBar(context, error, isError: true);
+        return;
+      }
+      requestedStart = _fmtApi(_deployStart!);
+      requestedEnd = _fmtApi(_deployEnd!);
+      if (_needsAfternoon(r)) {
+        requestedAfternoonStart = _fmtApi(_deployAfternoonStart!);
+        requestedAfternoonEnd = _fmtApi(_deployAfternoonEnd!);
+      }
+    }
 
     if (approved) {
       if (_canWaiveFine(r)) {
@@ -165,6 +261,10 @@ class _AttendanceRequestDetailScreenState
           comment: comment,
           waiveForgotFine: waiveForgotFine,
           keepOriginalPunchTimes: keepOriginalPunchTimes == true ? true : null,
+          requestedStart: requestedStart,
+          requestedEnd: requestedEnd,
+          requestedAfternoonStart: requestedAfternoonStart,
+          requestedAfternoonEnd: requestedAfternoonEnd,
         );
     if (!mounted) return;
     setState(() => _busy = false);
@@ -206,9 +306,11 @@ class _AttendanceRequestDetailScreenState
     final myEmployeeId = auth.employeeId;
     final canWithdraw =
         request != null &&
-        request.canWithdraw &&
-        request.employeeId == myEmployeeId &&
-        _findInMine(state) != null;
+        request.canWithdrawBy(
+          myEmployeeId: myEmployeeId,
+          myUsername: auth.currentUser?.username,
+          role: auth.role,
+        );
     final canEdit =
         request != null &&
         request.canEditPending(
@@ -216,6 +318,17 @@ class _AttendanceRequestDetailScreenState
           myUsername: auth.currentUser?.username,
           role: auth.role,
         );
+    final adjustDeployment =
+        request != null && _canAdjustDeployment(request, canReview);
+    if (request != null && request.requestType == 'DEPLOYMENT') {
+      _syncDeployTimes(request);
+    }
+    final selectedDeployTimes = <String>{
+      if (_deployStart != null) _fmtApi(_deployStart!),
+      if (_deployEnd != null) _fmtApi(_deployEnd!),
+      if (_deployAfternoonStart != null) _fmtApi(_deployAfternoonStart!),
+      if (_deployAfternoonEnd != null) _fmtApi(_deployAfternoonEnd!),
+    };
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -250,20 +363,31 @@ class _AttendanceRequestDetailScreenState
                                   attendanceRequestsControllerProvider.notifier,
                                 )
                                 .refreshQuietly(),
-                            child: _Body(request: request),
+                            child: _Body(
+                              request: request,
+                              adjustDeployment: adjustDeployment,
+                              deployStart: _deployStart,
+                              deployEnd: _deployEnd,
+                              deployAfternoonStart: _deployAfternoonStart,
+                              deployAfternoonEnd: _deployAfternoonEnd,
+                              onPickDeployTime: _pickDeployTime,
+                              highlightedPunchTimes: adjustDeployment
+                                  ? selectedDeployTimes
+                                  : const {},
+                            ),
                           ),
                         ),
                       ),
                       if (canReview || canWithdraw || canEdit)
-                        _ActionBar(
+                        ApprovalActionBar(
                           busy: _busy,
-                          canReview: canReview,
-                          canWithdraw: canWithdraw,
-                          canEdit: canEdit,
-                          onApprove: () => _review(request, true),
-                          onReject: () => _review(request, false),
-                          onWithdraw: () => _withdraw(request),
-                          onEdit: () => _edit(request),
+                          onApprove:
+                              canReview ? () => _review(request, true) : null,
+                          onReject:
+                              canReview ? () => _review(request, false) : null,
+                          onWithdraw:
+                              canWithdraw ? () => _withdraw(request) : null,
+                          onEdit: canEdit ? () => _edit(request) : null,
                         ),
                     ],
                   ),
@@ -275,9 +399,25 @@ class _AttendanceRequestDetailScreenState
 }
 
 class _Body extends StatelessWidget {
-  const _Body({required this.request});
+  const _Body({
+    required this.request,
+    this.adjustDeployment = false,
+    this.deployStart,
+    this.deployEnd,
+    this.deployAfternoonStart,
+    this.deployAfternoonEnd,
+    this.onPickDeployTime,
+    this.highlightedPunchTimes = const {},
+  });
 
   final AttendanceWorkRequest request;
+  final bool adjustDeployment;
+  final TimeOfDay? deployStart;
+  final TimeOfDay? deployEnd;
+  final TimeOfDay? deployAfternoonStart;
+  final TimeOfDay? deployAfternoonEnd;
+  final ValueChanged<String>? onPickDeployTime;
+  final Set<String> highlightedPunchTimes;
 
   @override
   Widget build(BuildContext context) {
@@ -295,14 +435,33 @@ class _Body extends StatelessWidget {
         _ContentCard(request: r),
         if (_showPunchLog(r)) ...[
           const SizedBox(height: 10),
-          _PunchLogCard(times: r.attendancePunchTimes),
+          _PunchLogCard(
+            times: r.attendancePunchTimes,
+            highlighted: highlightedPunchTimes,
+          ),
         ],
-        if (_hasTimeBlock(r)) ...[
+        if (adjustDeployment) ...[
+          const SizedBox(height: 10),
+          _DeploymentTimeAdjust(
+            nursingHead: r.status == 'PENDING_NURSING_HEAD',
+            needsAfternoon:
+                r.requestedAfternoonStart != null ||
+                r.requestedAfternoonEnd != null,
+            start: deployStart,
+            end: deployEnd,
+            afternoonStart: deployAfternoonStart,
+            afternoonEnd: deployAfternoonEnd,
+            onPick: onPickDeployTime ?? (_) {},
+          ),
+        ] else if (_hasTimeBlock(r)) ...[
           const SizedBox(height: 10),
           _TimeBlock(request: r),
         ],
         const SizedBox(height: 10),
-        ApprovalSignaturesSection(steps: _signatureSteps(r)),
+        ApprovalSignaturesSection(
+          title: 'Lịch sử duyệt',
+          steps: _signatureSteps(r),
+        ),
       ],
     );
   }
@@ -339,21 +498,47 @@ class _Body extends StatelessWidget {
       return fallback;
     }
 
+    String? note(String? comment, {required bool pending, required bool rejected}) {
+      final text = comment?.trim();
+      if (text != null && text.isNotEmpty) return comment;
+      if (pending) return 'Đang chờ duyệt ký.';
+      if (rejected) return 'Đã từ chối.';
+      return null;
+    }
+
     return [
       ApprovalSignatureStep(
-        role:
-            'Trưởng khoa/phòng · ${person(r.headReviewerName, r.headReviewerUsername, r.flowHeadName, '—')}',
-        comment: r.headComment,
-        reviewedAt: r.headReviewedAt,
-        reviewerUsername: r.headReviewerUsername,
-        signatureUrl: r.headSignatureUrl,
-        pending: r.status == 'PENDING_HEAD',
-        rejected: r.status == 'HEAD_REJECTED',
+        role: 'Người lập phiếu · ${r.requestedByUsername ?? r.employeeName ?? '—'}',
+        comment: (r.requesterSignatureUrl?.trim().isNotEmpty ?? false)
+            ? 'Chữ ký số được gắn khi gửi phiếu.'
+            : 'Phiếu này chưa lưu chữ ký người lập.',
+        reviewedAt: r.createdAt,
+        reviewerUsername: r.requestedByUsername,
+        signatureUrl: r.requesterSignatureUrl,
       ),
+      if (!r.headSkipped)
+        ApprovalSignatureStep(
+          role:
+              'Trưởng khoa/phòng · ${person(r.headReviewerName, r.headReviewerUsername, r.flowHeadName, r.status == 'PENDING_HEAD' ? 'Đang chờ' : '—')}',
+          comment: note(
+            r.headComment,
+            pending: r.status == 'PENDING_HEAD',
+            rejected: r.status == 'HEAD_REJECTED',
+          ),
+          reviewedAt: r.headReviewedAt,
+          reviewerUsername: r.headReviewerUsername,
+          signatureUrl: r.headSignatureUrl,
+          pending: r.status == 'PENDING_HEAD',
+          rejected: r.status == 'HEAD_REJECTED',
+        ),
       ApprovalSignatureStep(
         role:
-            'Trưởng phòng Điều dưỡng · ${person(r.nursingHeadReviewerName, r.nursingHeadReviewerUsername, r.flowNursingHeadName, '—')}',
-        comment: r.nursingHeadComment,
+            'Trưởng phòng Điều dưỡng · ${person(r.nursingHeadReviewerName, r.nursingHeadReviewerUsername, r.flowNursingHeadName, r.status == 'PENDING_NURSING_HEAD' ? 'Đang chờ' : '—')}',
+        comment: note(
+          r.nursingHeadComment,
+          pending: r.status == 'PENDING_NURSING_HEAD',
+          rejected: r.status == 'NURSING_HEAD_REJECTED',
+        ),
         reviewedAt: r.nursingHeadReviewedAt,
         reviewerUsername: r.nursingHeadReviewerUsername,
         signatureUrl: r.nursingHeadSignatureUrl,
@@ -362,8 +547,12 @@ class _Body extends StatelessWidget {
       ),
       ApprovalSignatureStep(
         role:
-            'HCNS · ${person(r.hrReviewerName, r.hrReviewerUsername, r.flowHrName, '—')}',
-        comment: r.hrComment,
+            'HCNS · ${person(r.hrReviewerName, r.hrReviewerUsername, r.flowHrName, r.status == 'PENDING_HR' ? 'Đang chờ' : '—')}',
+        comment: note(
+          r.hrComment,
+          pending: r.status == 'PENDING_HR',
+          rejected: r.status == 'HR_REJECTED',
+        ),
         reviewedAt: r.hrReviewedAt,
         reviewerUsername: r.hrReviewerUsername,
         signatureUrl: r.hrSignatureUrl,
@@ -372,8 +561,12 @@ class _Body extends StatelessWidget {
       ),
       ApprovalSignatureStep(
         role:
-            'Giám đốc · ${person(r.directorReviewerName, r.directorReviewerUsername, r.flowDirectorName, '—')}',
-        comment: r.directorComment,
+            'Giám đốc · ${person(r.directorReviewerName, r.directorReviewerUsername, r.flowDirectorName, r.status == 'PENDING_DIRECTOR' ? 'Đang chờ' : '—')}',
+        comment: note(
+          r.directorComment,
+          pending: r.status == 'PENDING_DIRECTOR',
+          rejected: r.status == 'DIRECTOR_REJECTED',
+        ),
         reviewedAt: r.directorReviewedAt,
         reviewerUsername: r.directorReviewerUsername,
         signatureUrl: r.directorSignatureUrl,
@@ -528,9 +721,10 @@ class _Chip extends StatelessWidget {
 }
 
 class _PunchLogCard extends StatelessWidget {
-  const _PunchLogCard({required this.times});
+  const _PunchLogCard({required this.times, this.highlighted = const {}});
 
   final List<String> times;
+  final Set<String> highlighted;
 
   @override
   Widget build(BuildContext context) {
@@ -561,10 +755,15 @@ class _PunchLogCard extends StatelessWidget {
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.08),
+                      color: highlighted.contains(t)
+                          ? AppColors.primary.withValues(alpha: 0.22)
+                          : AppColors.primary.withValues(alpha: 0.08),
                       borderRadius: AppRadius.brSm,
                       border: Border.all(
-                        color: AppColors.primary.withValues(alpha: 0.22),
+                        color: highlighted.contains(t)
+                            ? AppColors.primary
+                            : AppColors.primary.withValues(alpha: 0.22),
+                        width: highlighted.contains(t) ? 1.6 : 1,
                       ),
                     ),
                     child: Row(
@@ -676,12 +875,12 @@ class _ContentCard extends StatelessWidget {
                     : type == 'PERSONAL_LEAVE'
                     ? 'Số ngày nghỉ chế độ'
                     : 'Số ngày phép',
-                value: '${AppFormat.compactNumber(r.leaveDays ?? 1)} ngày',
+                value: '${AppFormat.score(r.leaveDays ?? 1)} ngày',
               ),
             if (type == 'BUSINESS_TRIP') ...[
               _KV(
                 label: 'Số ngày công tác',
-                value: '${AppFormat.compactNumber(r.tripDays ?? 1)} ngày',
+                value: '${AppFormat.score(r.tripDays ?? 1)} ngày',
               ),
               if (r.location != null)
                 _KV(label: 'Địa điểm', value: r.location!),
@@ -703,6 +902,14 @@ class _ContentCard extends StatelessWidget {
                 value: AttendanceEnums.explanationKindLabel(r.explanationKind),
               ),
             if (type == 'DEPLOYMENT') ...[
+              _KV(
+                label: 'Hình thức',
+                value: r.deploymentMixedShift
+                    ? 'Trong ca & ngoài ca'
+                    : r.deploymentInsideShift
+                        ? 'Trong ca'
+                        : 'Ngoài ca',
+              ),
               if (r.deploymentActualHours != null &&
                   r.deploymentCreditedHours != null)
                 _KV(
@@ -892,118 +1099,173 @@ class _KV extends StatelessWidget {
   }
 }
 
-class _ActionBar extends StatelessWidget {
-  const _ActionBar({
-    required this.busy,
-    required this.canReview,
-    required this.canWithdraw,
-    required this.canEdit,
-    required this.onApprove,
-    required this.onReject,
-    required this.onWithdraw,
-    required this.onEdit,
+TimeOfDay? _parseHm(String? s) {
+  if (s == null || s.length < 4) return null;
+  final parts = s.split(':');
+  if (parts.length < 2) return null;
+  final h = int.tryParse(parts[0]);
+  final m = int.tryParse(parts[1]);
+  if (h == null || m == null || h > 23 || m > 59) return null;
+  return TimeOfDay(hour: h, minute: m);
+}
+
+String _displayHm(TimeOfDay? t) {
+  if (t == null) return 'Chọn';
+  return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+}
+
+class _DeploymentTimeAdjust extends StatelessWidget {
+  const _DeploymentTimeAdjust({
+    required this.nursingHead,
+    required this.needsAfternoon,
+    required this.start,
+    required this.end,
+    required this.afternoonStart,
+    required this.afternoonEnd,
+    required this.onPick,
   });
 
-  final bool busy;
-  final bool canReview;
-  final bool canWithdraw;
-  final bool canEdit;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
-  final VoidCallback onWithdraw;
-  final VoidCallback onEdit;
+  final bool nursingHead;
+  final bool needsAfternoon;
+  final TimeOfDay? start;
+  final TimeOfDay? end;
+  final TimeOfDay? afternoonStart;
+  final TimeOfDay? afternoonEnd;
+  final ValueChanged<String> onPick;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        AppSpacing.page,
-        AppSpacing.sm,
-        AppSpacing.page,
-        AppSpacing.sm + MediaQuery.paddingOf(context).bottom,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.borderSoft)),
-        boxShadow: AppShadows.soft,
-      ),
-      child: busy
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(8),
-                child: CircularProgressIndicator(strokeWidth: 2.5),
+    final morningStartLabel = needsAfternoon
+        ? 'Bắt đầu buổi sáng'
+        : 'Bắt đầu điều động';
+    final morningEndLabel = needsAfternoon
+        ? 'Kết thúc buổi sáng'
+        : 'Kết thúc điều động';
+    return Padding(
+      padding: AppSpacing.pageH,
+      child: _Section(
+        title: nursingHead
+            ? 'Trưởng phòng ĐD hiệu chỉnh khung giờ'
+            : 'HCNS hiệu chỉnh khung giờ',
+        icon: Icons.edit_calendar_outlined,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              nursingHead
+                  ? 'Đối chiếu log máy chấm và sửa thời gian trước khi chuyển HCNS duyệt.'
+                  : 'Kiểm tra và sửa lại thời gian chính xác trước khi chuyển Giám đốc duyệt.',
+              style: AppTypography.body(
+                fontSize: 12.5,
+                color: AppColors.textSecondary,
               ),
-            )
-          : Column(
-              mainAxisSize: MainAxisSize.min,
+            ),
+            const SizedBox(height: 10),
+            Row(
               children: [
-                if (canReview)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: onReject,
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.error,
-                              side: const BorderSide(color: AppColors.error),
-                              minimumSize: const Size.fromHeight(46),
-                            ),
-                            child: const Text('Từ chối'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          flex: 1,
-                          child: FilledButton(
-                            onPressed: onApprove,
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(46),
-                            ),
-                            child: const Text('Duyệt'),
-                          ),
-                        ),
-                      ],
-                    ),
+                Expanded(
+                  child: _TimePick(
+                    label: morningStartLabel,
+                    value: _displayHm(start),
+                    onTap: () => onPick('start'),
                   ),
-                if (canEdit || canWithdraw)
-                  Row(
-                    children: [
-                      if (canEdit)
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: onEdit,
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.primary,
-                              side: BorderSide(
-                                color: AppColors.primary.withValues(
-                                  alpha: 0.45,
-                                ),
-                              ),
-                              minimumSize: const Size.fromHeight(46),
-                            ),
-                            icon: const Icon(Icons.edit_outlined, size: 18),
-                            label: const Text('Chỉnh sửa'),
-                          ),
-                        ),
-                      if (canEdit && canWithdraw) const SizedBox(width: 8),
-                      if (canWithdraw)
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: onWithdraw,
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.error,
-                              side: const BorderSide(color: AppColors.error),
-                              minimumSize: const Size.fromHeight(46),
-                            ),
-                            child: const Text('Rút đơn'),
-                          ),
-                        ),
-                    ],
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _TimePick(
+                    label: morningEndLabel,
+                    value: _displayHm(end),
+                    onTap: () => onPick('end'),
                   ),
+                ),
               ],
             ),
+            if (needsAfternoon) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _TimePick(
+                      label: 'Bắt đầu buổi chiều',
+                      value: _displayHm(afternoonStart),
+                      onTap: () => onPick('afternoonStart'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _TimePick(
+                      label: 'Kết thúc buổi chiều',
+                      value: _displayHm(afternoonEnd),
+                      onTap: () => onPick('afternoonEnd'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              nursingHead
+                  ? 'Giờ Trưởng phòng ĐD xác nhận sẽ thay thế giờ đề nghị và chuyển HCNS duyệt.'
+                  : 'Giờ HCNS xác nhận sẽ thay thế giờ đề nghị ban đầu và là khung giờ Giám đốc duyệt cuối.',
+              style: AppTypography.body(
+                fontSize: 12,
+                color: AppColors.textTertiary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TimePick extends StatelessWidget {
+  const _TimePick({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceMuted,
+      borderRadius: AppRadius.brSm,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadius.brSm,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.style(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textTertiary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: AppTypography.style(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.primaryDark,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

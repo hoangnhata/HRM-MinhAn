@@ -116,6 +116,7 @@ class _EmployeeFilterSheetState extends ConsumerState<_EmployeeFilterSheet> {
   Future<void> _pickWorkFilter() async {
     final result = await showModalBottomSheet<(bool, String?)>(
       context: context,
+      showDragHandle: false,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: AppRadius.brSheetTop,

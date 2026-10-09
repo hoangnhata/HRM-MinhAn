@@ -2,14 +2,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/session/session_epoch.dart';
+import '../../../core/utils/user_role.dart';
 import '../../auth/application/auth_controller.dart';
 import '../data/generic_request_repository.dart';
 import '../data/request_type_config.dart';
 
 class PendingItem {
-  const PendingItem({required this.raw, required this.stage});
+  const PendingItem({required this.raw, this.stage});
   final Map<String, dynamic> raw;
-  final RequestReviewStage stage;
+
+  /// Null khi chỉ xem (HCNS2 theo dõi phiếu công tác), không được duyệt.
+  final RequestReviewStage? stage;
 }
 
 class GenericRequestState {
@@ -86,6 +89,11 @@ class GenericRequestController extends StateNotifier<GenericRequestState> {
         role,
         directorApprovalEnabled: directorApproval,
       );
+      final watchPath = config.viewOnlyPendingPath;
+      final watchOnly =
+          watchPath != null &&
+          RoleGroups.roleAllowsAny(role, config.viewOnlyPendingRoles) &&
+          !reviewStages.any((stage) => stage.pendingPath == watchPath);
       // Nuốt 403/lỗi từng endpoint — giống đơn công: một API lỗi không sập cả màn.
       // Gọi song song: trước đây "liên quan" xong mới đến từng hàng đợi, và
       // lịch sử được kéo toàn bộ ngay khi mở màn. Giờ lịch sử tải lười theo tháng.
@@ -93,6 +101,7 @@ class GenericRequestController extends StateNotifier<GenericRequestState> {
         _safeList(() => _repository.related(config)),
         for (final stage in reviewStages)
           _safeList(() => _repository.pendingForStage(config, stage)),
+        if (watchOnly) _safeList(() => _repository.pendingByPath(config, watchPath)),
       ]);
       final related = results.first;
 
@@ -100,6 +109,11 @@ class GenericRequestController extends StateNotifier<GenericRequestState> {
       for (var i = 0; i < reviewStages.length; i++) {
         for (final raw in results[i + 1]) {
           pending.add(PendingItem(raw: raw, stage: reviewStages[i]));
+        }
+      }
+      if (watchOnly) {
+        for (final raw in results[reviewStages.length + 1]) {
+          pending.add(PendingItem(raw: raw));
         }
       }
 
@@ -185,11 +199,13 @@ class GenericRequestController extends StateNotifier<GenericRequestState> {
     Map<String, dynamic> extra = const {},
   }) async {
     try {
+      final stage = item.stage;
+      if (stage == null) return false;
       final id = (item.raw['id'] as num).toInt();
       await _repository.review(
         config,
         id,
-        item.stage.reviewSlug,
+        stage.reviewSlug,
         approved: approved,
         comment: comment,
         extra: extra,

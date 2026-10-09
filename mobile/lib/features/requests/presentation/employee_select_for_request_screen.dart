@@ -22,10 +22,7 @@ import '../data/request_type_config.dart';
 
 /// Chọn nhân viên trước khi lập phiếu đề xuất (luân chuyển / đào tạo / hội thảo).
 class EmployeeSelectForRequestScreen extends ConsumerStatefulWidget {
-  const EmployeeSelectForRequestScreen({
-    super.key,
-    required this.typeKey,
-  });
+  const EmployeeSelectForRequestScreen({super.key, required this.typeKey});
 
   final String typeKey;
 
@@ -109,7 +106,9 @@ class _EmployeeSelectForRequestScreenState
     }
 
     try {
-      final page = await ref.read(employeeRepositoryProvider).list(
+      final page = await ref
+          .read(employeeRepositoryProvider)
+          .list(
             page: reset ? 0 : _page,
             size: _pageSize,
             query: _query.isEmpty ? null : _query,
@@ -158,7 +157,8 @@ class _EmployeeSelectForRequestScreenState
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _loading || _loadingMore || !_hasMore) return;
       final sparse = _filterMainDuty && _visibleItems.length < _visibleTarget;
-      final shortViewport = _scrollController.hasClients &&
+      final shortViewport =
+          _scrollController.hasClients &&
           _scrollController.position.maxScrollExtent < 120;
       if (sparse || shortViewport) {
         _loadMore();
@@ -181,10 +181,7 @@ class _EmployeeSelectForRequestScreenState
   void _select(EmployeeSummary emp) {
     HapticFeedback.lightImpact();
     context.pushReplacement(
-      RoutePaths.requestCreatePath(
-        widget.typeKey,
-        employeeId: emp.id,
-      ),
+      RoutePaths.requestCreatePath(widget.typeKey, employeeId: emp.id),
     );
   }
 
@@ -291,10 +288,7 @@ class _EmployeeSelectForRequestScreenState
       return const SkeletonList(itemCount: 8);
     }
     if (_error != null && _items.isEmpty) {
-      return ErrorState(
-        message: _error!,
-        onRetry: () => _load(reset: true),
-      );
+      return ErrorState(message: _error!, onRetry: () => _load(reset: true));
     }
     if (_visibleItems.isEmpty) {
       if (_hasMore || _loadingMore) {
@@ -539,11 +533,7 @@ class _EmployeePickCard extends StatelessWidget {
               color: accent.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              Icons.arrow_forward_rounded,
-              size: 18,
-              color: accent,
-            ),
+            child: Icon(Icons.arrow_forward_rounded, size: 18, color: accent),
           ),
         ],
       ),

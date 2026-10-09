@@ -76,6 +76,14 @@ flutter build apk --release
 flutter build appbundle --release
 ```
 
+`version` trong `pubspec.yaml` theo bản iOS (Codemagic đọc dòng này khi build IPA).
+Android đi trước iOS một bản, nên khi build Android ghi đè tên bản và số build:
+
+```bash
+# Play đang có 1.0.5 (9) → bản kế tiếp 1.0.6 (10)
+flutter build appbundle --release --build-name=1.0.6 --build-number=10
+```
+
 ## 5. Luồng đăng nhập
 
 1. Đăng nhập bằng tài khoản đã cấp trên hệ thống HRM.

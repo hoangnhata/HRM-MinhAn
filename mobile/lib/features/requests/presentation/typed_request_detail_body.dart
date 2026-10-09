@@ -1,6 +1,18 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
 
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:open_filex/open_filex.dart';
+
+import '../../../core/config/app_config.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/widgets/approval_signatures_section.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_tokens.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/auth_image_preview.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../data/request_type_config.dart';
 import 'probation_conversion_detail_body.dart';
@@ -27,75 +39,72 @@ class TypedRequestDetailBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return switch (config.key) {
       'probation-conversion' => ProbationConversionDetailBody(
-          raw: raw,
-          status: status,
-          stageLabel: stageLabel,
-          bottom: bottom,
-        ),
+        raw: raw,
+        status: status,
+        stageLabel: stageLabel,
+        bottom: bottom,
+      ),
       'department-transfer' => _TransferBody(
-          config: config,
-          raw: raw,
-          status: status,
-          stageLabel: stageLabel,
-          bottom: bottom,
-        ),
+        config: config,
+        raw: raw,
+        status: status,
+        stageLabel: stageLabel,
+        bottom: bottom,
+      ),
       'main-duty-authorization' => _MainDutyBody(
-          config: config,
-          raw: raw,
-          status: status,
-          stageLabel: stageLabel,
-          bottom: bottom,
-        ),
+        config: config,
+        raw: raw,
+        status: status,
+        stageLabel: stageLabel,
+        bottom: bottom,
+      ),
       'training-proposal' => _TrainingBody(
-          config: config,
-          raw: raw,
-          status: status,
-          stageLabel: stageLabel,
-          bottom: bottom,
-        ),
+        config: config,
+        raw: raw,
+        status: status,
+        stageLabel: stageLabel,
+        bottom: bottom,
+      ),
       'seminar-proposal' => _SeminarBody(
-          config: config,
-          raw: raw,
-          status: status,
-          stageLabel: stageLabel,
-          bottom: bottom,
-        ),
+        config: config,
+        raw: raw,
+        status: status,
+        stageLabel: stageLabel,
+        bottom: bottom,
+      ),
       'young-child' => _YoungChildBody(
-          config: config,
-          raw: raw,
-          status: status,
-          stageLabel: stageLabel,
-          bottom: bottom,
-        ),
+        config: config,
+        raw: raw,
+        status: status,
+        stageLabel: stageLabel,
+        bottom: bottom,
+      ),
       'shift-config-change' => _ShiftConfigBody(
-          config: config,
-          raw: raw,
-          status: status,
-          stageLabel: stageLabel,
-          bottom: bottom,
-        ),
+        config: config,
+        raw: raw,
+        status: status,
+        stageLabel: stageLabel,
+        bottom: bottom,
+      ),
       _ => const SizedBox.shrink(),
     };
   }
 
   static bool supports(String typeKey) => const {
-        'probation-conversion',
-        'department-transfer',
-        'main-duty-authorization',
-        'training-proposal',
-        'seminar-proposal',
-        'young-child',
-        'shift-config-change',
-      }.contains(typeKey);
+    'probation-conversion',
+    'department-transfer',
+    'main-duty-authorization',
+    'training-proposal',
+    'seminar-proposal',
+    'young-child',
+    'shift-config-change',
+  }.contains(typeKey);
 }
 
 String _employeeLine(Map<String, dynamic> raw) {
   final code = typedStr(raw, 'employeeCode');
   final position = typedStr(raw, 'positionTitle');
-  return [
-    if (code != null) code,
-    if (position != null) position,
-  ].join(' · ');
+  return [if (code != null) code, if (position != null) position].join(' · ');
 }
 
 List<Widget> _employeeSection(
@@ -103,10 +112,10 @@ List<Widget> _employeeSection(
   Map<String, dynamic> raw, {
   List<(String, String)> extra = const [],
 }) {
-  final name = typedStr(raw, 'employeeName') ?? typedStr(raw, 'fullName') ?? '—';
+  final name =
+      typedStr(raw, 'employeeName') ?? typedStr(raw, 'fullName') ?? '—';
   final code = typedStr(raw, 'employeeCode');
-  final dept =
-      typedStr(raw, 'departmentName') ?? typedStr(raw, 'department');
+  final dept = typedStr(raw, 'departmentName') ?? typedStr(raw, 'department');
   final position = typedStr(raw, 'positionTitle');
   final requester = typedStr(raw, 'requestedByUsername');
 
@@ -236,7 +245,8 @@ class _MainDutyBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = typedStr(raw, 'employeeName') ?? '—';
-    final formLabel = typedStr(raw, 'formTypeLabel') ??
+    final formLabel =
+        typedStr(raw, 'formTypeLabel') ??
         switch (typedStr(raw, 'formType')?.toUpperCase()) {
           'DOCTOR' => 'Bác sĩ',
           'NURSE' => 'Điều dưỡng',
@@ -273,19 +283,14 @@ class _MainDutyBody extends StatelessWidget {
         chips: [
           if (formLabel != null) (formLabel, AppColors.info),
           if (effective != null)
-            (
-              'Hiệu lực ${typedDateLabel(effective)}',
-              AppColors.textSecondary,
-            ),
+            ('Hiệu lực ${typedDateLabel(effective)}', AppColors.textSecondary),
         ],
       ),
       sections: [
         ..._employeeSection(
           config,
           raw,
-          extra: [
-            if (formLabel != null) ('Mẫu đơn', formLabel),
-          ],
+          extra: [if (formLabel != null) ('Mẫu đơn', formLabel)],
         ),
         TypedDetailSection(
           title: 'Thời gian trực kèm & hiệu lực',
@@ -299,10 +304,7 @@ class _MainDutyBody extends StatelessWidget {
                   value: typedDateLabel(from),
                 ),
               if (to != null)
-                TypedDetailKV(
-                  label: 'Trực kèm đến',
-                  value: typedDateLabel(to),
-                ),
+                TypedDetailKV(label: 'Trực kèm đến', value: typedDateLabel(to)),
               if (period != null)
                 TypedDetailKV(label: 'Khoảng thời gian', value: period),
               if (effective != null)
@@ -323,10 +325,14 @@ class _MainDutyBody extends StatelessWidget {
             color: config.color,
             child: Column(
               children: [
-                if (phone != null) TypedDetailKV(label: 'Điện thoại', value: phone),
-                if (gender != null) TypedDetailKV(label: 'Giới tính', value: gender),
-                if (address != null) TypedDetailKV(label: 'Địa chỉ', value: address),
-                if (degree != null) TypedDetailKV(label: 'Bằng cấp', value: degree),
+                if (phone != null)
+                  TypedDetailKV(label: 'Điện thoại', value: phone),
+                if (gender != null)
+                  TypedDetailKV(label: 'Giới tính', value: gender),
+                if (address != null)
+                  TypedDetailKV(label: 'Địa chỉ', value: address),
+                if (degree != null)
+                  TypedDetailKV(label: 'Bằng cấp', value: degree),
               ],
             ),
           ),
@@ -367,6 +373,7 @@ class _TrainingBody extends StatelessWidget {
     final name = typedStr(raw, 'employeeName') ?? '—';
     final course = typedStr(raw, 'courseName');
     final location = typedStr(raw, 'location');
+    final learningMode = typedStr(raw, 'learningMode');
     final period = typedStr(raw, 'plannedPeriod');
     final tuition = typedStr(raw, 'tuitionFee');
     final support = typedStr(raw, 'monthlySupport');
@@ -375,6 +382,13 @@ class _TrainingBody extends StatelessWidget {
     final reason = typedStr(raw, 'reason');
     final proposing = typedStr(raw, 'proposingDepartment');
     final dob = typedDate(raw, 'dateOfBirth');
+
+    String? learningModeLabel(String? mode) => switch (mode) {
+      'ONLINE' => 'Học online',
+      'OFFLINE' => 'Học offline',
+      'HYBRID' => 'Kết hợp online & offline',
+      _ => mode,
+    };
 
     return TypedDetailScaffold(
       hero: TypedDetailHero(
@@ -411,6 +425,11 @@ class _TrainingBody extends StatelessWidget {
                 TypedDetailKV(label: 'Tên khóa học', value: course),
               if (location != null)
                 TypedDetailKV(label: 'Địa điểm học', value: location),
+              if (learningMode != null)
+                TypedDetailKV(
+                  label: 'Hình thức học',
+                  value: learningModeLabel(learningMode)!,
+                ),
               if (period != null)
                 TypedDetailKV(label: 'Thời gian dự kiến', value: period),
               if (tuition != null)
@@ -460,11 +479,11 @@ class _SeminarBody extends StatelessWidget {
   final Widget? bottom;
 
   static String _scopeLabel(String? scope) => switch (scope?.toUpperCase()) {
-        'MORNING' => 'Buổi sáng',
-        'AFTERNOON' => 'Buổi chiều',
-        'FULL_DAY' => 'Cả ngày',
-        _ => scope ?? '—',
-      };
+    'MORNING' => 'Buổi sáng',
+    'AFTERNOON' => 'Buổi chiều',
+    'FULL_DAY' => 'Cả ngày',
+    _ => scope ?? '—',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -492,17 +511,14 @@ class _SeminarBody extends StatelessWidget {
         chips: [
           if (withPay == true) ('Có công', AppColors.success),
           if (withPay == false) ('Không công', AppColors.textSecondary),
-          if (start != null || end != null)
-            (range, AppColors.textSecondary),
+          if (start != null || end != null) (range, AppColors.textSecondary),
         ],
       ),
       sections: [
         ..._employeeSection(
           config,
           raw,
-          extra: [
-            if (proposing != null) ('Khoa/phòng đề xuất', proposing),
-          ],
+          extra: [if (proposing != null) ('Khoa/phòng đề xuất', proposing)],
         ),
         TypedDetailSection(
           title: 'Nội dung hội thảo',
@@ -527,13 +543,13 @@ class _SeminarBody extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'Tính công',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textTertiary,
+                          style: AppTypography.style(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textSecondary,
                           ),
                         ),
                       ),
@@ -561,8 +577,228 @@ class _SeminarBody extends StatelessWidget {
             ],
           ),
         ),
+        TypedDetailSection(
+          title: 'Công văn đính kèm',
+          icon: Icons.attach_file_rounded,
+          color: config.color,
+          child: _SeminarLetters(raw: raw),
+        ),
       ],
-      bottom: bottom,
+      bottom: Column(
+        children: [
+          _SeminarApprovalHistory(raw: raw),
+          if (bottom != null) ...[const SizedBox(height: 10), bottom!],
+        ],
+      ),
+    );
+  }
+}
+
+class _SeminarApprovalHistory extends StatelessWidget {
+  const _SeminarApprovalHistory({required this.raw});
+
+  final Map<String, dynamic> raw;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = (raw['status'] ?? '').toString().toUpperCase();
+    final requester = typedStr(raw, 'requestedByUsername');
+    final requesterUrl = typedStr(raw, 'requesterSignatureUrl');
+    final hrName = typedStr(raw, 'hrReviewerUsername');
+    final hrUrl = typedStr(raw, 'hrSignatureUrl');
+    final directorName = typedStr(raw, 'directorReviewerUsername');
+    final directorUrl = typedStr(raw, 'directorSignatureUrl');
+    final pendingHr = status == 'PENDING_HR';
+    final pendingDirector = status == 'PENDING_DIRECTOR';
+    final showHr =
+        pendingHr ||
+        hrName != null ||
+        hrUrl != null ||
+        raw['hrReviewedAt'] != null;
+    final showDirector =
+        pendingDirector ||
+        status == 'DIRECTOR_REJECTED' ||
+        status == 'APPROVED' ||
+        status == 'COMPLETED' ||
+        directorName != null ||
+        directorUrl != null ||
+        raw['directorReviewedAt'] != null;
+
+    return ApprovalSignaturesSection(
+      title: 'Lịch sử duyệt',
+      steps: [
+        ApprovalSignatureStep(
+          role: 'Người lập phiếu · ${requester ?? '—'}',
+          comment: requesterUrl != null
+              ? 'Chữ ký số được gắn khi gửi phiếu.'
+              : 'Phiếu này chưa lưu chữ ký người lập.',
+          reviewedAt: typedDate(raw, 'createdAt'),
+          reviewerUsername: requester,
+          signatureUrl: requesterUrl,
+        ),
+        if (showHr)
+          ApprovalSignatureStep(
+            role: 'HCNS · ${hrName ?? (pendingHr ? 'Đang chờ' : '—')}',
+            comment:
+                typedStr(raw, 'hrComment') ??
+                (pendingHr
+                    ? 'Đang chờ duyệt ký.'
+                    : status == 'HR_REJECTED'
+                    ? 'Đã từ chối.'
+                    : null),
+            reviewedAt: typedDate(raw, 'hrReviewedAt'),
+            reviewerUsername: hrName,
+            signatureUrl: hrUrl,
+            pending: pendingHr,
+            rejected: status == 'HR_REJECTED',
+          ),
+        if (showDirector)
+          ApprovalSignatureStep(
+            role:
+                'Giám đốc · ${directorName ?? (pendingDirector ? 'Đang chờ' : '—')}',
+            comment:
+                typedStr(raw, 'directorComment') ??
+                (pendingDirector
+                    ? 'Đang chờ duyệt ký.'
+                    : status == 'DIRECTOR_REJECTED'
+                    ? 'Đã từ chối.'
+                    : null),
+            reviewedAt: typedDate(raw, 'directorReviewedAt'),
+            reviewerUsername: directorName,
+            signatureUrl: directorUrl,
+            pending: pendingDirector,
+            rejected: status == 'DIRECTOR_REJECTED',
+          ),
+      ],
+    );
+  }
+}
+
+class _SeminarLetters extends ConsumerWidget {
+  const _SeminarLetters({required this.raw});
+
+  final Map<String, dynamic> raw;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = raw['attachments'];
+    if (items is! List || items.isEmpty) {
+      return Text(
+        'Phiếu chưa có công văn đính kèm.',
+        style: AppTypography.style(
+          fontSize: 12.5,
+          color: AppColors.textSecondary,
+        ),
+      );
+    }
+    return Column(
+      children: [
+        for (final item in items)
+          if (item is Map)
+            _LetterOpenTile(
+              name: item['originalName']?.toString() ?? 'Công văn',
+              contentType: item['contentType']?.toString() ?? '',
+              url: item['url']?.toString() ?? '',
+              onOpen: () => _openLetter(context, ref, item),
+            ),
+      ],
+    );
+  }
+
+  Future<void> _openLetter(
+    BuildContext context,
+    WidgetRef ref,
+    Map<dynamic, dynamic> item,
+  ) async {
+    final url = item['url']?.toString() ?? '';
+    if (url.isEmpty) return;
+    final type = item['contentType']?.toString() ?? '';
+    final resolved = AppConfig.resolveUrl(url);
+    if (type.startsWith('image/')) {
+      await showAuthImagePreview(context, url: resolved, title: 'Công văn');
+      return;
+    }
+    try {
+      final path = url.startsWith('/j1-api')
+          ? url.substring('/j1-api'.length)
+          : url;
+      final response = await ref
+          .read(apiClientProvider)
+          .get<List<int>>(
+            path,
+            options: Options(responseType: ResponseType.bytes),
+          );
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) {
+        throw StateError('empty');
+      }
+      final name = (item['originalName']?.toString() ?? 'cong-van').replaceAll(
+        RegExp(r'[\\/:*?"<>|]'),
+        '_',
+      );
+      final file = File('${Directory.systemTemp.path}/$name');
+      await file.writeAsBytes(bytes, flush: true);
+      await OpenFilex.open(file.path);
+    } catch (_) {
+      if (context.mounted) {
+        showAppSnackBar(context, 'Không mở được tệp đính kèm', isError: true);
+      }
+    }
+  }
+}
+
+class _LetterOpenTile extends StatelessWidget {
+  const _LetterOpenTile({
+    required this.name,
+    required this.contentType,
+    required this.url,
+    required this.onOpen,
+  });
+
+  final String name;
+  final String contentType;
+  final String url;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = contentType.startsWith('image/');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppColors.surfaceAlt,
+        borderRadius: AppRadius.brXs,
+        child: InkWell(
+          onTap: url.isEmpty ? null : onOpen,
+          borderRadius: AppRadius.brXs,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  image
+                      ? Icons.image_outlined
+                      : Icons.insert_drive_file_outlined,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.style(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -605,8 +841,7 @@ class _YoungChildBody extends StatelessWidget {
             enabled ? 'Đề xuất bật' : 'Đề xuất tắt',
             enabled ? AppColors.success : AppColors.warning,
           ),
-          if (start != null || end != null)
-            (range, AppColors.textSecondary),
+          if (start != null || end != null) (range, AppColors.textSecondary),
         ],
       ),
       sections: [
@@ -677,8 +912,7 @@ class _ShiftConfigBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = typedStr(raw, 'employeeName') ?? '—';
     final season = typedStr(raw, 'season');
-    final seasonLabel =
-        _seasonLabel(season, typedStr(raw, 'seasonLabel'));
+    final seasonLabel = _seasonLabel(season, typedStr(raw, 'seasonLabel'));
     final reason = typedStr(raw, 'reason');
     final morningUnits = raw['morningUnits'];
     final afternoonUnits = raw['afternoonUnits'];
@@ -692,9 +926,7 @@ class _ShiftConfigBody extends StatelessWidget {
         status: status,
         statusLabel: typedStatusLabel(config.key, status),
         stageLabel: stageLabel,
-        chips: [
-          (seasonLabel, config.color),
-        ],
+        chips: [(seasonLabel, config.color)],
       ),
       sections: [
         ..._employeeSection(config, raw),

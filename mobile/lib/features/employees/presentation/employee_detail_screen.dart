@@ -15,6 +15,8 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
+import '../../../core/widgets/brand_hero.dart';
 import '../../../shared/models/employee.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/employee_list_controller.dart';
@@ -44,19 +46,20 @@ const _statusLabels = {
   'ON_LEAVE': 'Nghỉ phép',
 };
 
-Color _statusColor(String? status) {
+/// Sắc trạng thái trên nền brand của hero (đủ sáng để đọc trên teal).
+Color _statusTone(String? status) {
   switch (status?.toUpperCase()) {
     case 'PROBATION':
     case 'TRIAL':
     case 'INTERN':
-      return AppColors.warning;
+      return AppColors.secondaryLight;
     case 'TERMINATED':
-      return AppColors.error;
+      return AppColors.onBrandAlert;
     case 'MATERNITY_LEAVE':
     case 'ON_LEAVE':
-      return AppColors.info;
+      return AppColors.onBrandSoft;
     default:
-      return AppColors.success;
+      return AppColors.onBrandRing;
   }
 }
 
@@ -122,13 +125,13 @@ String _formatProfileValue(String key, Object? value) {
   return text;
 }
 
+/// Sắc nhận diện riêng cho đơn trực chính / hội thảo (khớp màn tạo đơn).
+const Color _mainDutyTone = Color(0xFF5B4BB4);
+const Color _seminarTone = Color(0xFF7C3AED);
+
 /// Hồ sơ nhân viên — đầy đủ dữ liệu API, UI mobile chuyên nghiệp.
 class EmployeeDetailScreen extends ConsumerWidget {
-  const EmployeeDetailScreen({
-    super.key,
-    this.employeeId,
-    this.self = false,
-  });
+  const EmployeeDetailScreen({super.key, this.employeeId, this.self = false});
 
   final int? employeeId;
   final bool self;
@@ -188,12 +191,15 @@ class _Body extends ConsumerWidget {
     final canEditTerminate = role == UserRole.admin || role == UserRole.hr;
     final canTransfer =
         !terminated && (role == UserRole.admin || role == UserRole.hr);
-    final canTrainingSeminar = !terminated &&
+    final canTrainingSeminar =
+        !terminated &&
         (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
-    final canMainDuty = !terminated &&
+    final canMainDuty =
+        !terminated &&
         !s.mainDutyAuthorized &&
         (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
-    final canConversion = !terminated &&
+    final canConversion =
+        !terminated &&
         detail.isTrialEmployee &&
         (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
 
@@ -204,150 +210,60 @@ class _Body extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (canEditTerminate)
-            ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: AppRadius.brSm,
-                ),
-                child: const Icon(Icons.edit_rounded, color: AppColors.primary),
-              ),
-              title: Text(
-                'Sửa hồ sơ',
-                style: AppTypography.style(fontWeight: FontWeight.w800),
-              ),
-              subtitle: const Text('Cập nhật thông tin nhân viên'),
+            _ActionTile(
+              icon: Icons.edit_rounded,
+              color: AppColors.primary,
+              title: 'Sửa hồ sơ',
+              subtitle: 'Cập nhật thông tin nhân viên',
               onTap: () => Navigator.pop(context, 'edit'),
             ),
           if (canTransfer)
-            ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: AppRadius.brSm,
-                ),
-                child: const Icon(
-                  Icons.compare_arrows_rounded,
-                  color: AppColors.primary,
-                ),
-              ),
-              title: Text(
-                'Luân chuyển phòng ban',
-                style: AppTypography.style(fontWeight: FontWeight.w800),
-              ),
-              subtitle: const Text('Gửi Giám đốc duyệt · ngày hiệu lực'),
+            _ActionTile(
+              icon: Icons.compare_arrows_rounded,
+              color: AppColors.info,
+              title: 'Luân chuyển phòng ban',
+              subtitle: 'Gửi Giám đốc duyệt · ngày hiệu lực',
               onTap: () => Navigator.pop(context, 'transfer'),
             ),
           if (canTrainingSeminar) ...[
-            ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.warning.withValues(alpha: 0.14),
-                  borderRadius: AppRadius.brSm,
-                ),
-                child: const Icon(
-                  Icons.school_rounded,
-                  color: AppColors.warning,
-                ),
-              ),
-              title: Text(
-                'Cử đào tạo / bồi dưỡng',
-                style: AppTypography.style(fontWeight: FontWeight.w800),
-              ),
-              subtitle: const Text('HCNS bổ sung hỗ trợ · Giám đốc duyệt'),
+            _ActionTile(
+              icon: Icons.school_rounded,
+              color: AppColors.warning,
+              title: 'Cử đào tạo / bồi dưỡng',
+              subtitle: 'HCNS bổ sung hỗ trợ · Giám đốc duyệt',
               onTap: () => Navigator.pop(context, 'training'),
             ),
-            ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
-                  borderRadius: AppRadius.brSm,
-                ),
-                child: const Icon(
-                  Icons.groups_rounded,
-                  color: Color(0xFF7C3AED),
-                ),
-              ),
-              title: Text(
-                'Cử hội thảo / công tác',
-                style: AppTypography.style(fontWeight: FontWeight.w800),
-              ),
-              subtitle: const Text('Gửi thẳng Giám đốc · có/không công'),
+            _ActionTile(
+              icon: Icons.groups_rounded,
+              color: _seminarTone,
+              title: 'Cử hội thảo / công tác',
+              subtitle: 'Gửi thẳng Giám đốc · có/không công',
               onTap: () => Navigator.pop(context, 'seminar'),
             ),
           ],
           if (canConversion)
-            ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.12),
-                  borderRadius: AppRadius.brSm,
-                ),
-                child: const Icon(
-                  Icons.badge_outlined,
-                  color: AppColors.success,
-                ),
-              ),
-              title: Text(
-                'Lên chính thức',
-                style: AppTypography.style(fontWeight: FontWeight.w800),
-              ),
-              subtitle: const Text('Đề nghị ký HĐLĐ chính thức sau thử việc'),
+            _ActionTile(
+              icon: Icons.badge_rounded,
+              color: AppColors.success,
+              title: 'Lên chính thức',
+              subtitle: 'Đề nghị ký HĐLĐ chính thức sau thử việc',
               onTap: () => Navigator.pop(context, 'probation'),
             ),
           if (canMainDuty)
-            ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF5B4BB4).withValues(alpha: 0.12),
-                  borderRadius: AppRadius.brSm,
-                ),
-                child: const Icon(
-                  Icons.nights_stay_rounded,
-                  color: Color(0xFF5B4BB4),
-                ),
-              ),
-              title: Text(
-                'Chuyển trực chính',
-                style: AppTypography.style(fontWeight: FontWeight.w800),
-              ),
-              subtitle: const Text('Đề nghị từ trực kèm lên trực chính'),
+            _ActionTile(
+              icon: Icons.nights_stay_rounded,
+              color: _mainDutyTone,
+              title: 'Chuyển trực chính',
+              subtitle: 'Đề nghị từ trực kèm lên trực chính',
               onTap: () => Navigator.pop(context, 'main-duty'),
             ),
           if (canEditTerminate && !terminated)
-            ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.error.withValues(alpha: 0.12),
-                  borderRadius: AppRadius.brSm,
-                ),
-                child: const Icon(
-                  Icons.person_off_outlined,
-                  color: AppColors.error,
-                ),
-              ),
-              title: Text(
-                'Nghỉ việc',
-                style: AppTypography.style(
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.error,
-                ),
-              ),
-              subtitle: const Text('Khóa tài khoản · giải phóng SĐT / CCCD'),
+            _ActionTile(
+              icon: Icons.person_off_rounded,
+              color: AppColors.error,
+              title: 'Nghỉ việc',
+              subtitle: 'Khóa tài khoản · giải phóng SĐT / CCCD',
+              danger: true,
               onTap: () => Navigator.pop(context, 'terminate'),
             ),
           const SizedBox(height: 8),
@@ -400,14 +316,22 @@ class _Body extends ConsumerWidget {
       try {
         await ref.read(employeeRepositoryProvider).terminate(s.id);
         if (!context.mounted) return;
-        showAppSnackBar(context, 'Đã cập nhật trạng thái nghỉ việc', isSuccess: true);
+        showAppSnackBar(
+          context,
+          'Đã cập nhật trạng thái nghỉ việc',
+          isSuccess: true,
+        );
         ref.invalidate(employeeDetailProvider(s.id));
         ref.read(employeeListControllerProvider.notifier).load();
       } on ApiException catch (e) {
         if (context.mounted) showAppSnackBar(context, e.message, isError: true);
       } catch (_) {
         if (context.mounted) {
-          showAppSnackBar(context, 'Không ghi nhận nghỉ việc được', isError: true);
+          showAppSnackBar(
+            context,
+            'Không ghi nhận nghỉ việc được',
+            isError: true,
+          );
         }
       }
     }
@@ -423,13 +347,16 @@ class _Body extends ConsumerWidget {
     final canTrainingSeminar =
         role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role);
     final terminated = (s.status ?? '').toUpperCase() == 'TERMINATED';
-    final canMainDuty = !terminated &&
+    final canMainDuty =
+        !terminated &&
         !s.mainDutyAuthorized &&
         (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
-    final canConversion = !terminated &&
+    final canConversion =
+        !terminated &&
         detail.isTrialEmployee &&
         (role == UserRole.admin || RoleGroups.isHeadDepartmentRole(role));
-    final canShowActions = canEditTerminate ||
+    final canShowActions =
+        canEditTerminate ||
         canTransfer ||
         canTrainingSeminar ||
         canMainDuty ||
@@ -441,8 +368,7 @@ class _Body extends ConsumerWidget {
             auth.currentUser!.employeeId == s.id);
     final trialOnlyView = detail.isTrialEmployee && !viewingSelf;
     final subtitle = [
-      if ((s.departmentName ?? '').trim().isNotEmpty)
-        _pretty(s.departmentName),
+      if ((s.departmentName ?? '').trim().isNotEmpty) _pretty(s.departmentName),
       if ((s.positionTitle ?? '').trim().isNotEmpty) _pretty(s.positionTitle),
     ].join(' · ');
 
@@ -451,7 +377,9 @@ class _Body extends ConsumerWidget {
       for (final section in workforceSections) ...section.keys,
     };
     final orphanKeys = profile.keys
-        .where((k) => hasWorkforceValue(profile[k]) && !allSectionKeys.contains(k))
+        .where(
+          (k) => hasWorkforceValue(profile[k]) && !allSectionKeys.contains(k),
+        )
         .toList();
 
     return CustomScrollView(
@@ -501,7 +429,7 @@ class _Body extends ConsumerWidget {
               ),
               child: _RequestPromoCard(
                 icon: Icons.nights_stay_rounded,
-                accent: const Color(0xFF5B4BB4),
+                accent: _mainDutyTone,
                 title: 'Chuyển trực chính',
                 subtitle:
                     'Nhân viên đang trực kèm. Lập đơn đề nghị lên trực chính.',
@@ -568,7 +496,7 @@ class _Body extends ConsumerWidget {
           SliverToBoxAdapter(
             child: _ProfileSection(
               icon: Icons.work_outline_rounded,
-              color: const Color(0xFF2A9D8F),
+              color: AppColors.chartTeal,
               title: 'Công việc',
               rows: [
                 _Row('Phòng ban', _pretty(s.departmentName)),
@@ -580,7 +508,8 @@ class _Body extends ConsumerWidget {
                 ),
                 if (s.employmentType != null)
                   _Row('Hình thức', _employmentTypeLabel(s.employmentType)),
-                if (s.employeeCode != null) _Row('Mã nhân viên', s.employeeCode),
+                if (s.employeeCode != null)
+                  _Row('Mã nhân viên', s.employeeCode),
                 if (detail.attendanceCode != null)
                   _Row('Mã chấm công', detail.attendanceCode),
                 if (!terminated)
@@ -594,9 +523,11 @@ class _Body extends ConsumerWidget {
           SliverToBoxAdapter(
             child: _ProfileSection(
               icon: Icons.article_outlined,
-              color: const Color(0xFF5C6BC0),
+              color: AppColors.chartIndigo,
               title: 'Số hợp đồng',
-              emptyMessage: detail.contracts.isEmpty ? 'Chưa có hợp đồng' : null,
+              emptyMessage: detail.contracts.isEmpty
+                  ? 'Chưa có hợp đồng'
+                  : null,
               rows: [
                 for (final c in detail.contracts)
                   _Row(
@@ -662,11 +593,13 @@ class _Body extends ConsumerWidget {
                         _Row(
                           workforceFieldLabel(key),
                           _formatProfileValue(key, profile[key]),
-                          highlight: key == 'insuranceParticipation' &&
+                          highlight:
+                              key == 'insuranceParticipation' &&
                               detail.isMaternityLeave,
                         ),
                   ];
-                  if (rows.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+                  if (rows.isEmpty)
+                    return const SliverToBoxAdapter(child: SizedBox.shrink());
                   return SliverToBoxAdapter(
                     child: _ProfileSection(
                       icon: _sectionIcon(section.title),
@@ -693,9 +626,7 @@ class _Body extends ConsumerWidget {
                 ),
               ),
           ],
-          SliverToBoxAdapter(
-            child: _DocumentsSection(employeeId: s.id),
-          ),
+          SliverToBoxAdapter(child: _DocumentsSection(employeeId: s.id)),
         ],
         const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xxl)),
       ],
@@ -746,214 +677,241 @@ class _HeroHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = detail.summary;
     final topInset = MediaQuery.paddingOf(context).top;
+    final terminated = (s.status ?? '').toUpperCase() == 'TERMINATED';
 
-    return Container(
-      width: double.infinity,
-      margin: EdgeInsets.fromLTRB(
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
         AppSpacing.page,
         topInset + 10,
         AppSpacing.page,
         8,
       ),
-      padding: const EdgeInsets.fromLTRB(16, 14, 14, 16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primaryDark,
-            AppColors.primary,
-            AppColors.primary.withValues(alpha: 0.88),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryDark.withValues(alpha: 0.28),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                'HỒ SƠ NHÂN VIÊN',
-                style: AppTypography.style(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                  color: Colors.white.withValues(alpha: 0.78),
+      child: BrandHeroCard(
+        ornamentIcon: Icons.badge_rounded,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _GlassButton(
+                  icon: Icons.arrow_back_rounded,
+                  label: 'Quay lại',
+                  onTap: () => context.pop(),
                 ),
-              ),
-              const Spacer(),
-              if (onActions != null) ...[
-                Material(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(12),
-                  child: InkWell(
-                    onTap: onActions,
-                    borderRadius: BorderRadius.circular(12),
-                    child: const SizedBox(
-                      width: 38,
-                      height: 38,
-                      child: Icon(
-                        Icons.more_horiz_rounded,
-                        color: Colors.white,
-                        size: 22,
-                      ),
+                const Spacer(),
+                if (onActions != null)
+                  _GlassButton(
+                    icon: Icons.more_horiz_rounded,
+                    label: 'Thao tác',
+                    onTap: onActions!,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.7),
+                        Colors.white.withValues(alpha: 0.15),
+                      ],
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: AppAvatar(
+                    name: s.fullName,
+                    imageUrl: s.avatarUrl,
+                    size: 64,
+                    showShadow: false,
                   ),
                 ),
-                const SizedBox(width: 8),
-              ],
-              Material(
-                color: Colors.white.withValues(alpha: 0.14),
-                borderRadius: AppRadius.brPill,
-                child: InkWell(
-                  onTap: () => context.pop(),
-                  borderRadius: AppRadius.brPill,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 7,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.arrow_back_rounded,
-                          size: 16,
-                          color: Colors.white.withValues(alpha: 0.95),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const BrandHeroEyebrow(text: 'Hồ sơ nhân viên'),
+                      const SizedBox(height: 6),
+                      Text(
+                        s.fullName,
+                        style: AppTypography.style(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -0.4,
+                          height: 1.2,
                         ),
-                        const SizedBox(width: 4),
+                      ),
+                      if (subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 4),
                         Text(
-                          'Quay lại',
+                          subtitle,
                           style: AppTypography.style(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.82),
+                            height: 1.3,
                           ),
                         ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AppAvatar(
-                name: s.fullName,
-                imageUrl: s.avatarUrl,
-                size: 64,
-                borderColor: Colors.white.withValues(alpha: 0.9),
-                borderWidth: 2,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      s.fullName,
-                      style: AppTypography.style(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: -0.4,
-                        height: 1.2,
-                      ),
-                    ),
-                    if (subtitle.isNotEmpty) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        subtitle,
-                        style: AppTypography.style(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: 0.82),
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if ((s.employeeCode ?? '').isNotEmpty)
-                _HeroChip(label: 'Mã NV: ${s.employeeCode}'),
-              if (s.status != null)
-                _HeroChip(
-                  label: _statusLabels[s.status] ?? s.status!,
-                  filled: true,
-                  color: _statusColor(s.status),
-                ),
-              if (detail.isMaternityLeave)
-                const _HeroChip(
-                  label: 'Nghỉ thai sản',
-                  filled: true,
-                  color: Color(0xFFE85D4C),
-                ),
-              if (s.mainDutyAuthorized)
-                const _HeroChip(label: 'Trực chính', filled: true)
-              else if ((s.status ?? '').toUpperCase() != 'TERMINATED')
-                const _HeroChip(
-                  label: 'Trực kèm',
-                  filled: true,
-                  color: AppColors.warning,
-                ),
-            ],
-          ),
-        ],
+              ],
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (s.status != null)
+                  _HeroChip(
+                    label: _statusLabels[s.status] ?? s.status!,
+                    tone: _statusTone(s.status),
+                  ),
+                if ((s.employeeCode ?? '').isNotEmpty)
+                  _HeroChip(
+                    label: 'Mã NV ${s.employeeCode}',
+                    icon: Icons.tag_rounded,
+                  ),
+                if (detail.isMaternityLeave)
+                  const _HeroChip(
+                    label: 'Nghỉ thai sản',
+                    tone: AppColors.onBrandAlertSoft,
+                    icon: Icons.pregnant_woman_rounded,
+                  ),
+                if (s.mainDutyAuthorized)
+                  const _HeroChip(
+                    label: 'Trực chính',
+                    tone: AppColors.onBrandRing,
+                    icon: Icons.nights_stay_rounded,
+                  )
+                else if (!terminated)
+                  const _HeroChip(
+                    label: 'Trực kèm',
+                    tone: AppColors.secondaryLight,
+                    icon: Icons.nights_stay_outlined,
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _HeroChip extends StatelessWidget {
-  const _HeroChip({
+/// Nút kính trên nền brand: icon + nhãn ngắn.
+class _GlassButton extends StatelessWidget {
+  const _GlassButton({
+    required this.icon,
     required this.label,
-    this.filled = false,
-    this.color,
+    required this.onTap,
   });
 
+  final IconData icon;
   final String label;
-  final bool filled;
-  final Color? color;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final accent = color ?? AppColors.primary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: filled
-            ? Colors.white.withValues(alpha: 0.92)
-            : Colors.white.withValues(alpha: 0.14),
+    return Material(
+      type: MaterialType.transparency,
+      shape: RoundedRectangleBorder(
         borderRadius: AppRadius.brPill,
-        border: Border.all(
-          color: Colors.white.withValues(alpha: filled ? 0 : 0.22),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.22)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        color: Colors.white.withValues(alpha: 0.14),
+        child: InkWell(
+          onTap: onTap,
+          splashColor: Colors.white.withValues(alpha: 0.12),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: Colors.white),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: AppTypography.style(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    height: AppTypography.uppercaseHeight,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
-      child: Text(
-        label,
-        style: AppTypography.style(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w800,
-          color: filled ? accent : Colors.white,
-        ),
+    );
+  }
+}
+
+/// Viên kính trên hero: chấm hoặc icon theo sắc + nhãn.
+class _HeroChip extends StatelessWidget {
+  const _HeroChip({required this.label, this.tone = Colors.white, this.icon});
+
+  final String label;
+  final Color tone;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.14),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(color: tone.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null)
+            Icon(icon, size: 13, color: tone)
+          else
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: tone,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(color: tone.withValues(alpha: 0.6), blurRadius: 6),
+                ],
+              ),
+            ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              height: AppTypography.uppercaseHeight,
+              color: tone == Colors.white
+                  ? Colors.white.withValues(alpha: 0.92)
+                  : tone,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -978,51 +936,209 @@ class _RequestPromoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppCard(
       onTap: onTap,
-      accentColor: accent,
-      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+      gradient: TintedCardBackdrop.gradient(accent),
+      borderRadius: AppRadius.brCard,
+      padding: EdgeInsets.zero,
       margin: EdgeInsets.zero,
+      child: TintedCardBackdrop(
+        accent: accent,
+        watermarkIcon: icon,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+          child: Row(
+            children: [
+              TintedIconTile(icon: icon, color: accent, size: 44),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTypography.style(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                        height: AppTypography.uppercaseHeight,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: AppTypography.style(
+                        fontSize: 12.5,
+                        height: 1.35,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              TintedChevron(accent: accent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Một dòng trong sheet "Thao tác hồ sơ".
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        type: MaterialType.transparency,
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.brCard,
+          side: BorderSide(color: color.withValues(alpha: 0.16)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: TintedCardBackdrop.gradient(color),
+          ),
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 11, 10, 11),
+              child: Row(
+                children: [
+                  TintedIconTile(icon: icon, color: color, size: 38),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: AppTypography.style(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            height: AppTypography.uppercaseHeight,
+                            color: danger
+                                ? AppColors.errorDark
+                                : AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: AppTypography.style(
+                            fontSize: 12,
+                            height: 1.3,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  TintedChevron(accent: color),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Đầu thẻ nhóm thông tin: icon đặc + tiêu đề + số mục / trạng thái tải.
+class _SectionHead extends StatelessWidget {
+  const _SectionHead({
+    required this.icon,
+    required this.color,
+    required this.title,
+    this.count,
+    this.loading = false,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final int? count;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 11),
+      decoration: BoxDecoration(gradient: AppGradients.tint(color)),
       child: Row(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, color: accent),
-          ),
-          const SizedBox(width: 12),
+          TintedIconTile(icon: icon, color: color, size: 32),
+          const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: AppTypography.style(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: AppTypography.style(
-                    fontSize: 12.5,
-                    height: 1.35,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
+            child: Text(
+              title,
+              style: AppTypography.style(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.2,
+                height: AppTypography.uppercaseHeight,
+                color: AppColors.textPrimary,
+              ),
             ),
           ),
-          Icon(Icons.chevron_right_rounded, color: accent.withValues(alpha: 0.7)),
+          if (loading)
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else if (count != null && count! > 0)
+            Container(
+              constraints: const BoxConstraints(minWidth: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: AppRadius.brPill,
+                border: Border.all(color: color.withValues(alpha: 0.22)),
+              ),
+              child: Text(
+                '$count',
+                textAlign: TextAlign.center,
+                style: AppTypography.metric(
+                  fontSize: 11.5,
+                  color: Color.lerp(color, AppColors.textPrimary, 0.2)!,
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 }
+
+/// Khung thẻ nhóm: nền trắng, viền mảnh theo sắc nhóm.
+BoxDecoration _sectionDecoration(Color color) => BoxDecoration(
+  color: AppColors.surface,
+  borderRadius: AppRadius.brCard,
+  border: Border.all(color: color.withValues(alpha: 0.14)),
+  boxShadow: AppShadows.soft,
+);
 
 class _Row {
   const _Row(this.label, this.value, {this.highlight = false});
@@ -1065,47 +1181,16 @@ class _ProfileSection extends StatelessWidget {
       ),
       child: Container(
         width: double.infinity,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withValues(alpha: 0.12)),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.06),
-              blurRadius: 14,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
+        clipBehavior: Clip.antiAlias,
+        decoration: _sectionDecoration(color),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
-              child: Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      borderRadius: AppRadius.brSm,
-                    ),
-                    child: Icon(icon, size: 18, color: color),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: AppTypography.style(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            _SectionHead(
+              icon: icon,
+              color: color,
+              title: title,
+              count: visible.length,
             ),
             const Divider(height: 1, color: AppColors.borderSoft),
             if (showEmpty)
@@ -1148,34 +1233,37 @@ class _DetailRow extends StatelessWidget {
   final bool isLast;
   final bool highlight;
 
+  static const Color _highlightTone = Color(0xFF9D174D);
+
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 11, 14, 11),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
       decoration: BoxDecoration(
+        color: highlight ? _highlightTone.withValues(alpha: 0.05) : null,
         border: isLast
             ? null
-            : const Border(bottom: BorderSide(color: AppColors.borderSoft)),
+            : const Border(bottom: BorderSide(color: AppColors.divider)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
+            label.toUpperCase(),
+            style: AppTypography.uppercase(
+              fontSize: 10,
+              letterSpacing: 0.6,
+              color: AppColors.textTertiary,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
             value,
             style: AppTypography.style(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: highlight ? const Color(0xFF9D174D) : AppColors.textPrimary,
+              color: highlight ? _highlightTone : AppColors.textPrimary,
               height: 1.35,
             ),
           ),
@@ -1195,6 +1283,7 @@ class _DocumentsSection extends ConsumerWidget {
     final async = ref.watch(employeeDocumentsProvider(employeeId));
     final docs = async.valueOrNull ?? const <EmployeeDocumentMeta>[];
     final loading = async.isLoading && !async.hasValue;
+    const color = AppColors.error;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -1205,57 +1294,17 @@ class _DocumentsSection extends ConsumerWidget {
       ),
       child: Container(
         width: double.infinity,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.error.withValues(alpha: 0.12)),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.error.withValues(alpha: 0.05),
-              blurRadius: 14,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
+        clipBehavior: Clip.antiAlias,
+        decoration: _sectionDecoration(color),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
-              child: Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: AppColors.error.withValues(alpha: 0.1),
-                      borderRadius: AppRadius.brSm,
-                    ),
-                    child: const Icon(
-                      Icons.picture_as_pdf_outlined,
-                      size: 18,
-                      color: AppColors.error,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Hồ sơ PDF',
-                      style: AppTypography.style(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                  ),
-                  if (loading)
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                ],
-              ),
+            _SectionHead(
+              icon: Icons.picture_as_pdf_rounded,
+              color: color,
+              title: 'Hồ sơ PDF',
+              count: docs.length,
+              loading: loading,
             ),
             const Divider(height: 1, color: AppColors.borderSoft),
             if (!loading && docs.isEmpty)
@@ -1274,20 +1323,31 @@ class _DocumentsSection extends ConsumerWidget {
               for (var i = 0; i < docs.length; i++)
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
                   decoration: BoxDecoration(
                     border: i == docs.length - 1
                         ? null
                         : const Border(
-                            bottom: BorderSide(color: AppColors.borderSoft),
+                            bottom: BorderSide(color: AppColors.divider),
                           ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.insert_drive_file_outlined,
-                        size: 18,
-                        color: AppColors.textSecondary,
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.08),
+                          borderRadius: AppRadius.brControl,
+                          border: Border.all(
+                            color: color.withValues(alpha: 0.16),
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.description_rounded,
+                          size: 17,
+                          color: color.withValues(alpha: 0.85),
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -1299,6 +1359,7 @@ class _DocumentsSection extends ConsumerWidget {
                               style: AppTypography.style(
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
                               ),
                             ),
                             if ((docs[i].createdAt ?? '').isNotEmpty) ...[
@@ -1338,6 +1399,7 @@ class _SalaryLockCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const accent = AppColors.primary;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.page,
@@ -1345,66 +1407,59 @@ class _SalaryLockCard extends StatelessWidget {
         AppSpacing.page,
         0,
       ),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppColors.primary.withValues(alpha: 0.08),
-              AppColors.surface,
-            ],
-          ),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.primary.withValues(alpha: 0.14)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.12),
-                borderRadius: AppRadius.brSm,
-              ),
-              child: const Icon(
-                Icons.lock_rounded,
-                color: AppColors.primary,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Bảng lương & thâm niên',
-                    style: AppTypography.style(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w800,
-                    ),
+      child: AppCard(
+        onTap: canOpenOwnSalary ? onOpenSalary : null,
+        gradient: TintedCardBackdrop.gradient(accent),
+        borderRadius: AppRadius.brCard,
+        padding: EdgeInsets.zero,
+        margin: EdgeInsets.zero,
+        child: TintedCardBackdrop(
+          accent: accent,
+          watermarkIcon: Icons.shield_rounded,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+            child: Row(
+              children: [
+                const TintedIconTile(
+                  icon: Icons.lock_rounded,
+                  color: accent,
+                  size: 42,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Bảng lương & thâm niên',
+                        style: AppTypography.style(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w800,
+                          height: AppTypography.uppercaseHeight,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        canOpenOwnSalary
+                            ? 'Chạm để mở bảng lương của bạn'
+                            : 'Dữ liệu lương đang được bảo vệ',
+                        style: AppTypography.style(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    'Dữ liệu lương đang được bảo vệ',
-                    style: AppTypography.style(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
+                ),
+                if (canOpenOwnSalary) ...[
+                  const SizedBox(width: 8),
+                  const TintedChevron(accent: accent),
                 ],
-              ),
+              ],
             ),
-            if (canOpenOwnSalary)
-              TextButton(
-                onPressed: onOpenSalary,
-                child: const Text('Xem lương'),
-              ),
-          ],
+          ),
         ),
       ),
     );

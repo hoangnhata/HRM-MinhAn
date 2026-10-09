@@ -52,6 +52,7 @@ Future<void> showBulkWorkSupplementSheet(
 }) {
   return showModalBottomSheet<void>(
     context: context,
+    showDragHandle: false,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (_) => _BulkWorkSupplementSheet(

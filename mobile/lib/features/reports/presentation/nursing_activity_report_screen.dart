@@ -18,6 +18,7 @@ import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/list_section_title.dart';
 import '../../auth/application/auth_controller.dart';
 import '../data/nursing_activity_report_repository.dart';
+import '../../../core/widgets/department_picker_sheet.dart';
 
 /// Báo cáo Module A — dữ liệu đồng bộ web, UI tối ưu mobile.
 class NursingActivityReportScreen extends ConsumerStatefulWidget {
@@ -125,94 +126,13 @@ class _NursingActivityReportScreenState
 
   Future<void> _pickDepartment() async {
     if (!_canPickDept || _departments.isEmpty) return;
-    final picked = await showModalBottomSheet<_DeptPick>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(borderRadius: AppRadius.brSheetTop),
-      builder: (ctx) {
-        return SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(ctx).height * 0.7,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const _SheetGrabHandle(),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
-                  child: Row(
-                    children: [
-                      const AppIconBadge(
-                        icon: Icons.filter_list_rounded,
-                        size: 34,
-                      ),
-                      const SizedBox(width: 11),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Phạm vi khoa/phòng',
-                              style: AppTypography.style(
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${_departments.length} khoa trong khối điều dưỡng',
-                              style: AppTypography.style(
-                                fontSize: 11.5,
-                                color: AppColors.textTertiary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, color: AppColors.borderSoft),
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    itemCount: _departments.length + 1,
-                    separatorBuilder: (_, _) => const Padding(
-                      padding: EdgeInsets.only(left: 62),
-                      child: Divider(height: 1, color: AppColors.borderSoft),
-                    ),
-                    itemBuilder: (_, i) {
-                      if (i == 0) {
-                        return _ScopeTile(
-                          icon: Icons.account_balance_outlined,
-                          color: AppColors.primary,
-                          label: 'Toàn viện / toàn khối',
-                          selected: _departmentId == null,
-                          onTap: () =>
-                              Navigator.pop(ctx, const _DeptPick.clear()),
-                        );
-                      }
-                      final d = _departments[i - 1];
-                      return _ScopeTile(
-                        icon: Icons.apartment_rounded,
-                        color: AppColors
-                            .chartPalette[i % AppColors.chartPalette.length],
-                        label: d.name,
-                        selected: d.id == _departmentId,
-                        onTap: () => Navigator.pop(ctx, _DeptPick.selected(d)),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    final picked = await showDepartmentPickerSheet(
+      context,
+      title: 'Phạm vi khoa/phòng',
+      subtitle: '${_departments.length} khoa trong khối điều dưỡng',
+      allLabel: 'Toàn viện / toàn khối',
+      items: [for (final d in _departments) (d.id, d.name)],
+      selectedId: _departmentId,
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -220,8 +140,9 @@ class _NursingActivityReportScreenState
         _departmentId = null;
         _departmentName = null;
       } else {
-        _departmentId = picked.department?.id;
-        _departmentName = picked.department?.name;
+        final d = _departments.firstWhere((e) => e.id == picked.id);
+        _departmentId = d.id;
+        _departmentName = d.name;
       }
     });
     await _load();
@@ -231,6 +152,7 @@ class _NursingActivityReportScreenState
     if (dept.departmentId <= 0) return;
     await showModalBottomSheet<void>(
       context: context,
+      showDragHandle: false,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: AppColors.background,
@@ -444,14 +366,6 @@ class _NursingActivityReportScreenState
       ),
     );
   }
-}
-
-class _DeptPick {
-  const _DeptPick.clear() : department = null, cleared = true;
-  const _DeptPick.selected(this.department) : cleared = false;
-
-  final NursingActivityFilterDepartment? department;
-  final bool cleared;
 }
 
 // ───────────────────────────── Helpers dùng chung ─────────────────────────────
@@ -3549,71 +3463,6 @@ class _SheetGrabHandle extends StatelessWidget {
     );
   }
 }
-
-class _ScopeTile extends StatelessWidget {
-  const _ScopeTile({
-    required this.icon,
-    required this.color,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.actionSelected : Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 12, 16, 12),
-          child: Row(
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: AppRadius.brSm,
-                ),
-                child: Icon(icon, size: 16, color: color),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 13,
-                    height: 1.3,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                    color: selected
-                        ? AppColors.primaryDark
-                        : AppColors.textPrimary,
-                  ),
-                ),
-              ),
-              if (selected)
-                const Icon(
-                  Icons.check_circle_rounded,
-                  size: 19,
-                  color: AppColors.primary,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ─────────────────────────── Sheet chi tiết theo khoa ─────────────────────────
 
 /// Một dòng ngày trong sheet chi tiết.

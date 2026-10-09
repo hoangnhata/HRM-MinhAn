@@ -18,7 +18,10 @@ class GradientHeader extends StatelessWidget {
     ),
     this.bottomRadius = 24,
     this.safeAreaTop = true,
-    this.gradient = AppGradients.brand,
+    this.gradient = AppGradients.header,
+    this.ornamentIcon,
+    this.ornamentScale = 1,
+    this.ornamentIconOnTop = false,
   });
 
   final Widget child;
@@ -27,10 +30,20 @@ class GradientHeader extends StatelessWidget {
   final bool safeAreaTop;
   final Gradient gradient;
 
+  /// Icon chìm cỡ lớn ở góc phải kèm vòng sáng đồng tâm — tạo chiều sâu cho
+  /// header tab cấp một. `null` thì chỉ giữ nền gradient + vệt sáng.
+  final IconData? ornamentIcon;
+
+  /// Thu nhỏ lớp trang trí cho header thấp (dense).
+  final double ornamentScale;
+
+  /// Đặt icon chìm ở góc trên phải thay vì góc dưới — cho header có
+  /// tab/segment ở chân, để icon không lấp ló sau thanh chọn.
+  final bool ornamentIconOnTop;
+
   @override
   Widget build(BuildContext context) {
     final topInset = safeAreaTop ? MediaQuery.paddingOf(context).top : 0.0;
-    final onBrand = Theme.of(context).colorScheme.onPrimary;
 
     return Container(
       width: double.infinity,
@@ -45,16 +58,21 @@ class GradientHeader extends StatelessWidget {
         boxShadow: bottomRadius > 0
             ? [
                 BoxShadow(
-                  color: AppColors.primaryDark.withValues(alpha: 0.22),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
+                  color: AppColors.primaryDark.withValues(alpha: 0.16),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
+                BoxShadow(
+                  color: AppColors.primaryDark.withValues(alpha: 0.10),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
                 ),
               ]
             : [
                 BoxShadow(
-                  color: AppColors.primaryDark.withValues(alpha: 0.14),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
+                  color: AppColors.primaryDark.withValues(alpha: 0.12),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
                 ),
               ],
       ),
@@ -62,20 +80,36 @@ class GradientHeader extends StatelessWidget {
       child: Stack(
         alignment: Alignment.topCenter,
         children: [
-          Positioned(
-            top: -40,
-            right: -24,
-            child: _SoftOrb(size: 132, alpha: 0.1),
+          // Vệt sáng mềm góc trên trái — chiều sâu thay cho mảng màu phẳng.
+          const Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(gradient: AppGradients.headerGlow),
+              ),
+            ),
           ),
+          if (ornamentIcon != null)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _HeaderOrnament(
+                  icon: ornamentIcon!,
+                  scale: ornamentScale,
+                  topInset: topInset,
+                  iconOnTop: ornamentIconOnTop,
+                ),
+              ),
+            ),
+          // Ánh sáng mảnh ở mép trên (hiệu ứng kính) và đường chỉ mảnh ở mép dưới.
           Positioned(
-            bottom: -52,
-            left: -40,
-            child: _SoftOrb(size: 150, alpha: 0.06),
-          ),
-          Positioned(
-            top: 18,
-            left: 72,
-            child: _SoftOrb(size: 56, alpha: 0.05),
+            left: 0,
+            right: 0,
+            top: 0,
+            child: IgnorePointer(
+              child: Container(
+                height: 1,
+                color: Colors.white.withValues(alpha: 0.16),
+              ),
+            ),
           ),
           Positioned(
             left: 0,
@@ -84,7 +118,7 @@ class GradientHeader extends StatelessWidget {
             child: IgnorePointer(
               child: Container(
                 height: 1,
-                color: onBrand.withValues(alpha: 0.12),
+                color: Colors.white.withValues(alpha: 0.14),
               ),
             ),
           ),
@@ -98,22 +132,88 @@ class GradientHeader extends StatelessWidget {
   }
 }
 
-class _SoftOrb extends StatelessWidget {
-  const _SoftOrb({required this.size, required this.alpha});
-  final double size;
-  final double alpha;
+/// Lớp trang trí header: vòng sáng đồng tâm + icon chìm ở góc phải.
+/// Độ mờ thấp để chữ trắng luôn đủ tương phản trên nền teal.
+class _HeaderOrnament extends StatelessWidget {
+  const _HeaderOrnament({
+    required this.icon,
+    required this.scale,
+    required this.topInset,
+    this.iconOnTop = false,
+  });
+
+  final IconData icon;
+  final double scale;
+  final double topInset;
+  final bool iconOnTop;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: alpha),
-      ),
+    final ring = 180.0 * scale;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned(
+          right: -ring * 0.34,
+          top: topInset - ring * 0.42,
+          child: CustomPaint(size: Size.square(ring), painter: _RingsPainter()),
+        ),
+        Positioned(
+          right: -14 * scale,
+          bottom: iconOnTop ? null : -22 * scale,
+          top: iconOnTop ? topInset - 10 * scale : null,
+          child: Transform.rotate(
+            angle: -0.18,
+            child: ShaderMask(
+              blendMode: BlendMode.srcIn,
+              shaderCallback: (bounds) => LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withValues(alpha: 0.13),
+                  Colors.white.withValues(alpha: 0.02),
+                ],
+              ).createShader(bounds),
+              child: Icon(icon, size: 118 * scale),
+            ),
+          ),
+        ),
+      ],
     );
   }
+}
+
+class _RingsPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final r = size.width / 2;
+    // Đĩa sáng mềm ở tâm, rồi các vòng chỉ mảnh nhạt dần ra ngoài.
+    canvas.drawCircle(
+      center,
+      r * 0.62,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.10),
+            Colors.white.withValues(alpha: 0),
+          ],
+        ).createShader(Rect.fromCircle(center: center, radius: r * 0.62)),
+    );
+    for (final (factor, alpha) in [(0.62, 0.14), (0.86, 0.09), (1.0, 0.05)]) {
+      canvas.drawCircle(
+        center,
+        r * factor,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = Colors.white.withValues(alpha: alpha),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// Header chuẩn cho tab cấp một (Công, Đơn từ, Thông báo…)
@@ -151,7 +251,17 @@ class AppScreenHeader extends StatelessWidget {
     // Nested (đơn từ / form): luôn hiện eyebrow & subtitle gọn nếu có.
     final showEyebrow = eyebrow != null && (!dense || isNested);
     final showSubtitle = subtitle != null && (!dense || isNested);
-    final iconBox = dense ? (isNested ? 40.0 : 36.0) : 42.0;
+    final iconBox = dense ? 36.0 : 50.0;
+    // Màn con dense đã có nút trở về: bỏ ô icon để hàng đầu không bị hai khối
+    // tròn/vuông na ná nhau — icon chuyển thành hoạ tiết chìm phía sau.
+    final showBadge = !(dense && isNested);
+    final titleShadow = [
+      Shadow(
+        color: AppColors.primaryDark.withValues(alpha: 0.35),
+        blurRadius: 12,
+        offset: const Offset(0, 2),
+      ),
+    ];
     final topPad = dense ? (isNested ? 14.0 : 8.0) : AppSpacing.sm;
     final bottomPad = footer == null
         ? (dense ? (isNested ? 22.0 : AppSpacing.md) : AppSpacing.xl)
@@ -165,7 +275,10 @@ class AppScreenHeader extends StatelessWidget {
         bottomPad,
       ),
       // Dense + nội dung sát dưới: cắt thẳng để không lộ khoảng trắng ở góc bo.
-      bottomRadius: dense ? 0 : 26,
+      bottomRadius: dense ? 0 : 28,
+      ornamentIcon: icon,
+      ornamentIconOnTop: footer != null,
+      ornamentScale: dense ? (footer != null ? 0.72 : 0.62) : 1,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -173,32 +286,30 @@ class AppScreenHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               if (isNested) ...[
-                _HeaderBackButton(onBack: onBack!, dense: dense, onBrand: onBrand),
-                const SizedBox(width: 10),
+                _HeaderBackButton(
+                  onBack: onBack!,
+                  dense: dense,
+                  onBrand: onBrand,
+                ),
+                const SizedBox(width: AppSpacing.sm),
               ],
-              _HeaderIconBadge(
-                icon: icon,
-                size: iconBox,
-                iconSize: dense ? (isNested ? 20 : 18) : 21,
-                onBrand: onBrand,
-              ),
-              const SizedBox(width: 12),
+              if (showBadge) ...[
+                _HeaderIconBadge(
+                  icon: icon,
+                  size: iconBox,
+                  iconSize: dense ? 18 : 24,
+                  onBrand: onBrand,
+                  elevated: !dense,
+                ),
+                SizedBox(width: dense ? 12 : 14),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (showEyebrow) ...[
-                      Text(
-                        eyebrow!.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.uppercase(
-                          color: onBrand.withValues(alpha: 0.72),
-                          fontSize: 10.5,
-                          letterSpacing: 0.85,
-                        ),
-                      ),
-                      SizedBox(height: dense ? (isNested ? 5 : 3) : 5),
+                      _HeaderEyebrow(text: eyebrow!, pill: !dense || isNested),
+                      SizedBox(height: dense ? (isNested ? 6 : 3) : 7),
                     ],
                     Semantics(
                       header: true,
@@ -209,25 +320,31 @@ class AppScreenHeader extends StatelessWidget {
                         style: dense
                             ? AppTypography.style(
                                 color: onBrand,
-                                fontSize: isNested ? 18.5 : 17.5,
+                                fontSize: isNested ? 20 : 17.5,
                                 fontWeight: FontWeight.w800,
                                 height: AppTypography.uppercaseHeight,
-                                letterSpacing: -0.1,
-                              )
-                            : AppTypography.pageTitle(color: onBrand),
+                                letterSpacing: isNested ? -0.4 : -0.1,
+                              ).copyWith(shadows: isNested ? titleShadow : null)
+                            : AppTypography.style(
+                                color: onBrand,
+                                fontSize: 25,
+                                fontWeight: FontWeight.w800,
+                                height: AppTypography.uppercaseHeight,
+                                letterSpacing: -0.7,
+                              ).copyWith(shadows: titleShadow),
                       ),
                     ),
                     if (showSubtitle) ...[
-                      SizedBox(height: dense ? (isNested ? 6 : 4) : 4),
+                      SizedBox(height: dense ? (isNested ? 6 : 4) : 3),
                       Text(
                         subtitle!,
-                        maxLines: dense && !isNested ? 2 : 2,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
-                          fontSize: 12.5,
+                          fontSize: dense ? 12.5 : 13,
                           fontWeight: FontWeight.w500,
-                          height: AppTypography.uppercaseHeight,
-                          color: onBrand.withValues(alpha: 0.82),
+                          height: 1.4,
+                          color: onBrand.withValues(alpha: 0.8),
                         ),
                       ),
                     ],
@@ -274,8 +391,10 @@ class _HeaderBackButton extends StatelessWidget {
       button: true,
       label: 'Trở về',
       child: Material(
-        color: onBrand.withValues(alpha: 0.14),
-        shape: const CircleBorder(),
+        color: onBrand.withValues(alpha: 0.16),
+        shape: CircleBorder(
+          side: BorderSide(color: onBrand.withValues(alpha: 0.24)),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onBack,
@@ -295,12 +414,71 @@ class _HeaderBackButton extends StatelessWidget {
   }
 }
 
+/// Nhãn nhỏ phía trên tiêu đề: chấm vàng đồng + chữ in hoa. Header lớn dùng
+/// dạng pill kính mờ; header dense giữ dạng chữ để không tăng chiều cao.
+class _HeaderEyebrow extends StatelessWidget {
+  const _HeaderEyebrow({required this.text, required this.pill});
+
+  final String text;
+  final bool pill;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: AppColors.secondaryLight,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.secondaryLight.withValues(alpha: 0.6),
+                blurRadius: 6,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            text.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.uppercase(
+              // Điểm nhấn vàng đồng thương hiệu — thay cho vạch vàng cũ ở mép header.
+              color: AppColors.secondaryLight,
+              fontSize: 10.5,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ),
+      ],
+    );
+    if (!pill) return label;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 3, 10, 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.14),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(
+          color: AppColors.secondaryLight.withValues(alpha: 0.28),
+        ),
+      ),
+      child: label,
+    );
+  }
+}
+
 class _HeaderIconBadge extends StatelessWidget {
   const _HeaderIconBadge({
     required this.icon,
     required this.size,
     required this.iconSize,
     required this.onBrand,
+    this.elevated = false,
   });
 
   final IconData icon;
@@ -308,25 +486,77 @@ class _HeaderIconBadge extends StatelessWidget {
   final double iconSize;
   final Color onBrand;
 
+  /// Ô kính nổi có bóng + vệt sáng nửa trên — dùng cho header lớn.
+  final bool elevated;
+
   @override
   Widget build(BuildContext context) {
+    final radius = Radius.circular(size * 0.32);
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: onBrand.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(size * 0.32),
-        border: Border.all(color: onBrand.withValues(alpha: 0.18)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            onBrand.withValues(alpha: elevated ? 0.30 : 0.24),
+            onBrand.withValues(alpha: elevated ? 0.08 : 0.12),
+          ],
+        ),
+        borderRadius: BorderRadius.all(radius),
+        border: Border.all(color: onBrand.withValues(alpha: 0.28)),
+        boxShadow: elevated
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.16),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : null,
       ),
       child: ExcludeSemantics(
-        child: Icon(icon, color: onBrand, size: iconSize),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (elevated)
+              // Vệt sáng nửa trên — giả lập mặt kính cong.
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                height: size / 2,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.vertical(top: radius),
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.16),
+                        Colors.white.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            Icon(
+              icon,
+              color: onBrand,
+              size: iconSize,
+              shadows: elevated
+                  ? [
+                      Shadow(
+                        color: AppColors.primaryDark.withValues(alpha: 0.4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -360,14 +590,20 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
 
     return Container(
       decoration: BoxDecoration(
-        gradient: AppGradients.brand,
+        gradient: AppGradients.header,
         boxShadow: [
           BoxShadow(
-            color: AppColors.primaryDark.withValues(alpha: 0.2),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: AppColors.primaryDark.withValues(alpha: 0.16),
+            blurRadius: 22,
+            offset: const Offset(0, 8),
           ),
         ],
+      ),
+      foregroundDecoration: BoxDecoration(
+        gradient: AppGradients.headerGlow,
+        border: Border(
+          bottom: BorderSide(color: Colors.white.withValues(alpha: 0.14)),
+        ),
       ),
       child: AppBar(
         backgroundColor: Colors.transparent,
@@ -516,8 +752,7 @@ class BrandHeaderTabItem {
   final bool showZeroCount;
   final IconData? icon;
 
-  bool get _hasBadge =>
-      count != null && (showZeroCount || count! > 0);
+  bool get _hasBadge => count != null && (showZeroCount || count! > 0);
 }
 
 /// Tab bar segment trên [AppScreenHeader] — trắng nổi, chữ teal khi chọn.
@@ -633,8 +868,9 @@ class BrandSegmentItem {
 /// Segmented control trên nền brand — dùng cho [AppScreenHeader.footer] khi màn
 /// hình có hai/ba chế độ xem ngang hàng (không phải tab có nội dung riêng).
 ///
-/// Con trỏ chọn là một thẻ trắng trượt mượt giữa các ô thay vì tô lại từng ô,
-/// nên chuyển chế độ trông liền mạch và giữ nhịp gọn của header.
+/// Phong cách kính mờ: rãnh gần như trong suốt, con trỏ chọn là một tấm kính
+/// trắng mờ có viền sáng trượt giữa các ô; chữ luôn trắng, ô chọn đậm và sáng
+/// hơn. Đồng bộ với nút kính, eyebrow và ô icon trên cùng header.
 class BrandHeaderSegment extends StatelessWidget {
   const BrandHeaderSegment({
     super.key,
@@ -653,21 +889,19 @@ class BrandHeaderSegment extends StatelessWidget {
   Widget build(BuildContext context) {
     final onBrand = Theme.of(context).colorScheme.onPrimary;
     final tileHeight = dense ? 40.0 : 44.0;
-    // Pill lồng pill: con trỏ chọn và rãnh đồng tâm nên hai ô luôn cân nhau.
-    final tileRadius = tileHeight / 2;
-    const trackPad = 4.0;
+    // Rãnh và con trỏ đồng tâm (rãnh = con trỏ + đệm) nên hai lớp luôn song song.
+    final tileRadius = dense ? 12.0 : 13.0;
+    const trackPad = 3.0;
     final index = selectedIndex.clamp(0, items.length - 1);
-    final slot = items.length == 1
-        ? 0.0
-        : -1 + 2 * index / (items.length - 1);
+    final slot = items.length == 1 ? 0.0 : -1 + 2 * index / (items.length - 1);
 
     return Container(
       height: tileHeight + trackPad * 2,
       padding: const EdgeInsets.all(trackPad),
       decoration: BoxDecoration(
-        color: onBrand.withValues(alpha: 0.12),
+        color: onBrand.withValues(alpha: 0.07),
         borderRadius: BorderRadius.circular(tileRadius + trackPad),
-        border: Border.all(color: onBrand.withValues(alpha: 0.18)),
+        border: Border.all(color: onBrand.withValues(alpha: 0.12)),
       ),
       child: Stack(
         children: [
@@ -678,19 +912,7 @@ class BrandHeaderSegment extends StatelessWidget {
             child: FractionallySizedBox(
               widthFactor: 1 / items.length,
               heightFactor: 1,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(tileRadius),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primaryDark.withValues(alpha: 0.14),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-              ),
+              child: _GlassThumb(radius: tileRadius, onBrand: onBrand),
             ),
           ),
           Row(
@@ -718,6 +940,63 @@ class BrandHeaderSegment extends StatelessWidget {
   }
 }
 
+/// Tấm kính trắng mờ: nền sáng dần lên mép trên, viền sáng, vệt phản quang
+/// nửa trên và bóng mềm để tách khỏi rãnh.
+class _GlassThumb extends StatelessWidget {
+  const _GlassThumb({required this.radius, required this.onBrand});
+
+  final double radius;
+  final Color onBrand;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = BorderRadius.circular(radius);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: r,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            onBrand.withValues(alpha: 0.28),
+            onBrand.withValues(alpha: 0.14),
+          ],
+        ),
+        border: Border.all(color: onBrand.withValues(alpha: 0.42)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.14),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: r,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: FractionallySizedBox(
+            heightFactor: 0.5,
+            widthFactor: 1,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    onBrand.withValues(alpha: 0.16),
+                    onBrand.withValues(alpha: 0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _BrandSegmentTile extends StatelessWidget {
   const _BrandSegmentTile({
     required this.item,
@@ -737,9 +1016,7 @@ class _BrandSegmentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = selected
-        ? AppColors.primaryDark
-        : onBrand.withValues(alpha: 0.86);
+    final foreground = onBrand.withValues(alpha: selected ? 1 : 0.64);
 
     return Semantics(
       button: true,
@@ -750,9 +1027,7 @@ class _BrandSegmentTile extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(radius),
-          splashColor: selected
-              ? AppColors.primary.withValues(alpha: 0.08)
-              : onBrand.withValues(alpha: 0.12),
+          splashColor: onBrand.withValues(alpha: 0.12),
           highlightColor: Colors.transparent,
           // Row co theo nội dung rồi mới căn giữa: icon + nhãn + badge luôn là
           // một khối cân giữa ô, không lệch khi nhãn dài ngắn khác nhau.
@@ -772,24 +1047,37 @@ class _BrandSegmentTile extends StatelessWidget {
                           curve: Curves.easeOutCubic,
                           builder: (context, color, _) => Icon(
                             item.icon,
-                            size: dense ? 15 : 16,
+                            size: dense ? 16 : 17,
                             color: color ?? foreground,
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 7),
                       ],
                       AnimatedDefaultTextStyle(
                         duration: AppDurations.normal,
                         curve: Curves.easeOutCubic,
-                        style: AppTypography.style(
-                          fontSize: dense ? 12.5 : 13,
-                          fontWeight: selected
-                              ? FontWeight.w800
-                              : FontWeight.w600,
-                          color: foreground,
-                          letterSpacing: -0.1,
-                          height: AppTypography.uppercaseHeight,
-                        ),
+                        style:
+                            AppTypography.style(
+                              fontSize: dense ? 13 : 13.5,
+                              fontWeight: selected
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                              color: foreground,
+                              letterSpacing: -0.1,
+                              height: AppTypography.uppercaseHeight,
+                            ).copyWith(
+                              shadows: selected
+                                  ? [
+                                      Shadow(
+                                        color: AppColors.primaryDark.withValues(
+                                          alpha: 0.4,
+                                        ),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 1),
+                                      ),
+                                    ]
+                                  : const [],
+                            ),
                         child: Text(
                           item.label,
                           maxLines: 1,
@@ -835,9 +1123,9 @@ class _BrandSegmentBadge extends StatelessWidget {
       constraints: const BoxConstraints(minWidth: 20),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: selected
-            ? AppColors.primary.withValues(alpha: 0.12)
-            : onBrand.withValues(alpha: 0.2),
+        // Ô chọn: badge vàng đồng nổi trên kính; ô thường: kính mờ.
+        gradient: selected ? AppGradients.gold : null,
+        color: selected ? null : onBrand.withValues(alpha: 0.16),
         borderRadius: AppRadius.brPill,
       ),
       child: Text(
@@ -846,7 +1134,7 @@ class _BrandSegmentBadge extends StatelessWidget {
         style: AppTypography.style(
           fontSize: 10.5,
           fontWeight: FontWeight.w800,
-          color: selected ? AppColors.primary : onBrand,
+          color: onBrand,
           height: 1.1,
           tabular: true,
         ),
@@ -880,11 +1168,7 @@ class _BrandTabLabel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (item.icon != null) ...[
-              Icon(
-                item.icon,
-                size: dense ? 15 : 16,
-                color: fg,
-              ),
+              Icon(item.icon, size: dense ? 15 : 16, color: fg),
               const SizedBox(width: 5),
             ],
             Text(

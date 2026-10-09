@@ -15,12 +15,17 @@ import '../../../core/widgets/app_month_picker.dart';
 import '../../../core/widgets/app_period_navigator.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
-import '../../../core/widgets/status_chip.dart';
 import '../../../core/widgets/list_section_title.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../qtkt/data/qtkt_models.dart';
 import '../../qtkt/data/qtkt_repository.dart';
 import '../data/qtkt_compliance_repository.dart';
+import '../../../core/widgets/department_picker_sheet.dart';
+import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
+import 'workforce_report_widgets.dart' show foldVi;
+import '../../../core/widgets/app_segmented_control.dart';
+import '../../../core/widgets/search_field.dart';
 
 /// Báo cáo tuân thủ QTKT — dữ liệu đồng bộ web, UI mobile.
 class QtktComplianceReportScreen extends ConsumerStatefulWidget {
@@ -43,6 +48,20 @@ class _QtktComplianceReportScreenState
   bool _loading = true;
   bool _loadingMore = false;
   String? _error;
+
+  /// Tìm kiếm / sắp xếp mục "Chi tiết đánh giá" (lọc phía server).
+  final _detailSearch = TextEditingController();
+  String _detailQuery = '';
+  bool _newestFirst = true;
+
+  /// Chỉ tải lại danh sách phiếu — giữ nguyên màn để ô tìm kiếm không mất focus.
+  bool _detailsLoading = false;
+
+  @override
+  void dispose() {
+    _detailSearch.dispose();
+    super.dispose();
+  }
 
   String get _yearMonth =>
       '${_month.year.toString().padLeft(4, '0')}-'
@@ -78,9 +97,11 @@ class _QtktComplianceReportScreenState
     } catch (_) {}
   }
 
-  Future<void> _load({bool append = false}) async {
+  Future<void> _load({bool append = false, bool detailsOnly = false}) async {
     if (append) {
       setState(() => _loadingMore = true);
+    } else if (detailsOnly && _report != null) {
+      setState(() => _detailsLoading = true);
     } else {
       setState(() {
         _loading = true;
@@ -97,6 +118,8 @@ class _QtktComplianceReportScreenState
             departmentId: _departmentId,
             resultFilter: _resultFilter,
             page: page,
+            search: _detailQuery,
+            newestFirst: _newestFirst,
           );
       if (!mounted) return;
       if (append && _report != null) {
@@ -120,11 +143,13 @@ class _QtktComplianceReportScreenState
           _report = report;
           _loading = false;
           _loadingMore = false;
+          _detailsLoading = false;
         });
       }
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
+        _detailsLoading = false;
         _loading = false;
         _loadingMore = false;
         _error = e.message;
@@ -134,6 +159,7 @@ class _QtktComplianceReportScreenState
       setState(() {
         _loading = false;
         _loadingMore = false;
+        _detailsLoading = false;
         _error = 'Không tải được báo cáo tuân thủ QTKT';
       });
     }
@@ -171,81 +197,13 @@ class _QtktComplianceReportScreenState
 
   Future<void> _pickDepartment() async {
     if (!_canPickDept) return;
-    final picked = await showModalBottomSheet<_ComplianceDeptPick>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(borderRadius: AppRadius.brSheetTop),
-      builder: (ctx) {
-        return SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(ctx).height * 0.7,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 10),
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.borderSoft,
-                    borderRadius: AppRadius.brPill,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Lọc theo khoa',
-                      style: AppTypography.style(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.account_balance_outlined),
-                  title: const Text('Toàn khối'),
-                  trailing: _departmentId == null
-                      ? const Icon(
-                          Icons.check_rounded,
-                          color: AppColors.primary,
-                        )
-                      : null,
-                  onTap: () =>
-                      Navigator.pop(ctx, const _ComplianceDeptPick.clear()),
-                ),
-                const Divider(height: 1),
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: _departments.length,
-                    itemBuilder: (_, i) {
-                      final d = _departments[i];
-                      return ListTile(
-                        title: Text(d.name),
-                        trailing: d.id == _departmentId
-                            ? const Icon(
-                                Icons.check_rounded,
-                                color: AppColors.primary,
-                              )
-                            : null,
-                        onTap: () =>
-                            Navigator.pop(ctx, _ComplianceDeptPick.selected(d)),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    final picked = await showDepartmentPickerSheet(
+      context,
+      title: 'Lọc theo khoa',
+      subtitle: '${_departments.length} khoa trong khối',
+      allLabel: 'Toàn khối',
+      items: [for (final d in _departments) (d.id, d.name)],
+      selectedId: _departmentId,
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -253,8 +211,9 @@ class _QtktComplianceReportScreenState
         _departmentId = null;
         _departmentName = null;
       } else {
-        _departmentId = picked.department?.id;
-        _departmentName = picked.department?.name;
+        final d = _departments.firstWhere((e) => e.id == picked.id);
+        _departmentId = d.id;
+        _departmentName = d.name;
       }
     });
     await _load();
@@ -267,6 +226,8 @@ class _QtktComplianceReportScreenState
     HapticFeedback.selectionClick();
     await showModalBottomSheet<void>(
       context: context,
+      // Sheet tự vẽ thanh kéo — tắt thanh mặc định để không bị trùng.
+      showDragHandle: false,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: AppColors.background,
@@ -305,6 +266,8 @@ class _QtktComplianceReportScreenState
     HapticFeedback.selectionClick();
     await showModalBottomSheet<void>(
       context: context,
+      // Sheet tự vẽ thanh kéo — tắt thanh mặc định để không bị trùng.
+      showDragHandle: false,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: AppColors.background,
@@ -356,9 +319,12 @@ class _QtktComplianceReportScreenState
                   ),
                   const SizedBox(height: 12),
                   SizedBox(
-                    height: 40,
+                    // Chừa chỗ cho bóng của chip đang chọn khỏi bị cắt.
+                    height: 48,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
+                      clipBehavior: Clip.none,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                       physics: const BouncingScrollPhysics(),
                       itemCount: QtktComplianceKind.values.length,
                       separatorBuilder: (_, _) => const SizedBox(width: 8),
@@ -366,6 +332,14 @@ class _QtktComplianceReportScreenState
                         final k = QtktComplianceKind.values[i];
                         return _KindChip(
                           label: k.label,
+                          icon: switch (k) {
+                            QtktComplianceKind.handHygiene =>
+                              Icons.clean_hands_rounded,
+                            QtktComplianceKind.gdsk =>
+                              Icons.record_voice_over_rounded,
+                            QtktComplianceKind.technical =>
+                              Icons.medical_services_rounded,
+                          },
                           selected: _kind == k,
                           onTap: () {
                             HapticFeedback.selectionClick();
@@ -412,17 +386,8 @@ class _QtktComplianceReportScreenState
                       ),
                       children: [
                         if (report != null) ...[
+                          // Công thức tính đã nằm ở chân thẻ hero.
                           _KpiHero(report: report),
-                          if (report.formulaNote.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              report.formulaNote,
-                              style: AppTypography.body(
-                                fontSize: 11.5,
-                                color: AppColors.textTertiary,
-                              ),
-                            ),
-                          ],
                           if (report.trend.any((t) => t.hasData)) ...[
                             const SizedBox(height: AppSpacing.lg),
                             const ListSectionTitle(
@@ -486,61 +451,165 @@ class _QtktComplianceReportScreenState
                           const SizedBox(height: AppSpacing.lg),
                           Row(
                             children: [
+                              const TintedIconTile(
+                                icon: Icons.fact_check_rounded,
+                                color: AppColors.primary,
+                                size: 30,
+                              ),
+                              const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
                                   'Chi tiết đánh giá',
                                   style: AppTypography.style(
-                                    fontSize: 14.5,
+                                    fontSize: 15,
                                     fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.3,
+                                    height: AppTypography.uppercaseHeight,
+                                    color: AppColors.textPrimary,
                                   ),
                                 ),
                               ),
-                              Text(
-                                '${report.details.length}/${report.detailsTotal}',
-                                style: AppTypography.body(
-                                  fontSize: 12,
-                                  color: AppColors.textTertiary,
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primaryContainer,
+                                  borderRadius: AppRadius.brPill,
+                                ),
+                                child: Text(
+                                  report.details.length >= report.detailsTotal
+                                      ? '${report.detailsTotal} phiếu'
+                                      : '${report.details.length}/${report.detailsTotal} phiếu',
+                                  style: AppTypography.style(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                    tabular: true,
+                                    color: AppColors.primaryDark,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Row(
                             children: [
-                              for (final f in ComplianceResultFilter.values)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ChoiceChip(
-                                    label: Text(switch (f) {
-                                      ComplianceResultFilter.all => 'Tất cả',
-                                      ComplianceResultFilter.pass => 'Đạt',
-                                      ComplianceResultFilter.fail => 'Chưa đạt',
-                                    }),
-                                    selected: _resultFilter == f,
-                                    onSelected: (_) async {
-                                      if (_resultFilter == f) return;
-                                      setState(() => _resultFilter = f);
-                                      await _load();
+                              Expanded(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    borderRadius: AppRadius.brMd,
+                                    boxShadow: AppShadows.soft,
+                                  ),
+                                  child: AppSearchField(
+                                    controller: _detailSearch,
+                                    hintText: 'Tìm tên, mã NV, mã người bệnh…',
+                                    dense: true,
+                                    borderRadius: AppRadius.brMd,
+                                    onChanged: (v) {
+                                      final q = v.trim();
+                                      if (q == _detailQuery) return;
+                                      _detailQuery = q;
+                                      _load(detailsOnly: true);
                                     },
-                                    selectedColor: AppColors.primaryContainer,
-                                    labelStyle: AppTypography.style(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: _resultFilter == f
-                                          ? AppColors.primaryDark
-                                          : AppColors.textSecondary,
-                                    ),
                                   ),
                                 ),
+                              ),
+                              const SizedBox(width: 8),
+                              _DateSortButton(
+                                newestFirst: _newestFirst,
+                                onChanged: (v) {
+                                  if (v == _newestFirst) return;
+                                  setState(() => _newestFirst = v);
+                                  _load(detailsOnly: true);
+                                },
+                              ),
                             ],
+                          ),
+                          const SizedBox(height: 8),
+                          AppSegmentedControl(
+                            style: AppSegmentStyle.soft,
+                            dense: true,
+                            selectedIndex: ComplianceResultFilter.values
+                                .indexOf(_resultFilter),
+                            onChanged: (i) {
+                              final f = ComplianceResultFilter.values[i];
+                              if (_resultFilter == f) return;
+                              setState(() => _resultFilter = f);
+                              _load(detailsOnly: true);
+                            },
+                            items: [
+                              for (final f in ComplianceResultFilter.values)
+                                switch (f) {
+                                  ComplianceResultFilter.all => AppSegmentItem(
+                                    label: 'Tất cả',
+                                    count: report.total,
+                                  ),
+                                  ComplianceResultFilter.pass => AppSegmentItem(
+                                    label: 'Đạt',
+                                    icon: Icons.check_circle_rounded,
+                                    count: report.passed,
+                                  ),
+                                  ComplianceResultFilter.fail => AppSegmentItem(
+                                    label: 'Chưa đạt',
+                                    icon: Icons.cancel_rounded,
+                                    count: report.failed,
+                                  ),
+                                },
+                            ],
+                          ),
+                          // Thanh mảnh khi đang lọc/tìm — không che cả màn.
+                          AnimatedSwitcher(
+                            duration: AppDurations.fast,
+                            child: _detailsLoading
+                                ? const Padding(
+                                    key: ValueKey('loading'),
+                                    padding: EdgeInsets.only(top: 8),
+                                    child: ClipRRect(
+                                      borderRadius: AppRadius.brPill,
+                                      child: LinearProgressIndicator(
+                                        minHeight: 2,
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox(
+                                    key: ValueKey('idle'),
+                                    height: 10,
+                                  ),
                           ),
                           const SizedBox(height: 8),
                           if (report.details.isEmpty)
-                            const EmptyState(
-                              icon: Icons.fact_check_outlined,
-                              title: 'Chưa có phiếu',
-                              message:
-                                  'Chưa có đánh giá trong kỳ / bộ lọc hiện tại.',
+                            EmptyState(
+                              icon: _detailQuery.isEmpty
+                                  ? Icons.fact_check_outlined
+                                  : Icons.search_off_rounded,
+                              title: _detailQuery.isEmpty
+                                  ? 'Chưa có phiếu'
+                                  : 'Không có phiếu phù hợp',
+                              message: _detailQuery.isEmpty
+                                  ? 'Chưa có đánh giá trong kỳ / bộ lọc hiện tại.'
+                                  : 'Không tìm thấy "$_detailQuery". Thử tên, mã NV hoặc mã người bệnh khác.',
+                              action:
+                                  _detailQuery.isEmpty &&
+                                      _resultFilter ==
+                                          ComplianceResultFilter.all
+                                  ? null
+                                  : TextButton.icon(
+                                      onPressed: () {
+                                        _detailSearch.clear();
+                                        _detailQuery = '';
+                                        setState(
+                                          () => _resultFilter =
+                                              ComplianceResultFilter.all,
+                                        );
+                                        _load(detailsOnly: true);
+                                      },
+                                      icon: const Icon(
+                                        Icons.filter_alt_off_outlined,
+                                        size: 18,
+                                      ),
+                                      label: const Text('Xoá lọc'),
+                                    ),
                             )
                           else ...[
                             for (final item in report.details)
@@ -583,11 +652,101 @@ class _QtktComplianceReportScreenState
   }
 }
 
-class _ComplianceDeptPick {
-  const _ComplianceDeptPick.clear() : department = null, cleared = true;
-  const _ComplianceDeptPick.selected(this.department) : cleared = false;
-  final QtktComplianceFilterDepartment? department;
-  final bool cleared;
+/// Nút sắp xếp theo ngày đánh giá (server chỉ hỗ trợ ngày mới/cũ).
+class _DateSortButton extends StatelessWidget {
+  const _DateSortButton({required this.newestFirst, required this.onChanged});
+
+  final bool newestFirst;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<bool>(
+      tooltip: 'Sắp xếp',
+      initialValue: newestFirst,
+      position: PopupMenuPosition.under,
+      shape: const RoundedRectangleBorder(borderRadius: AppRadius.brMd),
+      onSelected: (v) {
+        HapticFeedback.selectionClick();
+        onChanged(v);
+      },
+      itemBuilder: (_) => [
+        for (final (v, label, icon) in [
+          (true, 'Mới nhất', Icons.south_rounded),
+          (false, 'Cũ nhất', Icons.north_rounded),
+        ])
+          PopupMenuItem(
+            value: v,
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: v == newestFirst
+                      ? AppColors.primary
+                      : AppColors.textSecondary,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: AppTypography.style(
+                      fontSize: 13.5,
+                      fontWeight: v == newestFirst
+                          ? FontWeight.w800
+                          : FontWeight.w600,
+                      color: v == newestFirst
+                          ? AppColors.primaryDark
+                          : AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                if (v == newestFirst)
+                  const Icon(
+                    Icons.check_rounded,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+              ],
+            ),
+          ),
+      ],
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.fromLTRB(10, 0, 8, 0),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadius.brMd,
+          border: Border.all(color: AppColors.border),
+          boxShadow: AppShadows.soft,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.swap_vert_rounded,
+              size: 18,
+              color: AppColors.primary,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              newestFirst ? 'Mới nhất' : 'Cũ nhất',
+              style: AppTypography.style(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const Icon(
+              Icons.expand_more_rounded,
+              size: 16,
+              color: AppColors.textTertiary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _KindChip extends StatelessWidget {
@@ -595,42 +754,66 @@ class _KindChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.icon,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: AppDurations.fast,
-      decoration: BoxDecoration(
-        color: selected
-            ? AppColors.primary.withValues(alpha: 0.12)
-            : AppColors.surfaceMuted,
-        borderRadius: AppRadius.brBase,
-        border: Border.all(
-          color: selected
-              ? AppColors.primary.withValues(alpha: 0.35)
-              : AppColors.border.withValues(alpha: 0.45),
+    final fg = selected ? Colors.white : AppColors.textSecondary;
+    // Loại báo cáo là chế độ xem chính → ô chọn tô gradient brand đặc,
+    // ô thường là thẻ trắng viền mảnh.
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      excludeSemantics: true,
+      child: AnimatedContainer(
+        duration: AppDurations.fast,
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          gradient: selected ? AppGradients.brand : null,
+          color: selected ? null : AppColors.surface,
+          borderRadius: AppRadius.brPill,
+          border: Border.all(
+            color: selected ? Colors.transparent : AppColors.border,
+          ),
+          boxShadow: selected
+              ? AppShadows.tinted(AppColors.primary)
+              : AppShadows.soft,
         ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: AppRadius.brBase,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-            child: Text(
-              label,
-              style: AppTypography.style(
-                fontSize: 12.5,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                color: selected
-                    ? AppColors.primaryDark
-                    : AppColors.textSecondary,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: AppRadius.brPill,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(
+                      icon,
+                      size: 16,
+                      color: selected ? Colors.white : AppColors.primary,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  Text(
+                    label,
+                    style: AppTypography.style(
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      height: AppTypography.uppercaseHeight,
+                      color: fg,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -644,118 +827,299 @@ class _KpiHero extends StatelessWidget {
   const _KpiHero({required this.report});
   final QtktComplianceReport report;
 
+  static const _passTone = AppColors.onBrandRing;
+  static const _failTone = Color(0xFFFCA5A5);
+
   @override
   Widget build(BuildContext context) {
-    final ratePct = (report.rateFraction * 100).clamp(0.0, 100.0);
+    final rate = report.rateFraction.clamp(0.0, 1.0);
+    final pct = rate * 100;
+    // Ngưỡng trên nền teal đậm: bạc hà (≥80%) · vàng (≥50%) · hồng (thấp).
+    final rateTone = pct >= 80
+        ? _passTone
+        : (pct >= 50 ? const Color(0xFFFCD34D) : _failTone);
+    final verdict = pct >= 80
+        ? 'Đạt mục tiêu'
+        : (pct >= 50 ? 'Cần cải thiện' : 'Dưới mức yêu cầu');
 
-    return AppCard(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: AppRadius.brXl,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryDark.withValues(alpha: 0.26),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: AppRadius.brXl,
+        child: GradientHeader(
+          safeAreaTop: false,
+          bottomRadius: 0,
+          gradient: AppGradients.brandHero,
+          ornamentIcon: Icons.health_and_safety_rounded,
+          ornamentScale: 0.85,
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: AppRadius.brBase,
-                ),
-                child: const Icon(
-                  Icons.verified_user_outlined,
-                  size: 20,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      report.reportTitle,
-                      style: AppTypography.style(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.1,
+                    Row(
+                      children: [
+                        _RateRing(
+                          rate: rate,
+                          label: report.rateLabel,
+                          color: rateTone,
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.secondaryLight,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppColors.secondaryLight
+                                              .withValues(alpha: 0.6),
+                                          blurRadius: 6,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'TỈ LỆ TUÂN THỦ',
+                                    style: AppTypography.uppercase(
+                                      fontSize: 9.5,
+                                      letterSpacing: 1.0,
+                                      color: AppColors.secondaryLight,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                report.reportTitle,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.style(
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
+                                  height: 1.35,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  _GlassPill(
+                                    icon: Icons.apartment_rounded,
+                                    label: report.departmentName,
+                                  ),
+                                  _GlassPill(dot: rateTone, label: verdict),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Thanh chia Đạt / Chưa đạt trên tổng số lượt đánh giá.
+                    Container(
+                      height: 12,
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.16),
+                        borderRadius: AppRadius.brPill,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.10),
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: AppRadius.brPill,
+                        child: report.total <= 0
+                            ? const SizedBox.expand()
+                            : Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (report.passed > 0)
+                                    Expanded(
+                                      flex: report.passed,
+                                      child: const DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: _passTone,
+                                          borderRadius: AppRadius.brPill,
+                                        ),
+                                      ),
+                                    ),
+                                  if (report.passed > 0 && report.failed > 0)
+                                    const SizedBox(width: 2),
+                                  if (report.failed > 0)
+                                    Expanded(
+                                      flex: report.failed,
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: _failTone.withValues(
+                                            alpha: 0.85,
+                                          ),
+                                          borderRadius: AppRadius.brPill,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      report.departmentName,
-                      style: AppTypography.body(
-                        fontSize: 12.5,
-                        color: AppColors.textSecondary,
-                      ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _GlassStat(
+                            label: 'Tổng lượt',
+                            value: report.total,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _GlassStat(
+                            label: 'Đạt',
+                            value: report.passed,
+                            color: _passTone,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _GlassStat(
+                            label: 'Chưa đạt',
+                            value: report.failed,
+                            color: _failTone,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
+              if (report.formulaNote.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 11),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.14),
+                    border: Border(
+                      top: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.10),
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: Icon(
+                          Icons.functions_rounded,
+                          size: 15,
+                          color: Colors.white.withValues(alpha: 0.7),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          report.formulaNote,
+                          style: AppTypography.style(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                            height: 1.45,
+                            color: Colors.white.withValues(alpha: 0.78),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 14),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                report.rateLabel,
-                style: AppTypography.metric(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primaryDark,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'tỉ lệ tuân thủ',
-                style: AppTypography.style(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textTertiary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: AppRadius.brPill,
-            child: LinearProgressIndicator(
-              value: report.rateFraction,
-              minHeight: 8,
-              backgroundColor: AppColors.surfaceHigh,
-              color: ratePct >= 80
-                  ? AppColors.success
-                  : (ratePct >= 50 ? AppColors.warning : AppColors.primary),
+        ),
+      ),
+    );
+  }
+}
+
+/// Vòng tỷ lệ lớn — nhãn % (font hiển thị) nằm giữa vòng.
+class _RateRing extends StatelessWidget {
+  const _RateRing({
+    required this.rate,
+    required this.label,
+    required this.color,
+  });
+
+  final double rate;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 96,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.black.withValues(alpha: 0.14),
+              boxShadow: [
+                BoxShadow(color: color.withValues(alpha: 0.28), blurRadius: 22),
+              ],
             ),
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _MiniStat(
-                  label: 'Tổng',
-                  value: '${report.total}',
-                  color: AppColors.primary,
-                ),
+          SizedBox.expand(
+            child: CircularProgressIndicator(
+              value: 1,
+              strokeWidth: 7,
+              color: Colors.white.withValues(alpha: 0.12),
+            ),
+          ),
+          SizedBox.expand(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: rate),
+              duration: AppDurations.slow,
+              curve: Curves.easeOutCubic,
+              builder: (context, v, _) => CircularProgressIndicator(
+                value: v,
+                strokeWidth: 7,
+                strokeCap: StrokeCap.round,
+                color: color,
               ),
-              Expanded(
-                child: _MiniStat(
-                  label: 'Đạt',
-                  value: '${report.passed}',
-                  color: AppColors.success,
-                ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                style: AppTypography.display(fontSize: 22, color: Colors.white),
               ),
-              Expanded(
-                child: _MiniStat(
-                  label: 'Chưa đạt',
-                  value: '${report.failed}',
-                  color: AppColors.error,
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -763,38 +1127,122 @@ class _KpiHero extends StatelessWidget {
   }
 }
 
-class _MiniStat extends StatelessWidget {
-  const _MiniStat({
+class _GlassPill extends StatelessWidget {
+  const _GlassPill({required this.label, this.icon, this.dot});
+
+  final String label;
+  final IconData? icon;
+  final Color? dot;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.16),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: Colors.white.withValues(alpha: 0.8)),
+            const SizedBox(width: 4),
+          ] else if (dot != null) ...[
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.style(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                height: AppTypography.uppercaseHeight,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlassStat extends StatelessWidget {
+  const _GlassStat({
     required this.label,
     required this.value,
     required this.color,
   });
 
   final String label;
-  final String value;
+  final int value;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: AppTypography.style(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: color,
+    return Semantics(
+      label: '$label: $value',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 8, 8, 9),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.14),
+              Colors.white.withValues(alpha: 0.05),
+            ],
           ),
+          borderRadius: AppRadius.brBase,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
         ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: AppTypography.body(
-            fontSize: 11.5,
-            color: AppColors.textSecondary,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    label.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.uppercase(
+                      fontSize: 8.5,
+                      letterSpacing: 0.5,
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              AppFormat.number(value),
+              maxLines: 1,
+              style: AppTypography.display(fontSize: 20, color: Colors.white),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -806,81 +1254,214 @@ class _BucketCard extends StatelessWidget {
   final ComplianceBucket bucket;
   final VoidCallback onTap;
 
+  /// Tên in hoa toàn bộ → viết hoa đầu chữ ("KHOA SẢN" → "Khoa Sản").
+  static String _pretty(String raw) {
+    final t = raw.trim();
+    final letters = t.replaceAll(RegExp(r'[^A-Za-zÀ-ỹ]'), '');
+    if (letters.isEmpty || letters != letters.toUpperCase()) return t;
+    return t
+        .toLowerCase()
+        .split(' ')
+        .map(
+          (w) => w.isEmpty
+              ? w
+              : '${w.characters.first.toUpperCase()}${w.substring(w.characters.first.length)}',
+        )
+        .join(' ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasData = bucket.total > 0;
+    final pct = bucket.rateFraction * 100;
+    // Ngưỡng giống thẻ KPI: ≥80 đạt · ≥50 cần cải thiện · dưới 50 chưa đạt.
+    final (Color tone, String verdict, IconData icon) = !hasData
+        ? (AppColors.textTertiary, 'Chưa có phiếu', Icons.remove_circle_outline)
+        : pct >= 80
+        ? (AppColors.success, 'Đạt mục tiêu', Icons.check_circle_rounded)
+        : pct >= 50
+        ? (AppColors.warning, 'Cần cải thiện', Icons.error_outline_rounded)
+        : (AppColors.error, 'Dưới yêu cầu', Icons.cancel_outlined);
+    final ink = Color.lerp(tone, AppColors.textPrimary, 0.25)!;
+    final name = _pretty(bucket.departmentName);
+
     return AppCard(
       onTap: onTap,
-      padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      borderRadius: AppRadius.brLg,
+      padding: EdgeInsets.zero,
+      gradient: TintedCardBackdrop.gradient(
+        hasData ? tone : AppColors.textSecondary,
+      ),
+      child: Semantics(
+        label:
+            '$name. ${hasData ? '${bucket.rateLabel}, $verdict' : verdict}. '
+            '${bucket.passed} đạt, ${bucket.failed} chưa đạt, ${bucket.total} phiếu',
+        excludeSemantics: true,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.2,
+                            height: AppTypography.uppercaseHeight,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            Icon(icon, size: 13, color: tone),
+                            const SizedBox(width: 4),
+                            Text(
+                              verdict,
+                              style: AppTypography.style(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                height: AppTypography.uppercaseHeight,
+                                color: ink,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    hasData ? bucket.rateLabel : '—',
+                    style: AppTypography.display(
+                      fontSize: 22,
+                      color: hasData ? ink : AppColors.textTertiary,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  TintedChevron(accent: tone),
+                ],
+              ),
+              const SizedBox(height: 11),
+              // Rãnh nhạt + vệt chuyển sắc theo ngưỡng; chưa có phiếu thì để trống.
+              Container(
+                height: 8,
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.10),
+                  borderRadius: AppRadius.brPill,
+                ),
+                alignment: Alignment.centerLeft,
+                child: !hasData
+                    ? null
+                    : TweenAnimationBuilder<double>(
+                        tween: Tween(
+                          begin: 0,
+                          end: bucket.rateFraction.clamp(0.0, 1.0),
+                        ),
+                        duration: AppDurations.slow,
+                        curve: Curves.easeOutCubic,
+                        builder: (context, v, _) => FractionallySizedBox(
+                          heightFactor: 1,
+                          widthFactor: v <= 0 ? 0 : v.clamp(0.03, 1.0),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: AppRadius.brPill,
+                              gradient: LinearGradient(
+                                colors: [
+                                  Color.lerp(tone, Colors.white, 0.3)!,
+                                  tone,
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  _CountTag(
+                    icon: Icons.check_rounded,
+                    label: '${bucket.passed} đạt',
+                    color: AppColors.success,
+                    muted: bucket.passed == 0,
+                  ),
+                  _CountTag(
+                    icon: Icons.close_rounded,
+                    label: '${bucket.failed} chưa đạt',
+                    color: AppColors.error,
+                    muted: bucket.failed == 0,
+                  ),
+                  _CountTag(
+                    icon: Icons.description_outlined,
+                    label: '${bucket.total} phiếu',
+                    color: AppColors.primary,
+                    muted: bucket.total == 0,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Nhãn đếm: icon + chữ trên nền pha nhạt; [muted] khi giá trị 0.
+class _CountTag extends StatelessWidget {
+  const _CountTag({
+    required this.icon,
+    required this.label,
+    required this.color,
+    this.muted = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool muted;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = muted ? AppColors.textTertiary : color;
+    final ink = muted
+        ? AppColors.textTertiary
+        : Color.lerp(color, AppColors.textPrimary, 0.25)!;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(6, 3, 8, 3),
+      decoration: BoxDecoration(
+        color: muted
+            ? Colors.white.withValues(alpha: 0.7)
+            : c.withValues(alpha: 0.08),
+        borderRadius: AppRadius.brChip,
+        border: Border.all(color: c.withValues(alpha: muted ? 0.14 : 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  bucket.departmentName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    height: 1.25,
-                    letterSpacing: -0.1,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                bucket.rateLabel,
-                style: AppTypography.style(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w800,
-                  color: hasData
-                      ? AppColors.primaryDark
-                      : AppColors.textTertiary,
-                ),
-              ),
-              const SizedBox(width: 2),
-              const Icon(
-                Icons.chevron_right_rounded,
-                size: 20,
-                color: AppColors.textTertiary,
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: AppRadius.brPill,
-            child: LinearProgressIndicator(
-              value: bucket.rateFraction,
-              minHeight: 6,
-              backgroundColor: AppColors.surfaceHigh,
-              color: AppColors.primary,
+          Icon(icon, size: 12, color: ink),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              height: AppTypography.uppercaseHeight,
+              tabular: true,
+              color: ink,
             ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${bucket.passed} đạt · ${bucket.failed} chưa · ${bucket.total} phiếu',
-                  style: AppTypography.body(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ),
-              Text(
-                'Xem phiếu',
-                style: AppTypography.style(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primary,
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -902,116 +1483,207 @@ class _DetailCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final pass = row.passed;
     final tone = pass ? AppColors.success : AppColors.error;
-    final initial = row.employeeName.trim().isNotEmpty
-        ? String.fromCharCodes(
-            row.employeeName.trim().runes.take(1),
-          ).toUpperCase()
-        : '?';
+    final ink = Color.lerp(tone, AppColors.textPrimary, 0.25)!;
+    final scoreParts = row.scoreLabel.split('/');
+    final scoreMain = scoreParts.first.trim();
+    final scoreMax = scoreParts.length > 1 ? scoreParts[1].trim() : null;
+    final hasContext =
+        row.checkContextLabel != null && row.checkContextLabel!.isNotEmpty;
+    final hasPatient =
+        row.patientCode != null && row.patientCode!.trim().isNotEmpty;
+    final showDept = !hideDepartment && row.departmentName.isNotEmpty;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadius.brLg,
-        child: Ink(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                tone.withValues(alpha: 0.07),
-                AppColors.surface,
-                AppColors.surface,
-              ],
-              stops: const [0.0, 0.38, 1.0],
-            ),
-            borderRadius: AppRadius.brLg,
-            border: Border.all(color: tone.withValues(alpha: 0.18)),
-            boxShadow: [
-              BoxShadow(
-                color: tone.withValues(alpha: 0.06),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Stack(
-                      clipBehavior: Clip.none,
+    return AppCard(
+      onTap: onTap,
+      borderRadius: AppRadius.brLg,
+      padding: EdgeInsets.zero,
+      gradient: TintedCardBackdrop.gradient(tone),
+      child: Semantics(
+        label:
+            '${row.employeeName}. ${row.procedureName}. '
+            '${pass ? 'Đạt' : 'Chưa đạt'}${row.scoreLabel.isEmpty ? '' : ', ${row.scoreLabel} điểm'}',
+        excludeSemantics: true,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  _ResultAvatar(name: row.employeeName, tone: tone, pass: pass),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: AppRadius.brPaper,
-                            border: Border.all(
-                              color: tone.withValues(alpha: 0.2),
-                            ),
-                          ),
-                          child: Text(
-                            initial,
-                            style: AppTypography.style(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: tone,
-                            ),
+                        Text(
+                          row.employeeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.25,
+                            height: AppTypography.uppercaseHeight,
+                            color: AppColors.textPrimary,
                           ),
                         ),
-                        Positioned(
-                          right: -3,
-                          bottom: -3,
-                          child: Container(
-                            width: 18,
-                            height: 18,
-                            decoration: BoxDecoration(
-                              color: tone,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white,
-                                width: 1.5,
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.fromLTRB(6, 2, 8, 2),
+                              decoration: BoxDecoration(
+                                color: tone.withValues(alpha: 0.10),
+                                borderRadius: AppRadius.brPill,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    pass
+                                        ? Icons.check_circle_rounded
+                                        : Icons.cancel_rounded,
+                                    size: 12,
+                                    color: tone,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    pass ? 'Đạt' : 'Chưa đạt',
+                                    style: AppTypography.style(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      height: AppTypography.uppercaseHeight,
+                                      color: ink,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            child: Icon(
-                              pass ? Icons.check_rounded : Icons.close_rounded,
-                              size: 11,
-                              color: Colors.white,
+                            if (row.employeeCode.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              const Icon(
+                                Icons.tag_rounded,
+                                size: 12,
+                                color: AppColors.textTertiary,
+                              ),
+                              const SizedBox(width: 2),
+                              Flexible(
+                                child: Text(
+                                  row.employeeCode,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.style(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w500,
+                                    tabular: true,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (scoreMain.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'ĐIỂM',
+                          style: AppTypography.uppercase(
+                            fontSize: 8.5,
+                            letterSpacing: 0.6,
+                            color: AppColors.textTertiary,
+                          ),
+                        ),
+                        Text.rich(
+                          TextSpan(
+                            text: scoreMain,
+                            style: AppTypography.display(
+                              fontSize: 22,
+                              color: ink,
                             ),
+                            children: [
+                              if (scoreMax != null)
+                                TextSpan(
+                                  text: ' /$scoreMax',
+                                  style: AppTypography.style(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    tabular: true,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(width: 12),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 10),
+              // Khối quy trình: kính trắng tách nội dung đánh giá khỏi người.
+              Container(
+                padding: const EdgeInsets.fromLTRB(10, 9, 8, 9),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.75),
+                  borderRadius: AppRadius.brBase,
+                  border: Border.all(color: tone.withValues(alpha: 0.12)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryContainer,
+                        borderRadius: AppRadius.brControl,
+                      ),
+                      child: const Icon(
+                        Icons.medical_services_outlined,
+                        size: 16,
+                        color: AppColors.primaryDark,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            row.employeeName,
-                            maxLines: 1,
+                            row.procedureName.isEmpty
+                                ? 'Phiếu đánh giá'
+                                : row.procedureName,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: AppTypography.style(
-                              fontSize: 14.5,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.2,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              height: 1.35,
+                              color: AppColors.textPrimary,
                             ),
                           ),
-                          if (row.employeeCode.isNotEmpty) ...[
+                          if (row.evalDateLabel.isNotEmpty || showDept) ...[
                             const SizedBox(height: 2),
                             Text(
-                              row.employeeCode,
+                              [
+                                if (row.evalDateLabel.isNotEmpty)
+                                  row.evalDateLabel,
+                                if (showDept) row.departmentName,
+                              ].join('  ·  '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: AppTypography.style(
                                 fontSize: 11.5,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textTertiary,
+                                fontWeight: FontWeight.w500,
+                                height: AppTypography.uppercaseHeight,
+                                tabular: true,
+                                color: AppColors.textSecondary,
                               ),
                             ),
                           ],
@@ -1019,127 +1691,200 @@ class _DetailCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    StatusChip(
-                      label: pass ? 'Đạt' : 'Chưa đạt',
-                      color: tone,
-                      dense: true,
-                    ),
-                    const SizedBox(width: 2),
-                    const Icon(
-                      Icons.chevron_right_rounded,
-                      size: 18,
-                      color: AppColors.textTertiary,
-                    ),
+                    TintedChevron(accent: tone),
                   ],
                 ),
-                if (row.procedureName.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    row.procedureName,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+              ),
+              if (hasContext || hasPatient) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (hasContext)
+                      _TicketMetaPill(
+                        icon: Icons.touch_app_outlined,
+                        label: row.checkContextLabel!,
+                        color: AppColors.info,
+                      ),
+                    if (hasPatient)
+                      _TicketMetaPill(
+                        icon: Icons.badge_outlined,
+                        label: 'NB ${row.patientCode}',
+                        color: AppColors.secondary,
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Avatar chữ cái đầu với viền chuyển sắc theo kết quả + dấu ✓/✕.
+class _ResultAvatar extends StatelessWidget {
+  const _ResultAvatar({
+    required this.name,
+    required this.tone,
+    required this.pass,
+  });
+
+  final String name;
+  final Color tone;
+  final bool pass;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = name.trim();
+    final initial = t.isEmpty ? '?' : t.characters.first.toUpperCase();
+    return SizedBox.square(
+      dimension: 46,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  tone.withValues(alpha: 0.6),
+                  tone.withValues(alpha: 0.12),
+                ],
+              ),
+            ),
+            child: Container(
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.surface,
+              ),
+              child: Text(
+                initial,
+                style: AppTypography.display(
+                  fontSize: 17,
+                  color: Color.lerp(tone, AppColors.textPrimary, 0.2)!,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: -2,
+            bottom: -2,
+            child: Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: tone,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.surface, width: 2),
+              ),
+              child: Icon(
+                pass ? Icons.check_rounded : Icons.close_rounded,
+                size: 11,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Nút sắp xếp danh sách phiếu — viên trắng nổi, mở menu 4 lựa chọn.
+class _SortButton extends StatelessWidget {
+  const _SortButton({required this.value, required this.onChanged});
+
+  final _TicketSort value;
+  final ValueChanged<_TicketSort> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_TicketSort>(
+      tooltip: 'Sắp xếp',
+      initialValue: value,
+      position: PopupMenuPosition.under,
+      shape: const RoundedRectangleBorder(borderRadius: AppRadius.brMd),
+      onSelected: (v) {
+        HapticFeedback.selectionClick();
+        onChanged(v);
+      },
+      itemBuilder: (_) => [
+        for (final o in _TicketSort.values)
+          PopupMenuItem(
+            value: o,
+            child: Row(
+              children: [
+                Icon(
+                  o.icon,
+                  size: 18,
+                  color: o == value
+                      ? AppColors.primary
+                      : AppColors.textSecondary,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    o.label,
                     style: AppTypography.style(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                      height: 1.3,
+                      fontSize: 13.5,
+                      fontWeight: o == value
+                          ? FontWeight.w800
+                          : FontWeight.w600,
+                      color: o == value
+                          ? AppColors.primaryDark
+                          : AppColors.textPrimary,
                     ),
                   ),
-                ],
-                if ((!hideDepartment && row.departmentName.isNotEmpty) ||
-                    row.evalDateLabel.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      if (!hideDepartment && row.departmentName.isNotEmpty) ...[
-                        Icon(
-                          Icons.apartment_rounded,
-                          size: 13,
-                          color: AppColors.textTertiary,
-                        ),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            row.departmentName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.style(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ),
-                      ],
-                      if (!hideDepartment &&
-                          row.departmentName.isNotEmpty &&
-                          row.evalDateLabel.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: Text(
-                            '·',
-                            style: AppTypography.style(
-                              fontSize: 11.5,
-                              color: AppColors.textTertiary,
-                            ),
-                          ),
-                        ),
-                      if (row.evalDateLabel.isNotEmpty) ...[
-                        Icon(
-                          Icons.event_outlined,
-                          size: 13,
-                          color: AppColors.textTertiary,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          row.evalDateLabel,
-                          style: AppTypography.style(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ],
+                ),
+                if (o == value)
+                  const Icon(
+                    Icons.check_rounded,
+                    size: 18,
+                    color: AppColors.primary,
                   ),
-                ],
-                if ((row.checkContextLabel != null &&
-                        row.checkContextLabel!.isNotEmpty) ||
-                    (row.patientCode != null &&
-                        row.patientCode!.trim().isNotEmpty) ||
-                    row.scoreLabel.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      if (row.checkContextLabel != null &&
-                          row.checkContextLabel!.isNotEmpty)
-                        _TicketMetaPill(
-                          icon: Icons.touch_app_outlined,
-                          label: row.checkContextLabel!,
-                          color: AppColors.info,
-                        ),
-                      if (row.patientCode != null &&
-                          row.patientCode!.trim().isNotEmpty)
-                        _TicketMetaPill(
-                          icon: Icons.badge_outlined,
-                          label: 'NB ${row.patientCode}',
-                          color: AppColors.secondary,
-                        ),
-                      if (row.scoreLabel.isNotEmpty)
-                        _TicketMetaPill(
-                          icon: Icons.grade_outlined,
-                          label: row.scoreLabel,
-                          color: AppColors.primary,
-                          emphasize: true,
-                        ),
-                    ],
-                  ),
-                ],
               ],
             ),
           ),
+      ],
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.fromLTRB(10, 0, 8, 0),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadius.brMd,
+          border: Border.all(color: AppColors.border),
+          boxShadow: AppShadows.soft,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.swap_vert_rounded,
+              size: 18,
+              color: AppColors.primary,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              value.label,
+              style: AppTypography.style(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const Icon(
+              Icons.expand_more_rounded,
+              size: 16,
+              color: AppColors.textTertiary,
+            ),
+          ],
         ),
       ),
     );
@@ -1151,20 +1896,18 @@ class _TicketMetaPill extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.color,
-    this.emphasize = false,
   });
 
   final IconData icon;
   final String label;
   final Color color;
-  final bool emphasize;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: emphasize ? 0.14 : 0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: AppRadius.brPill,
         border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
@@ -1182,7 +1925,8 @@ class _TicketMetaPill extends StatelessWidget {
               style: AppTypography.style(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: color,
+                height: AppTypography.uppercaseHeight,
+                color: Color.lerp(color, AppColors.textPrimary, 0.25),
               ),
             ),
           ),
@@ -1302,7 +2046,7 @@ class _ComplianceTrendCardState extends State<_ComplianceTrendCard> {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: AppRadius.brLg,
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.7)),
+        border: Border.all(color: AppColors.borderSoft),
         boxShadow: AppShadows.card,
       ),
       clipBehavior: Clip.antiAlias,
@@ -1313,38 +2057,58 @@ class _ComplianceTrendCardState extends State<_ComplianceTrendCard> {
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
             child: Row(
               children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.12),
-                    borderRadius: AppRadius.brSm,
-                  ),
-                  child: const Icon(
-                    Icons.show_chart_rounded,
-                    size: 15,
-                    color: AppColors.primary,
-                  ),
+                const TintedIconTile(
+                  icon: Icons.show_chart_rounded,
+                  color: AppColors.primary,
+                  size: 34,
                 ),
-                const SizedBox(width: 9),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'Tỉ lệ tuân thủ (%)',
-                    style: AppTypography.style(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textPrimary,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Tỉ lệ tuân thủ theo ngày',
+                        style: AppTypography.style(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                          height: AppTypography.uppercaseHeight,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        'Đơn vị %, vuốt ngang để đổi tuần',
+                        style: AppTypography.style(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          height: AppTypography.uppercaseHeight,
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 if (latest != null)
-                  Text(
-                    '${latest.toStringAsFixed(1)}%',
-                    style: AppTypography.metric(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.primaryDark,
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'MỚI NHẤT',
+                        style: AppTypography.uppercase(
+                          fontSize: 8.5,
+                          letterSpacing: 0.6,
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                      Text(
+                        '${latest.toStringAsFixed(1)}%',
+                        style: AppTypography.display(
+                          fontSize: 20,
+                          color: AppColors.primaryDark,
+                        ),
+                      ),
+                    ],
                   ),
               ],
             ),
@@ -1352,10 +2116,17 @@ class _ComplianceTrendCardState extends State<_ComplianceTrendCard> {
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 12, 10, 4),
             child: Container(
-              padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceMuted,
-                borderRadius: AppRadius.brPaper,
+              padding: const EdgeInsets.fromLTRB(6, 6, 6, 8),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFFDDE8E6), Color(0xFFE9F1F0)],
+                ),
+                borderRadius: BorderRadius.all(Radius.circular(20)),
+                boxShadow: [
+                  BoxShadow(color: Color(0xCCFFFFFF), offset: Offset(0, 1)),
+                ],
               ),
               child: Column(
                 children: [
@@ -1436,7 +2207,7 @@ class _ComplianceTrendCardState extends State<_ComplianceTrendCard> {
                 });
               },
               itemBuilder: (_, index) => Padding(
-                padding: const EdgeInsets.fromLTRB(4, 4, 10, 2),
+                padding: const EdgeInsets.fromLTRB(4, 14, 12, 2),
                 child: _ComplianceWeekChart(
                   week: _weeks[index],
                   weekIndex: index,
@@ -1459,72 +2230,186 @@ class _ComplianceTrendCardState extends State<_ComplianceTrendCard> {
               ),
             ),
           ),
-          if (_focus != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.08),
-                  borderRadius: AppRadius.brPaper,
+          // Chú thích (luôn hiện) + khung chi tiết ngày đang chạm.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.touch_app_outlined,
+                  size: 13,
+                  color: AppColors.textTertiary,
                 ),
-                child: Row(
-                  children: [
-                    Text(
-                      _focus!.day.weekdayLabel,
-                      style: AppTypography.style(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _focus!.day.label,
-                        style: AppTypography.style(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      _focus!.day.rate == null
-                          ? '—'
-                          : '${_focus!.day.rate!.toStringAsFixed(1)}%',
-                      style: AppTypography.metric(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primaryDark,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 2, 14, 0),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.touch_app_outlined,
-                    size: 13,
-                    color: AppColors.textTertiary,
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    'Chạm ngày để xem · thả tay để ẩn',
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    'Chạm hoặc kéo trên biểu đồ để xem từng ngày',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: AppTypography.style(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                       color: AppColors.textTertiary,
                     ),
                   ),
-                ],
+                ),
+                const SizedBox(width: 8),
+                const _TargetLegend(),
+              ],
+            ),
+          ),
+          AnimatedSize(
+            duration: AppDurations.fast,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _focus == null
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                    child: _FocusDetail(day: _focus!.day),
+                  ),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+}
+
+/// Chú thích đường mục tiêu: đoạn nét đứt + nhãn.
+class _TargetLegend extends StatelessWidget {
+  const _TargetLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < 3; i++) ...[
+              if (i > 0) const SizedBox(width: 2),
+              Container(width: 4, height: 1.5, color: AppColors.textTertiary),
+            ],
+          ],
+        ),
+        const SizedBox(width: 5),
+        Text(
+          'Mục tiêu 80%',
+          style: AppTypography.style(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Chi tiết ngày đang chạm: thứ · ngày, giá trị lớn và chênh lệch so với
+/// mục tiêu 80% (kèm icon + chữ, không chỉ dựa vào màu).
+class _FocusDetail extends StatelessWidget {
+  const _FocusDetail({required this.day});
+
+  final _ComplianceDay day;
+
+  static const double _target = 80;
+
+  @override
+  Widget build(BuildContext context) {
+    final rate = day.rate;
+    final delta = rate == null ? null : rate - _target;
+    final ok = delta != null && delta >= 0;
+    final tone = delta == null
+        ? AppColors.textSecondary
+        : (ok ? AppColors.success : AppColors.warning);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 10, 14, 10),
+      decoration: BoxDecoration(
+        gradient: TintedCardBackdrop.gradient(AppColors.primary),
+        borderRadius: AppRadius.brCard,
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.16)),
+        boxShadow: AppShadows.soft,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              gradient: AppGradients.brand,
+              borderRadius: AppRadius.brBase,
+              boxShadow: AppShadows.tinted(AppColors.primary),
+            ),
+            child: Text(
+              day.weekdayLabel,
+              style: AppTypography.style(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+                height: AppTypography.uppercaseHeight,
               ),
             ),
-          const SizedBox(height: 12),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  day.label,
+                  style: AppTypography.style(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    height: AppTypography.uppercaseHeight,
+                    tabular: true,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                if (delta != null)
+                  Row(
+                    children: [
+                      Icon(
+                        ok
+                            ? Icons.trending_up_rounded
+                            : Icons.trending_down_rounded,
+                        size: 14,
+                        color: tone,
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          ok
+                              ? 'Cao hơn mục tiêu ${delta.toStringAsFixed(1)} điểm'
+                              : 'Thấp hơn mục tiêu ${(-delta).toStringAsFixed(1)} điểm',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            height: AppTypography.uppercaseHeight,
+                            color: Color.lerp(tone, AppColors.textPrimary, 0.2),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            rate == null ? '—' : '${rate.toStringAsFixed(1)}%',
+            style: AppTypography.display(
+              fontSize: 22,
+              color: AppColors.primaryDark,
+            ),
+          ),
         ],
       ),
     );
@@ -1696,10 +2581,45 @@ class _ComplianceWeekChart extends StatelessWidget {
       );
     }
 
+    // Tỉ lệ % không vượt 100 → cố định trục 0–100. Bản cũ cộng thêm 5% đầu
+    // trục làm thư viện in thêm nhãn "105%" chồng lên "100%".
     final maxValue = spots.map((s) => s.y).reduce(math.max);
-    final maxY = math.max(100.0, maxValue * 1.05);
+    final maxY = maxValue > 100 ? (maxValue / 50).ceil() * 50.0 : 100.0;
     final focusedDay = focus?.dayIndex;
 
+    final bar = LineChartBarData(
+      spots: spots,
+      isCurved: true,
+      curveSmoothness: 0.28,
+      preventCurveOverShooting: true,
+      color: AppColors.primary,
+      barWidth: 2,
+      isStrokeCapRound: true,
+      dotData: FlDotData(
+        show: true,
+        getDotPainter: (spot, percent, bar, index) {
+          final selected = focusedDay == spot.x.round();
+          // Đĩa đặc + vòng surface 2px để điểm tách khỏi đường/lưới.
+          return FlDotCirclePainter(
+            radius: selected ? 6.5 : 4.5,
+            color: AppColors.primary,
+            strokeWidth: selected ? 3 : 2,
+            strokeColor: AppColors.surface,
+          );
+        },
+      ),
+      belowBarData: BarAreaData(
+        show: true,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            AppColors.primary.withValues(alpha: 0.16),
+            AppColors.primary.withValues(alpha: 0.0),
+          ],
+        ),
+      ),
+    );
     return LineChart(
       LineChartData(
         minY: 0,
@@ -1707,22 +2627,15 @@ class _ComplianceWeekChart extends StatelessWidget {
         minX: -0.45,
         maxX: 6.45,
         clipData: const FlClipData.none(),
+        // Lưới chìm: chỉ đường ngang mảnh, không đường dọc chia cắt dữ liệu.
         gridData: FlGridData(
           show: true,
-          drawVerticalLine: true,
-          horizontalInterval: 50,
-          verticalInterval: 1,
-          checkToShowVerticalLine: (value) {
-            final i = value.round();
-            return (value - i).abs() < 0.01 && i >= 0 && i <= 6;
-          },
-          getDrawingHorizontalLine: (_) => FlLine(
-            color: AppColors.borderSoft.withValues(alpha: 0.9),
-            strokeWidth: 1,
-            dashArray: [3, 5],
-          ),
-          getDrawingVerticalLine: (_) => FlLine(
-            color: AppColors.borderSoft.withValues(alpha: 0.45),
+          drawVerticalLine: false,
+          horizontalInterval: 25,
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: value == 0
+                ? AppColors.border
+                : AppColors.textPrimary.withValues(alpha: 0.05),
             strokeWidth: 1,
           ),
         ),
@@ -1736,15 +2649,18 @@ class _ComplianceWeekChart extends StatelessWidget {
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 28,
+              reservedSize: 34,
               interval: 50,
               getTitlesWidget: (value, meta) {
-                if (value > maxY - 10) return const SizedBox.shrink();
+                // Chỉ in mốc chẵn 50 — bỏ nhãn min/max thư viện tự chèn.
+                if (value % 50 != 0 || value > maxY) {
+                  return const SizedBox.shrink();
+                }
                 return SideTitleWidget(
                   meta: meta,
-                  space: 4,
+                  space: 6,
                   child: Text(
-                    '${value.toInt()}',
+                    '${value.toInt()}%',
                     style: AppTypography.metricMuted(
                       fontSize: 10,
                       color: AppColors.textTertiary,
@@ -1791,13 +2707,22 @@ class _ComplianceWeekChart extends StatelessWidget {
         ),
         borderData: FlBorderData(show: false),
         extraLinesData: ExtraLinesData(
+          horizontalLines: [
+            // Ngưỡng "Đạt mục tiêu" — cùng mốc 80% với thẻ KPI phía trên.
+            HorizontalLine(
+              y: 80,
+              color: AppColors.textTertiary.withValues(alpha: 0.7),
+              strokeWidth: 1,
+              dashArray: [4, 4],
+              // Nhãn nằm ở chú thích dưới biểu đồ — trong vùng vẽ dễ đè điểm.
+            ),
+          ],
           verticalLines: [
             if (focusedDay != null)
               VerticalLine(
                 x: focusedDay.toDouble(),
-                color: AppColors.primary.withValues(alpha: 0.35),
-                strokeWidth: 1.4,
-                dashArray: [4, 3],
+                color: AppColors.primary.withValues(alpha: 0.08),
+                strokeWidth: 30,
               ),
           ],
         ),
@@ -1805,6 +2730,7 @@ class _ComplianceWeekChart extends StatelessWidget {
           enabled: true,
           handleBuiltInTouches: false,
           touchSpotThreshold: 32,
+          // Không hiện bong bóng — chi tiết ngày đã có ở khung bên dưới.
           touchTooltipData: LineTouchTooltipData(
             getTooltipColor: (_) => Colors.transparent,
             tooltipPadding: EdgeInsets.zero,
@@ -1835,47 +2761,7 @@ class _ComplianceWeekChart extends StatelessWidget {
             if (released) onClear();
           },
         ),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            curveSmoothness: 0.28,
-            preventCurveOverShooting: true,
-            color: AppColors.primary,
-            barWidth: 3,
-            shadow: Shadow(
-              color: AppColors.primary.withValues(alpha: 0.22),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-            dotData: FlDotData(
-              show: true,
-              getDotPainter: (spot, percent, bar, index) {
-                final selected = focusedDay == spot.x.round();
-                final isLast = index == spots.length - 1;
-                return FlDotCirclePainter(
-                  radius: selected ? 6.5 : (isLast ? 4.5 : 3.5),
-                  color: selected || isLast
-                      ? AppColors.primary
-                      : AppColors.surface,
-                  strokeWidth: selected ? 0 : 2.2,
-                  strokeColor: AppColors.primary,
-                );
-              },
-            ),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  AppColors.primary.withValues(alpha: 0.22),
-                  AppColors.primary.withValues(alpha: 0.02),
-                ],
-              ),
-            ),
-          ),
-        ],
+        lineBarsData: [bar],
       ),
       duration: AppDurations.fast,
     );
@@ -1919,10 +2805,84 @@ class _TicketListSheet extends ConsumerStatefulWidget {
   ConsumerState<_TicketListSheet> createState() => _TicketListSheetState();
 }
 
+enum _TicketSort { newest, oldest, scoreHigh, scoreLow }
+
+extension on _TicketSort {
+  String get label => switch (this) {
+    _TicketSort.newest => 'Mới nhất',
+    _TicketSort.oldest => 'Cũ nhất',
+    _TicketSort.scoreHigh => 'Điểm cao',
+    _TicketSort.scoreLow => 'Điểm thấp',
+  };
+
+  IconData get icon => switch (this) {
+    _TicketSort.newest => Icons.south_rounded,
+    _TicketSort.oldest => Icons.north_rounded,
+    _TicketSort.scoreHigh => Icons.trending_up_rounded,
+    _TicketSort.scoreLow => Icons.trending_down_rounded,
+  };
+}
+
 class _TicketListSheetState extends ConsumerState<_TicketListSheet> {
   bool _loading = true;
   String? _error;
   List<ComplianceDetailRow> _rows = const [];
+  final _searchController = TextEditingController();
+  String _query = '';
+
+  /// 0 = tất cả · 1 = đạt · 2 = chưa đạt.
+  int _result = 0;
+  _TicketSort _sort = _TicketSort.newest;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  static double? _score(ComplianceDetailRow r) {
+    final v = r.raw['totalScore'];
+    if (v is num) return v.toDouble();
+    return double.tryParse('$v');
+  }
+
+  /// Danh sách sau khi tìm (không dấu: tên, mã NV, quy trình, mã NB) + lọc + sắp.
+  List<ComplianceDetailRow> get _visible {
+    final q = foldVi(_query);
+    final list = [
+      for (final r in _rows)
+        if ((_result == 0 || (_result == 1) == r.passed) &&
+            (q.isEmpty ||
+                foldVi(
+                  '${r.employeeName} ${r.employeeCode} ${r.procedureName} '
+                  '${r.patientCode ?? ''} ${r.checkContextLabel ?? ''}',
+                ).contains(q)))
+          r,
+    ];
+    int byDate(ComplianceDetailRow a, ComplianceDetailRow b) {
+      final da = _parseComplianceDate(a.evalDateLabel);
+      final db = _parseComplianceDate(b.evalDateLabel);
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+      return da.compareTo(db);
+    }
+
+    int byScore(ComplianceDetailRow a, ComplianceDetailRow b) =>
+        (_score(a) ?? -1).compareTo(_score(b) ?? -1);
+
+    switch (_sort) {
+      case _TicketSort.newest:
+        list.sort((a, b) => byDate(b, a));
+      case _TicketSort.oldest:
+        list.sort(byDate);
+      case _TicketSort.scoreHigh:
+        list.sort((a, b) => byScore(b, a));
+      case _TicketSort.scoreLow:
+        list.sort(byScore);
+    }
+    return list;
+  }
 
   @override
   void initState() {
@@ -1969,14 +2929,23 @@ class _TicketListSheetState extends ConsumerState<_TicketListSheet> {
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height * 0.88;
+    final visible = _visible;
     final rate = widget.total <= 0
         ? 0.0
         : (widget.passed / widget.total).clamp(0.0, 1.0);
-    final rateTone = rate >= 0.8
-        ? AppColors.success
+    // Sắc vòng trên nền teal đậm — cùng ngưỡng với thẻ KPI chính.
+    final ringTone = widget.total <= 0
+        ? Colors.white.withValues(alpha: 0.5)
+        : rate >= 0.8
+        ? _KpiHero._passTone
         : rate >= 0.5
-        ? AppColors.warning
-        : AppColors.error;
+        ? const Color(0xFFFCD34D)
+        : _KpiHero._failTone;
+    final verdict = rate >= 0.8
+        ? 'Đạt mục tiêu 80%'
+        : rate >= 0.5
+        ? 'Cần cải thiện'
+        : 'Dưới mức yêu cầu';
 
     return SizedBox(
       height: height,
@@ -1984,163 +2953,229 @@ class _TicketListSheetState extends ConsumerState<_TicketListSheet> {
         children: [
           const SizedBox(height: 10),
           Container(
-            width: 40,
+            width: 36,
             height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.borderSoft,
+            decoration: const BoxDecoration(
+              color: AppColors.surfaceHighest,
               borderRadius: AppRadius.brPill,
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+            child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppColors.primary.withValues(alpha: 0.12),
-                    AppColors.surface,
-                    AppColors.surface,
-                  ],
-                ),
                 borderRadius: AppRadius.brXl,
-                border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.16),
-                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primaryDark.withValues(alpha: 0.24),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              child: ClipRRect(
+                borderRadius: AppRadius.brXl,
+                child: GradientHeader(
+                  safeAreaTop: false,
+                  bottomRadius: 0,
+                  gradient: AppGradients.brandHero,
+                  ornamentIcon: Icons.fact_check_rounded,
+                  ornamentScale: 0.75,
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: AppRadius.brPaper,
-                          border: Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.18),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _GlassPill(
+                                  icon: Icons.folder_open_rounded,
+                                  label: widget.subtitle,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _BucketCard._pretty(widget.title),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style:
+                                      AppTypography.style(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: -0.4,
+                                        height: AppTypography.uppercaseHeight,
+                                        color: Colors.white,
+                                      ).copyWith(
+                                        shadows: [
+                                          Shadow(
+                                            color: AppColors.primaryDark
+                                                .withValues(alpha: 0.35),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ],
+                                      ),
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: BoxDecoration(
+                                        color: ringTone,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      widget.total <= 0
+                                          ? 'Chưa có phiếu'
+                                          : verdict,
+                                      style: AppTypography.style(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        height: AppTypography.uppercaseHeight,
+                                        color: Colors.white.withValues(
+                                          alpha: 0.85,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        child: const Icon(
-                          Icons.fact_check_outlined,
-                          color: AppColors.primary,
-                          size: 22,
-                        ),
+                          const SizedBox(width: 10),
+                          _RateRing(
+                            rate: rate,
+                            label: widget.total <= 0 ? '—' : widget.rateLabel,
+                            color: ringTone,
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              widget.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTypography.style(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.25,
-                                height: 1.2,
-                              ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _GlassStat(
+                              label: 'Đạt',
+                              value: widget.passed,
+                              color: _KpiHero._passTone,
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              widget.subtitle,
-                              style: AppTypography.style(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textSecondary,
-                              ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _GlassStat(
+                              label: 'Chưa đạt',
+                              value: widget.failed,
+                              color: _KpiHero._failTone,
                             ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 58,
-                        height: 58,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            SizedBox(
-                              width: 58,
-                              height: 58,
-                              child: CircularProgressIndicator(
-                                value: rate,
-                                strokeWidth: 5.5,
-                                backgroundColor: AppColors.surfaceHigh,
-                                color: rateTone,
-                                strokeCap: StrokeCap.round,
-                              ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _GlassStat(
+                              label: 'Tổng phiếu',
+                              value: widget.total,
+                              color: Colors.white,
                             ),
-                            Text(
-                              widget.rateLabel,
-                              style: AppTypography.metric(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w800,
-                                color: rateTone,
-                              ),
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                ),
+              ),
+            ),
+          ),
+          if (!_loading && _error == null && _rows.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   Row(
                     children: [
-                      _SheetStat(
+                      Expanded(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: AppRadius.brMd,
+                            boxShadow: AppShadows.soft,
+                          ),
+                          child: AppSearchField(
+                            controller: _searchController,
+                            hintText: 'Tìm tên, mã NV, quy trình, mã NB…',
+                            dense: true,
+                            borderRadius: AppRadius.brMd,
+                            onChanged: (v) => setState(() => _query = v.trim()),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _SortButton(
+                        value: _sort,
+                        onChanged: (v) => setState(() => _sort = v),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  AppSegmentedControl(
+                    style: AppSegmentStyle.soft,
+                    dense: true,
+                    selectedIndex: _result,
+                    onChanged: (i) => setState(() => _result = i),
+                    items: [
+                      AppSegmentItem(label: 'Tất cả', count: _rows.length),
+                      AppSegmentItem(
                         label: 'Đạt',
-                        value: '${widget.passed}',
-                        color: AppColors.success,
-                        icon: Icons.verified_rounded,
+                        icon: Icons.check_circle_rounded,
+                        count: _rows.where((r) => r.passed).length,
                       ),
-                      const SizedBox(width: 8),
-                      _SheetStat(
+                      AppSegmentItem(
                         label: 'Chưa đạt',
-                        value: '${widget.failed}',
-                        color: AppColors.error,
-                        icon: Icons.cancel_outlined,
-                      ),
-                      const SizedBox(width: 8),
-                      _SheetStat(
-                        label: 'Tổng phiếu',
-                        value: '${widget.total}',
-                        color: AppColors.primary,
-                        icon: Icons.description_outlined,
+                        icon: Icons.cancel_rounded,
+                        count: _rows.where((r) => !r.passed).length,
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
             child: Row(
               children: [
                 Text(
                   'DANH SÁCH PHIẾU',
-                  style: AppTypography.style(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.6,
+                  style: AppTypography.uppercase(
+                    fontSize: 10.5,
+                    letterSpacing: 0.8,
                     color: AppColors.textSecondary,
                   ),
                 ),
                 const Spacer(),
                 if (!_loading && _error == null)
-                  Text(
-                    '${_rows.length} phiếu',
-                    style: AppTypography.style(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textTertiary,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryContainer,
+                      borderRadius: AppRadius.brPill,
+                    ),
+                    child: Text(
+                      visible.length == _rows.length
+                          ? '${_rows.length} phiếu'
+                          : '${visible.length}/${_rows.length} phiếu',
+                      style: AppTypography.style(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        tabular: true,
+                        color: AppColors.primaryDark,
+                      ),
                     ),
                   ),
               ],
@@ -2165,12 +3200,29 @@ class _TicketListSheetState extends ConsumerState<_TicketListSheet> {
                     title: 'Chưa có phiếu',
                     message: 'Không có đánh giá trong phạm vi này.',
                   )
+                : visible.isEmpty
+                ? EmptyState(
+                    icon: Icons.search_off_rounded,
+                    title: 'Không có phiếu phù hợp',
+                    message: 'Thử đổi từ khoá hoặc bộ lọc kết quả.',
+                    action: TextButton.icon(
+                      onPressed: () => setState(() {
+                        _searchController.clear();
+                        _query = '';
+                        _result = 0;
+                      }),
+                      icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
+                      label: const Text('Xoá lọc'),
+                    ),
+                  )
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                    itemCount: _rows.length,
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    itemCount: visible.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (_, i) {
-                      final row = _rows[i];
+                      final row = visible[i];
                       return _DetailCard(
                         row: row,
                         hideDepartment: true,
@@ -2185,60 +3237,6 @@ class _TicketListSheetState extends ConsumerState<_TicketListSheet> {
                   ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _SheetStat extends StatelessWidget {
-  const _SheetStat({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: AppRadius.brPaper,
-          border: Border.all(color: color.withValues(alpha: 0.14)),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 16, color: color),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: AppTypography.metric(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: AppTypography.style(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -2374,11 +3372,10 @@ class _TicketDetailSheetState extends ConsumerState<_TicketDetailSheet> {
                             const SizedBox(width: 8),
                             Text(
                               'CHI TIẾT CHẤM ĐIỂM',
-                              style: AppTypography.style(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w800,
+                              style: AppTypography.uppercase(
+                                fontSize: 10.5,
+                                letterSpacing: 0.8,
                                 color: AppColors.textSecondary,
-                                letterSpacing: 0.7,
                               ),
                             ),
                           ],
@@ -2440,179 +3437,203 @@ class _TicketHeroHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tone = passed ? AppColors.success : AppColors.error;
     final ratio = max <= 0 ? 0.0 : (total / max).clamp(0.0, 1.0);
+    final tone = passed ? _KpiHero._passTone : _KpiHero._failTone;
+    final initial = name.trim().isEmpty
+        ? '?'
+        : name.trim().characters.first.toUpperCase();
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+    return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            tone.withValues(alpha: 0.12),
-            AppColors.surface,
-            AppColors.surface,
-          ],
-        ),
         borderRadius: AppRadius.brXl,
-        border: Border.all(color: tone.withValues(alpha: 0.22)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryDark.withValues(alpha: 0.24),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      child: ClipRRect(
+        borderRadius: AppRadius.brXl,
+        child: GradientHeader(
+          safeAreaTop: false,
+          bottomRadius: 0,
+          gradient: AppGradients.brandHero,
+          ornamentIcon: Icons.fact_check_rounded,
+          ornamentScale: 0.75,
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: AppRadius.brPaper,
-                  border: Border.all(color: tone.withValues(alpha: 0.2)),
-                ),
-                child: Icon(
-                  passed ? Icons.verified_rounded : Icons.gpp_maybe_outlined,
-                  color: tone,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                child: Row(
                   children: [
-                    Text(
-                      name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.25,
-                        height: 1.2,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white.withValues(alpha: 0.16),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.3),
+                                  ),
+                                ),
+                                child: Text(
+                                  initial,
+                                  style: AppTypography.display(
+                                    fontSize: 18,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      name,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: AppTypography.style(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: -0.35,
+                                        height: AppTypography.uppercaseHeight,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    if (code.isNotEmpty)
+                                      Text(
+                                        '# $code',
+                                        style: AppTypography.style(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w500,
+                                          tabular: true,
+                                          color: Colors.white.withValues(
+                                            alpha: 0.7,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _GlassPill(
+                            dot: tone,
+                            label: passed ? 'Đạt yêu cầu' : 'Chưa đạt yêu cầu',
+                          ),
+                        ],
                       ),
                     ),
-                    if (code.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        code,
-                        style: AppTypography.style(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textTertiary,
+                    const SizedBox(width: 10),
+                    // Vòng điểm: tổng điểm ở giữa, thang tối đa bên dưới.
+                    SizedBox.square(
+                      dimension: 96,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          _RateRing(rate: ratio, label: '', color: tone),
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                AppFormat.score(total),
+                                style: AppTypography.display(
+                                  fontSize: 24,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                '/ ${AppFormat.score(max)} điểm',
+                                style: AppTypography.style(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.2,
+                                  color: Colors.white.withValues(alpha: 0.7),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (procedureName.isNotEmpty || dateLabel.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 11),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.14),
+                    border: Border(
+                      top: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.10),
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: AppRadius.brControl,
+                        ),
+                        child: const Icon(
+                          Icons.medical_services_outlined,
+                          size: 15,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (procedureName.isNotEmpty)
+                              Text(
+                                procedureName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.style(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.35,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            if (dateLabel.isNotEmpty)
+                              Text(
+                                dateLabel,
+                                style: AppTypography.style(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w500,
+                                  tabular: true,
+                                  color: Colors.white.withValues(alpha: 0.7),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              StatusChip(
-                label: passed ? 'Đạt' : 'Chưa đạt',
-                color: tone,
-                dense: true,
-              ),
             ],
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Tổng điểm',
-                      style: AppTypography.style(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          total.toStringAsFixed(2),
-                          style: AppTypography.metric(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
-                            color: tone,
-                          ),
-                        ),
-                        Text(
-                          ' / ${max.toStringAsFixed(1)}',
-                          style: AppTypography.style(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textTertiary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(
-                width: 64,
-                height: 64,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox(
-                      width: 64,
-                      height: 64,
-                      child: CircularProgressIndicator(
-                        value: ratio,
-                        strokeWidth: 6,
-                        backgroundColor: AppColors.surfaceHigh,
-                        color: tone,
-                        strokeCap: StrokeCap.round,
-                      ),
-                    ),
-                    Text(
-                      '${(ratio * 100).round()}%',
-                      style: AppTypography.metric(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: tone,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: AppRadius.brPill,
-            child: LinearProgressIndicator(
-              value: ratio,
-              minHeight: 7,
-              backgroundColor: Colors.white.withValues(alpha: 0.7),
-              color: tone,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            [
-              if (procedureName.isNotEmpty) procedureName,
-              if (dateLabel.isNotEmpty) dateLabel,
-            ].join(' · '),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.style(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
-              height: 1.35,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -2626,14 +3647,18 @@ class _TicketMetaChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chips = <(IconData, String)>[
-      (Icons.apartment_rounded, eval.departmentName),
+    final chips = <(IconData, String, Color)>[
+      (
+        Icons.apartment_rounded,
+        _BucketCard._pretty(eval.departmentName),
+        AppColors.primary,
+      ),
       if (eval.checkContextLabel != null &&
           eval.checkContextLabel!.trim().isNotEmpty)
-        (Icons.touch_app_outlined, eval.checkContextLabel!),
+        (Icons.touch_app_outlined, eval.checkContextLabel!, AppColors.info),
       if (eval.patientCode != null && eval.patientCode!.trim().isNotEmpty)
-        (Icons.badge_outlined, 'NB ${eval.patientCode}'),
-      (Icons.flag_outlined, eval.status.label),
+        (Icons.badge_outlined, 'NB ${eval.patientCode}', AppColors.secondary),
+      (Icons.flag_rounded, eval.status.label, AppColors.success),
     ];
 
     return Wrap(
@@ -2642,18 +3667,29 @@ class _TicketMetaChips extends StatelessWidget {
       children: [
         for (final chip in chips)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            padding: const EdgeInsets.fromLTRB(4, 4, 10, 4),
             decoration: BoxDecoration(
               color: AppColors.surface,
-              borderRadius: AppRadius.brBase,
-              border: Border.all(
-                color: AppColors.border.withValues(alpha: 0.7),
-              ),
+              borderRadius: AppRadius.brPill,
+              border: Border.all(color: chip.$3.withValues(alpha: 0.2)),
+              boxShadow: AppShadows.soft,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(chip.$1, size: 14, color: AppColors.primary),
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: chip.$3.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    chip.$1,
+                    size: 13,
+                    color: Color.lerp(chip.$3, AppColors.textPrimary, 0.2),
+                  ),
+                ),
                 const SizedBox(width: 6),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 220),
@@ -2664,6 +3700,7 @@ class _TicketMetaChips extends StatelessWidget {
                     style: AppTypography.style(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
+                      height: AppTypography.uppercaseHeight,
                       color: AppColors.textPrimary,
                     ),
                   ),
@@ -2799,12 +3836,13 @@ class _ScoreSectionCard extends StatelessWidget {
       earned += scores[step.id] ?? 0;
       max += step.maxPoints;
     }
-    final sectionTone = _stepTone(earned, max);
-    final sectionColor = switch (sectionTone) {
+    final sectionColor = switch (_stepTone(earned, max)) {
       _StepScoreTone.full => AppColors.success,
       _StepScoreTone.partial => AppColors.warning,
       _StepScoreTone.zero => AppColors.error,
     };
+    final ink = Color.lerp(sectionColor, AppColors.textPrimary, 0.25)!;
+    final ratio = max <= 0 ? 0.0 : (earned / max).clamp(0.0, 1.0);
 
     // Không dùng clipBehavior trên container có border + radius:
     // Clip.antiAlias cắt mất góc viền (nhìn như “mất 1 khúc”).
@@ -2813,47 +3851,78 @@ class _ScoreSectionCard extends StatelessWidget {
         color: AppColors.surface,
         borderRadius: AppRadius.brLg,
         border: Border.all(color: AppColors.borderSoft),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.035),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppShadows.card,
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-            child: Row(
+          // Đầu phần: nền pha theo kết quả + thanh tỉ lệ của phần.
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            decoration: BoxDecoration(
+              gradient: TintedCardBackdrop.gradient(sectionColor),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(AppRadius.lg),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: Text(
-                    section.title,
-                    style: AppTypography.style(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.primaryDark,
-                      letterSpacing: -0.1,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        section.title,
+                        style: AppTypography.style(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                          height: AppTypography.uppercaseHeight,
+                          color: AppColors.primaryDark,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Text.rich(
+                      TextSpan(
+                        text: AppFormat.score(earned),
+                        style: AppTypography.display(fontSize: 16, color: ink),
+                        children: [
+                          TextSpan(
+                            text: ' / ${AppFormat.score(max)}',
+                            style: AppTypography.style(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              tabular: true,
+                              color: AppColors.textTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 5,
-                  ),
+                  height: 6,
                   decoration: BoxDecoration(
                     color: sectionColor.withValues(alpha: 0.12),
                     borderRadius: AppRadius.brPill,
                   ),
-                  child: Text(
-                    '${earned.toStringAsFixed(2)}/${max.toStringAsFixed(1)}',
-                    style: AppTypography.metric(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: sectionColor,
+                  alignment: Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    heightFactor: 1,
+                    widthFactor: ratio <= 0 ? 0 : ratio.clamp(0.03, 1.0),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: AppRadius.brPill,
+                        gradient: LinearGradient(
+                          colors: [
+                            Color.lerp(sectionColor, Colors.white, 0.3)!,
+                            sectionColor,
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -2861,19 +3930,15 @@ class _ScoreSectionCard extends StatelessWidget {
             ),
           ),
           if (section.steps.isNotEmpty)
-            Container(
-              width: double.infinity,
-              height: 1,
-              color: AppColors.borderSoft,
-            ),
+            const Divider(height: 1, thickness: 1, color: AppColors.borderSoft),
           for (final (index, step) in section.steps.indexed) ...[
             if (index > 0)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Container(
-                  height: 1,
-                  color: AppColors.borderSoft.withValues(alpha: 0.7),
-                ),
+              const Divider(
+                height: 1,
+                thickness: 1,
+                indent: 49,
+                endIndent: 12,
+                color: AppColors.divider,
               ),
             _ScoreStepRow(step: step, scored: scores[step.id] ?? 0),
           ],
@@ -2884,14 +3949,25 @@ class _ScoreSectionCard extends StatelessWidget {
   }
 }
 
-class _ScoreStepRow extends StatelessWidget {
+/// Một bước chấm: số thứ tự, nội dung (mô tả dài thu gọn 2 dòng) và cột điểm
+/// gọn bên phải. Bước bị trừ điểm có vạch màu mảnh ở mép trái.
+class _ScoreStepRow extends StatefulWidget {
   const _ScoreStepRow({required this.step, required this.scored});
 
   final QtktStep step;
   final double scored;
 
   @override
+  State<_ScoreStepRow> createState() => _ScoreStepRowState();
+}
+
+class _ScoreStepRowState extends State<_ScoreStepRow> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final step = widget.step;
+    final scored = widget.scored;
     final tone = _stepTone(scored, step.maxPoints);
     final color = switch (tone) {
       _StepScoreTone.full => AppColors.success,
@@ -2903,64 +3979,164 @@ class _ScoreStepRow extends StatelessWidget {
       _StepScoreTone.partial => Icons.remove_rounded,
       _StepScoreTone.zero => Icons.close_rounded,
     };
+    final ink = Color.lerp(color, AppColors.textPrimary, 0.25)!;
     final showDetail = _shouldShowStepDetail(step.title, step.detail);
+    final detail = step.detail?.trim() ?? '';
+    final longDetail = detail.length > 90 || '\n'.allMatches(detail).length > 1;
+    final flagged = tone != _StepScoreTone.full;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+    return IntrinsicHeight(
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Vạch nhấn mép trái cho bước bị trừ điểm (thay nền loang màu).
           Container(
-            width: 28,
-            height: 28,
+            width: 3,
+            margin: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: AppRadius.brSm,
+              color: flagged ? color : Colors.transparent,
+              borderRadius: const BorderRadius.horizontal(
+                right: Radius.circular(3),
+              ),
             ),
-            child: Icon(icon, size: 16, color: color),
           ),
-          const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${step.no}. ${step.title}',
-                  style: AppTypography.style(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
-                    letterSpacing: -0.1,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(9, 12, 12, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 26,
+                    height: 26,
+                    margin: const EdgeInsets.only(top: 1),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceMuted,
+                      borderRadius: AppRadius.brControl,
+                    ),
+                    child: Text(
+                      '${step.no}',
+                      style: AppTypography.display(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
                   ),
-                ),
-                if (showDetail) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    step.detail!.trim(),
-                    style: AppTypography.style(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      height: 1.4,
-                      color: AppColors.textSecondary,
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          step.title,
+                          style: AppTypography.style(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            height: 1.4,
+                            letterSpacing: -0.1,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        if (showDetail) ...[
+                          const SizedBox(height: 4),
+                          AnimatedSize(
+                            duration: AppDurations.fast,
+                            curve: Curves.easeOutCubic,
+                            alignment: Alignment.topLeft,
+                            child: Text(
+                              detail,
+                              maxLines: _expanded || !longDetail ? null : 2,
+                              overflow: _expanded || !longDetail
+                                  ? TextOverflow.visible
+                                  : TextOverflow.ellipsis,
+                              style: AppTypography.style(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                height: 1.45,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                          if (longDetail)
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () =>
+                                  setState(() => _expanded = !_expanded),
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 5),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      _expanded ? 'Thu gọn' : 'Xem thêm',
+                                      style: AppTypography.style(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                    AnimatedRotation(
+                                      turns: _expanded ? 0.5 : 0,
+                                      duration: AppDurations.fast,
+                                      child: const Icon(
+                                        Icons.expand_more_rounded,
+                                        size: 16,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Cột điểm gọn: dấu kết quả trên, điểm/tối đa dưới.
+                  SizedBox(
+                    width: 46,
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: color.withValues(alpha: 0.3),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Icon(icon, size: 14, color: Colors.white),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          AppFormat.score(scored),
+                          style: AppTypography.display(
+                            fontSize: 14,
+                            color: ink,
+                          ),
+                        ),
+                        Text(
+                          '/ ${AppFormat.score(step.maxPoints)}',
+                          style: AppTypography.style(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            height: 1.2,
+                            tabular: true,
+                            color: AppColors.textTertiary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: AppRadius.brSm,
-            ),
-            child: Text(
-              '${scored.toStringAsFixed(2)}/${step.maxPoints.toStringAsFixed(1)}',
-              style: AppTypography.metric(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: color,
               ),
             ),
           ),

@@ -65,6 +65,8 @@ class RequestTypeConfig {
     this.cancelPath = 'cancel',
     this.canCancelRoles = const {UserRole.admin, UserRole.headDepartment},
     this.listViewerRoles = const {},
+    this.viewOnlyPendingRoles = const {},
+    this.viewOnlyPendingPath,
     this.canCreateRoles = const {},
     this.fieldLabels = const {},
   });
@@ -89,6 +91,12 @@ class RequestTypeConfig {
   /// Role được xem shell quản lý (tab Đơn của tôi / Chờ duyệt) dù không duyệt
   /// — khớp web `canView*` (vd. Trưởng khoa xem phiếu đào tạo mình lập).
   final Set<UserRole> listViewerRoles;
+
+  /// Role chỉ xem hàng đợi [viewOnlyPendingPath], không có nút duyệt.
+  final Set<UserRole> viewOnlyPendingRoles;
+
+  /// Endpoint pending tải thêm cho [viewOnlyPendingRoles] khi role không duyệt bước đó.
+  final String? viewOnlyPendingPath;
 
   /// Role được lập phiếu mới (chọn NV rồi điền form) — khớp quyền trên web.
   final Set<UserRole> canCreateRoles;
@@ -280,6 +288,7 @@ class RequestTypeConfig {
         'monthlySupport': 'Tiền hỗ trợ hàng tháng',
         'postCourseCommitment': 'Cam kết sau khóa học',
         'location': 'Địa điểm',
+        'learningMode': 'Hình thức học',
         'plannedPeriod': 'Thời gian dự kiến',
         'tuitionFee': 'Học phí',
         'trainingGoal': 'Mục tiêu đào tạo',
@@ -288,14 +297,16 @@ class RequestTypeConfig {
     ),
     RequestTypeConfig(
       key: 'seminar-proposal',
-      label: 'Đề xuất hội thảo',
+      label: 'Đề xuất hội thảo / công tác',
       shortLabel: 'Hội thảo',
       icon: Icons.groups_outlined,
       basePath: '/seminar-proposals',
-      description: 'Đề xuất cử cán bộ nhân viên tham dự hội thảo chuyên môn.',
+      description: 'Phiếu cử CBNV đi hội thảo hoặc công tác.',
       color: Color(0xFF7C3AED),
       canCancelRoles: {UserRole.admin, UserRole.headDepartment, UserRole.headNursing},
-      listViewerRoles: {UserRole.headDepartment, UserRole.headNursing},
+      listViewerRoles: {UserRole.headDepartment, UserRole.headNursing, UserRole.hr2},
+      viewOnlyPendingRoles: {UserRole.hr2},
+      viewOnlyPendingPath: 'pending-director',
       canCreateRoles: {UserRole.admin, UserRole.headDepartment, UserRole.headNursing},
       stages: [
         RequestReviewStage(

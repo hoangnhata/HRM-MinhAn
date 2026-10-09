@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/notice_banner.dart';
@@ -136,9 +137,9 @@ class _ApprovalFieldsFormState extends State<_ApprovalFieldsForm> {
                             ),
                           ),
                           const SizedBox(height: 3),
-                          const Text(
+                          Text(
                             'Kiểm tra thông tin trước khi xác nhận duyệt.',
-                            style: TextStyle(
+                            style: AppTypography.style(
                               fontSize: 13,
                               color: AppColors.textSecondary,
                             ),
@@ -221,10 +222,19 @@ class _ApprovalFieldsFormState extends State<_ApprovalFieldsForm> {
 }
 
 class _SheetActions extends StatelessWidget {
-  const _SheetActions({required this.onCancel, required this.onSubmit});
+  const _SheetActions({
+    required this.onCancel,
+    required this.onSubmit,
+    this.submitLabel = 'Duyệt & ký',
+    this.submitIcon = Icons.check_rounded,
+    this.submitColor,
+  });
 
   final VoidCallback onCancel;
   final VoidCallback onSubmit;
+  final String submitLabel;
+  final IconData submitIcon;
+  final Color? submitColor;
 
   @override
   Widget build(BuildContext context) {
@@ -238,8 +248,14 @@ class _SheetActions extends StatelessWidget {
         );
         final submit = ElevatedButton.icon(
           onPressed: onSubmit,
-          icon: const Icon(Icons.check_rounded, size: 18),
-          label: const Text('Duyệt & ký'),
+          style: submitColor == null
+              ? null
+              : ElevatedButton.styleFrom(
+                  backgroundColor: submitColor,
+                  foregroundColor: Colors.white,
+                ),
+          icon: Icon(submitIcon, size: 18),
+          label: Text(submitLabel),
         );
 
         if (stack) {
@@ -299,7 +315,7 @@ class _YesNoField extends StatelessWidget {
       children: [
         Text(
           field.required ? '${field.label} *' : field.label,
-          style: const TextStyle(
+          style: AppTypography.style(
             fontSize: 12.8,
             fontWeight: FontWeight.w700,
             color: AppColors.textSecondary,
@@ -393,7 +409,7 @@ class _Choice extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: AppTypography.style(
                       fontSize: 13,
                       fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                       color: selected
@@ -401,6 +417,268 @@ class _Choice extends StatelessWidget {
                           : AppColors.textSecondary,
                     ),
                   ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Sửa quyết định Giám đốc — phiếu hội thảo đã xử lý                         */
+/* ------------------------------------------------------------------------ */
+
+/// Quyết định của Giám đốc với phiếu hội thảo.
+enum SeminarDecision { paid, unpaid, reject }
+
+class SeminarDecisionInput {
+  const SeminarDecisionInput({
+    required this.decision,
+    this.supportAmount,
+    this.comment,
+  });
+
+  final SeminarDecision decision;
+  final String? supportAmount;
+  final String? comment;
+
+  bool get approved => decision != SeminarDecision.reject;
+
+  /// Trường gửi kèm khi duyệt (backend bắt buộc chọn có / không công).
+  Map<String, dynamic> get extra => approved
+      ? {
+          'withPay': decision == SeminarDecision.paid,
+          if (supportAmount != null) 'supportAmount': supportAmount,
+        }
+      : const {};
+}
+
+/// Quyết định hiện tại suy ra từ phiếu.
+SeminarDecision seminarDecisionOf(Map<String, dynamic> raw) {
+  if (raw['status'] == 'DIRECTOR_REJECTED') return SeminarDecision.reject;
+  return raw['withPay'] == false
+      ? SeminarDecision.unpaid
+      : SeminarDecision.paid;
+}
+
+/// Giám đốc đổi có công / không công hoặc từ chối phiếu hội thảo đã xử lý —
+/// tương đương "Lưu chỉnh sửa · Giám đốc" trên web.
+Future<SeminarDecisionInput?> showSeminarDecisionSheet(
+  BuildContext context, {
+  required Map<String, dynamic> raw,
+}) {
+  return showModalBottomSheet<SeminarDecisionInput>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    useSafeArea: true,
+    builder: (ctx) => _SeminarDecisionForm(raw: raw),
+  );
+}
+
+class _SeminarDecisionForm extends StatefulWidget {
+  const _SeminarDecisionForm({required this.raw});
+
+  final Map<String, dynamic> raw;
+
+  @override
+  State<_SeminarDecisionForm> createState() => _SeminarDecisionFormState();
+}
+
+class _SeminarDecisionFormState extends State<_SeminarDecisionForm> {
+  final _formKey = GlobalKey<FormState>();
+  late final SeminarDecision _current = seminarDecisionOf(widget.raw);
+  late SeminarDecision _decision = _current;
+  late final _supportController = TextEditingController(
+    text: widget.raw['supportAmount']?.toString() ?? '',
+  );
+  late final _commentController = TextEditingController(
+    text: widget.raw['directorComment']?.toString() ?? '',
+  );
+
+  @override
+  void dispose() {
+    _supportController.dispose();
+    _commentController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    final support = _supportController.text.trim();
+    final comment = _commentController.text.trim();
+    Navigator.of(context).pop(
+      SeminarDecisionInput(
+        decision: _decision,
+        supportAmount: support.isEmpty ? null : support,
+        comment: comment.isEmpty ? null : comment,
+      ),
+    );
+  }
+
+  String get _effectMessage => switch (_decision) {
+    SeminarDecision.paid =>
+      'Các buổi hội thảo sẽ được tính công trên bảng công.',
+    SeminarDecision.unpaid =>
+      'Các buổi hội thảo không được cộng công; công từ máy chấm (nếu có) vẫn giữ nguyên.',
+    SeminarDecision.reject =>
+      'Phiếu chuyển sang "Giám đốc từ chối" và các buổi hội thảo được gỡ khỏi bảng công.',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final rejecting = _decision == SeminarDecision.reject;
+    final changed = _decision != _current;
+
+    return SafeArea(
+      top: false,
+      child: AnimatedPadding(
+        duration: AppDurations.fast,
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.xs,
+            AppSpacing.lg,
+            AppSpacing.xl,
+          ),
+          child: Form(
+            key: _formKey,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const AppIconBadge(
+                      icon: Icons.edit_note_rounded,
+                      color: AppColors.primary,
+                      size: 42,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Semantics(
+                            header: true,
+                            child: Text(
+                              'Sửa quyết định · Giám đốc',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Đổi có công / không công hoặc trạng thái phiếu. Bảng công và chữ ký được cập nhật lại.',
+                            style: AppTypography.style(
+                              fontSize: 13,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'Quyết định *',
+                  style: AppTypography.style(
+                    fontSize: 12.8,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                for (final option in const [
+                  (
+                    SeminarDecision.paid,
+                    'Duyệt có công',
+                    Icons.check_circle_outline_rounded,
+                  ),
+                  (
+                    SeminarDecision.unpaid,
+                    'Duyệt không công',
+                    Icons.remove_circle_outline_rounded,
+                  ),
+                  (SeminarDecision.reject, 'Từ chối', Icons.cancel_outlined),
+                ]) ...[
+                  _Choice(
+                    label: option.$1 == _current
+                        ? '${option.$2} (hiện tại)'
+                        : option.$2,
+                    icon: option.$3,
+                    selected: _decision == option.$1,
+                    color: switch (option.$1) {
+                      SeminarDecision.paid => AppColors.success,
+                      SeminarDecision.unpaid => AppColors.warning,
+                      SeminarDecision.reject => AppColors.error,
+                    },
+                    onTap: () => setState(() => _decision = option.$1),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                ],
+                if (changed) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  NoticeBanner(
+                    icon: rejecting
+                        ? Icons.warning_amber_rounded
+                        : Icons.info_outline_rounded,
+                    message: _effectMessage,
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.sm),
+                if (!rejecting) ...[
+                  TextFormField(
+                    controller: _supportController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Tiền hỗ trợ (không bắt buộc)',
+                      hintText: 'VD: 500.000 đ',
+                      prefixIcon: Icon(Icons.payments_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+                TextFormField(
+                  controller: _commentController,
+                  minLines: 2,
+                  maxLines: 5,
+                  textInputAction: TextInputAction.newline,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    labelText: rejecting
+                        ? 'Lý do từ chối *'
+                        : 'Ý kiến duyệt (không bắt buộc)',
+                    hintText: 'Nhập ghi chú để người gửi dễ theo dõi...',
+                    prefixIcon: const Icon(Icons.chat_bubble_outline_rounded),
+                    alignLabelWithHint: true,
+                  ),
+                  validator: rejecting
+                      ? (v) => (v == null || v.trim().isEmpty)
+                            ? 'Vui lòng nhập lý do từ chối'
+                            : null
+                      : null,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _SheetActions(
+                  onCancel: () => Navigator.of(context).pop(),
+                  onSubmit: _submit,
+                  submitLabel: 'Lưu chỉnh sửa',
+                  submitIcon: Icons.save_outlined,
+                  submitColor: rejecting ? AppColors.error : null,
                 ),
               ],
             ),

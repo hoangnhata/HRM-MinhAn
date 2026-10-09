@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/route_paths.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/user_role.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_ambient_background.dart';
@@ -46,6 +47,7 @@ class _RequestTypeScreenState extends ConsumerState<RequestTypeScreen>
   TabController? _tabController;
   late final bool _useManagerShell;
   late final bool _canReview;
+  late final bool _viewOnlyQueue;
 
   static String _introFor(String key) {
     return switch (key) {
@@ -82,8 +84,12 @@ class _RequestTypeScreenState extends ConsumerState<RequestTypeScreen>
       role,
       directorApprovalEnabled: directorApproval,
     );
+    _viewOnlyQueue =
+        !_canReview &&
+        config.viewOnlyPendingPath != null &&
+        RoleGroups.roleAllowsAny(role, config.viewOnlyPendingRoles);
     if (_useManagerShell) {
-      var initial = _canReview ? 1 : 0;
+      var initial = _canReview || _viewOnlyQueue ? 1 : 0;
       final tab = widget.initialTab?.toLowerCase();
       if (tab == 'approve') {
         initial = 1;
@@ -163,7 +169,7 @@ class _RequestTypeScreenState extends ConsumerState<RequestTypeScreen>
                       count: state.related.length,
                     ),
                     BrandHeaderTabItem(
-                      label: 'Chờ duyệt',
+                      label: _viewOnlyQueue ? 'Theo dõi' : 'Chờ duyệt',
                       icon: Icons.pending_actions_rounded,
                       count: state.pending.length,
                     ),
@@ -201,7 +207,7 @@ class _RequestTypeScreenState extends ConsumerState<RequestTypeScreen>
                           _PendingWithHistoryList(
                             pending: [
                               for (final item in state.pending)
-                                (item.raw, item.stage.label),
+                                (item.raw, item.stage?.label),
                             ],
                             history: [
                               for (final raw in state.history) (raw, null),

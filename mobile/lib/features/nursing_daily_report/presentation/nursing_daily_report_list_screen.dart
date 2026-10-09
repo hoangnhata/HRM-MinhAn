@@ -22,6 +22,7 @@ import '../../auth/application/auth_controller.dart';
 import '../data/nursing_daily_report_models.dart';
 import '../data/nursing_daily_report_repository.dart';
 import 'nursing_daily_report_form_screen.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 
 enum _DailyView { day, month }
 
@@ -519,7 +520,11 @@ class _NursingDailyReportListScreenState
       items.add(
         Padding(
           padding: EdgeInsets.only(bottom: 10, top: items.isEmpty ? 0 : 8),
-          child: ListSectionTitle(title: title, count: list.length, color: color),
+          child: ListSectionTitle(
+            title: title,
+            count: list.length,
+            color: color,
+          ),
         ),
       );
       for (final row in list) {
@@ -903,6 +908,7 @@ class _DateRailChip extends StatelessWidget {
     );
   }
 }
+
 class _ControlTray extends StatelessWidget {
   const _ControlTray({
     required this.view,
@@ -1161,145 +1167,148 @@ class _DepartmentReportCard extends StatelessWidget {
 
     return AppCard(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      borderRadius: AppRadius.brLg,
+      padding: EdgeInsets.zero,
+      // Nền pha theo trạng thái nộp: cam (chưa nộp) · xanh dương (nháp) · xanh lá.
+      gradient: TintedCardBackdrop.gradient(statusColor),
+      child: TintedCardBackdrop(
+        accent: statusColor,
+        watermarkIcon: Icons.local_hospital_rounded,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Stack(
-                clipBehavior: Clip.none,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(13),
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.22),
-                      ),
-                    ),
-                    child: Icon(statusIcon, size: 21, color: statusColor),
+                  TintedIconTile(
+                    icon: statusIcon,
+                    color: statusColor,
+                    size: 42,
                   ),
-                  Positioned(
-                    right: -3,
-                    bottom: -3,
-                    child: Container(
-                      width: 16,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        color: statusColor,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
-                      ),
-                      child: Icon(
-                        row.submitted
-                            ? Icons.check_rounded
-                            : (row.hasDraft
-                                ? Icons.edit_rounded
-                                : Icons.schedule_rounded),
-                        size: 9,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      row.departmentName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        height: 1.28,
-                        letterSpacing: -0.15,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Row(
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: statusColor,
-                            shape: BoxShape.circle,
+                        Text(
+                          row.departmentName,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            height: AppTypography.uppercaseHeight,
+                            letterSpacing: -0.2,
+                            color: AppColors.textPrimary,
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            timeLabel == null
-                                ? statusLabel
-                                : '$statusLabel · $timeLabel',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.style(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: statusColor,
-                            ),
-                          ),
+                        const SizedBox(height: 5),
+                        _StatusPill(
+                          color: statusColor,
+                          label: timeLabel == null
+                              ? statusLabel
+                              : '$statusLabel · $timeLabel',
                         ),
                       ],
                     ),
+                  ),
+                  const SizedBox(width: 6),
+                  TintedChevron(accent: statusColor),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (report != null) ...[
+                MetricStrip(
+                  items: [
+                    MetricItem(
+                      label: 'Đi làm',
+                      value: '${report.workingStaff}/${report.totalStaff}',
+                    ),
+                    MetricItem(
+                      label: 'Nội trú',
+                      value: '${report.inpatients}',
+                      color: AppColors.info,
+                    ),
+                    MetricItem(
+                      label: 'Giường',
+                      value: '${report.actualBeds}/${report.plannedBeds}',
+                      color: AppColors.secondaryDark,
+                    ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(
-                Icons.chevron_right_rounded,
-                size: 22,
-                color: AppColors.textTertiary,
-              ),
+                if (incidents > 0) ...[
+                  const SizedBox(height: 9),
+                  _IncidentBanner(count: incidents),
+                ],
+              ] else
+                _ActionStrip(
+                  enabled: row.canEdit || row.hasDraft,
+                  label: row.hasDraft
+                      ? 'Tiếp tục bản nháp'
+                      : 'Nhập số liệu cho ngày này',
+                  lockedLabel: 'Khoa chưa gửi số liệu',
+                ),
             ],
           ),
-          const SizedBox(height: 12),
-          if (report != null) ...[
-            MetricStrip(
-              items: [
-                MetricItem(
-                  label: 'Đi làm',
-                  value: '${report.workingStaff}/${report.totalStaff}',
-                ),
-                MetricItem(
-                  label: 'Nội trú',
-                  value: '${report.inpatients}',
-                  color: AppColors.info,
-                ),
-                MetricItem(
-                  label: 'Giường',
-                  value: '${report.actualBeds}/${report.plannedBeds}',
-                  color: AppColors.secondaryDark,
-                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Trạng thái nộp dạng viên: chấm màu + chữ đậm trên nền pha nhạt.
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(7, 3, 9, 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 4),
               ],
             ),
-            if (incidents > 0) ...[
-              const SizedBox(height: 9),
-              _IncidentBanner(count: incidents),
-            ],
-          ] else
-            _ActionStrip(
-              enabled: row.canEdit || row.hasDraft,
-              label: row.hasDraft
-                  ? 'Tiếp tục bản nháp'
-                  : 'Nhập số liệu cho ngày này',
-              lockedLabel: 'Khoa chưa gửi số liệu',
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.style(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                height: AppTypography.uppercaseHeight,
+                color: Color.lerp(color, AppColors.textPrimary, 0.25),
+                tabular: true,
+              ),
             ),
+          ),
         ],
       ),
     );
   }
 }
+
 class _IncidentBanner extends StatelessWidget {
   const _IncidentBanner({required this.count});
 
@@ -1353,43 +1362,52 @@ class _ActionStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = enabled ? AppColors.primary : AppColors.textTertiary;
+    // Kính trắng mờ trên nền thẻ pha màu — nổi như một nút, không phải mảng xám.
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      padding: const EdgeInsets.fromLTRB(6, 6, 12, 6),
       decoration: BoxDecoration(
-        color: enabled
-            ? AppColors.primary.withValues(alpha: 0.07)
-            : AppColors.surfaceAlt,
-        borderRadius: AppRadius.brSm,
-        border: Border.all(
-          color: enabled
-              ? AppColors.primary.withValues(alpha: 0.16)
-              : AppColors.borderSoft,
-        ),
+        color: Colors.white.withValues(alpha: enabled ? 0.78 : 0.55),
+        borderRadius: AppRadius.brBase,
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+        boxShadow: enabled ? AppShadows.soft : null,
       ),
       child: Row(
         children: [
-          Icon(
-            enabled ? Icons.edit_note_rounded : Icons.lock_outline_rounded,
-            size: 17,
-            color: color,
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              gradient: enabled ? AppGradients.brand : null,
+              color: enabled ? null : AppColors.surfaceHigh,
+              borderRadius: AppRadius.brControl,
+              boxShadow: enabled ? AppShadows.tinted(AppColors.primary) : null,
+            ),
+            child: Icon(
+              enabled ? Icons.edit_note_rounded : Icons.lock_outline_rounded,
+              size: 17,
+              color: enabled ? Colors.white : AppColors.textSecondary,
+            ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               enabled ? label : lockedLabel,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTypography.style(
-                fontSize: 12.5,
+                fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: color,
+                height: AppTypography.uppercaseHeight,
+                color: enabled
+                    ? AppColors.primaryDark
+                    : AppColors.textSecondary,
               ),
             ),
           ),
           if (enabled)
             const Icon(
               Icons.arrow_forward_rounded,
-              size: 15,
+              size: 17,
               color: AppColors.primary,
             ),
         ],

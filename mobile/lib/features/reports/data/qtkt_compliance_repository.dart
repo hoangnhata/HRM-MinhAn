@@ -230,10 +230,14 @@ class QtktComplianceRepository {
     ComplianceResultFilter resultFilter = ComplianceResultFilter.all,
     int page = 0,
     int size = 30,
+    String? search,
+    bool newestFirst = true,
   }) async {
     final res = await _client.get<Map<String, dynamic>>(
       '/v1/qtkt-compliance-reports/${kind.path}',
       query: {
+        // Backend lọc theo tên / mã NV / mã NB (không phân biệt hoa thường).
+        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
         'yearMonth': yearMonth,
         if (departmentId != null) 'departmentId': departmentId,
         if (procedureCode != null && procedureCode.isNotEmpty)
@@ -244,7 +248,7 @@ class QtktComplianceRepository {
               : 'FAIL',
         'page': page,
         'size': size,
-        'sortDir': 'DESC',
+        'sortDir': newestFirst ? 'DESC' : 'ASC',
       },
     );
     return QtktComplianceReport(raw: res.data ?? const {});

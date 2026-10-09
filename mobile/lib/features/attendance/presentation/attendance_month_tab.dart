@@ -9,11 +9,13 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/user_role.dart';
 import '../../../core/widgets/app_month_picker.dart';
+import '../../../core/widgets/app_period_navigator.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_motion.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/skeleton.dart';
-import '../../../core/widgets/status_chip.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
+import '../../../core/widgets/brand_hero.dart';
 import '../../../shared/models/attendance_models.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/attendance_month_controller.dart';
@@ -23,6 +25,13 @@ import 'attendance_schedule_panel.dart';
 
 /// Số công chuẩn một tháng — dưới mức này coi là thiếu công.
 const double _standardWorkUnits = 26;
+
+/// Sắc nhận diện các loại công — dùng chung cho chỉ số tháng và thẻ ngày.
+const Color _leaveTone = Color(0xFF0F766E);
+const Color _dutyTone = Color(0xFF7C3AED);
+const Color _mealTone = Color(0xFFE65100);
+const Color _youngChildTone = Color(0xFFC2410C);
+const Color _quangTrungTone = _leaveTone;
 
 String? _dayKey(AttendanceDay day) {
   final d = day.workDate;
@@ -212,6 +221,7 @@ class AttendanceMonthTab extends ConsumerWidget {
           ),
           _DayDetailsSection(
             employeeId: employeeId,
+            employeeName: employeeName,
             year: state.year,
             month: state.month,
             days: state.days,
@@ -229,6 +239,7 @@ class AttendanceMonthTab extends ConsumerWidget {
 class _DayDetailsSection extends StatefulWidget {
   const _DayDetailsSection({
     required this.employeeId,
+    this.employeeName,
     required this.year,
     required this.month,
     required this.days,
@@ -238,6 +249,7 @@ class _DayDetailsSection extends StatefulWidget {
   });
 
   final int employeeId;
+  final String? employeeName;
   final int year;
   final int month;
   final List<AttendanceDay> days;
@@ -280,59 +292,99 @@ class _DayDetailsSectionState extends State<_DayDetailsSection> {
 
     return Column(
       children: [
-        AppSectionTitle(
-          title: 'Chi tiết theo ngày',
-          icon: Icons.calendar_view_day_rounded,
-          action: InkWell(
-            borderRadius: AppRadius.brPill,
-            onTap: total <= 1
-                ? null
-                : () => setState(() => _expanded = !_expanded),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.08),
-                borderRadius: AppRadius.brPill,
-                border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _expanded ? 'Thu gọn' : 'Xem tất cả',
-                    style: AppTypography.style(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.primaryDark,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Icon(
-                    _expanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    size: 18,
-                    color: AppColors.primaryDark,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '$visibleCount/$total',
-                    style: AppTypography.caption(
-                      color: AppColors.textTertiary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.page,
             AppSpacing.md,
             AppSpacing.page,
-            AppSpacing.xs,
+            AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              const TintedIconTile(
+                icon: Icons.calendar_view_day_rounded,
+                color: AppColors.primary,
+                size: 32,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Chi tiết theo ngày',
+                      style: AppTypography.style(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                        height: AppTypography.uppercaseHeight,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      total == 0
+                          ? 'Chưa có ngày nào'
+                          : _expanded
+                          ? '$total ngày có dữ liệu'
+                          : 'Đang hiện $visibleCount/$total ngày',
+                      style: AppTypography.style(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (total > 1)
+                Material(
+                  type: MaterialType.transparency,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: AppRadius.brPill,
+                    side: BorderSide(
+                      color: AppColors.primary.withValues(alpha: 0.22),
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Ink(
+                    color: _expanded
+                        ? AppColors.primary.withValues(alpha: 0.10)
+                        : AppColors.surface,
+                    child: InkWell(
+                      onTap: () => setState(() => _expanded = !_expanded),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _expanded ? 'Thu gọn' : 'Xem cả tháng',
+                              style: AppTypography.style(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                height: AppTypography.uppercaseHeight,
+                                color: AppColors.primaryDark,
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            AnimatedRotation(
+                              turns: _expanded ? 0.5 : 0,
+                              duration: AppDurations.normal,
+                              curve: Curves.easeOutCubic,
+                              child: const Icon(
+                                Icons.expand_more_rounded,
+                                size: 18,
+                                color: AppColors.primaryDark,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         if (widget.days.isEmpty)
@@ -355,6 +407,7 @@ class _DayDetailsSectionState extends State<_DayDetailsSection> {
                     if (index > 0) const SizedBox(height: 8),
                     _DayRow(
                       employeeId: widget.employeeId,
+                      employeeName: widget.employeeName,
                       day: day,
                       duty: widget.dutyByDate[_dayKey(day)],
                       isContinuousDay: widget.continuousDates.contains(
@@ -386,21 +439,6 @@ class _MonthSwitcher extends StatelessWidget {
   final bool loading;
   final void Function(int year, int month) onPickMonth;
 
-  static const _monthNames = [
-    'Tháng 1',
-    'Tháng 2',
-    'Tháng 3',
-    'Tháng 4',
-    'Tháng 5',
-    'Tháng 6',
-    'Tháng 7',
-    'Tháng 8',
-    'Tháng 9',
-    'Tháng 10',
-    'Tháng 11',
-    'Tháng 12',
-  ];
-
   Future<void> _openPicker(BuildContext context) async {
     if (loading) return;
     final picked = await showAppMonthPicker(
@@ -413,11 +451,20 @@ class _MonthSwitcher extends StatelessWidget {
     onPickMonth(picked.$1, picked.$2);
   }
 
+  void _shift(int delta) {
+    if (loading) return;
+    final d = DateTime(year, month + delta);
+    onPickMonth(d.year, d.month);
+  }
+
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    final isCurrentMonth = year == now.year && month == now.month;
-    final label = '${_monthNames[month - 1]}/$year';
+    // Cho xem trước tháng kế tiếp (lịch ca đã xếp), không đi xa hơn.
+    final canGoForward = DateTime(
+      year,
+      month,
+    ).isBefore(DateTime(now.year, now.month + 1));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -426,71 +473,13 @@ class _MonthSwitcher extends StatelessWidget {
         AppSpacing.page,
         AppSpacing.sm,
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: loading ? null : () => _openPicker(context),
-          borderRadius: AppRadius.brMd,
-          child: Ink(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.08),
-              borderRadius: AppRadius.brMd,
-              border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.14),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.12),
-                    borderRadius: AppRadius.brSm,
-                  ),
-                  child: const Icon(
-                    Icons.calendar_month_rounded,
-                    size: 18,
-                    color: AppColors.primary,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        label,
-                        style: AppTypography.style(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15.5,
-                          letterSpacing: -0.2,
-                          color: AppColors.primaryDark,
-                        ),
-                      ),
-                      const SizedBox(height: 1),
-                      Text(
-                        isCurrentMonth
-                            ? 'Tháng hiện tại · chạm để đổi'
-                            : 'Chạm để chọn tháng / năm',
-                        style: AppTypography.style(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.expand_more_rounded,
-                  color: AppColors.primary.withValues(alpha: 0.85),
-                ),
-              ],
-            ),
-          ),
-        ),
+      child: AppPeriodNavigator(
+        month: DateTime(year, month),
+        onPrev: () => _shift(-1),
+        onNext: () => _shift(1),
+        onPickMonth: () => _openPicker(context),
+        canGoBack: !loading,
+        canGoForward: !loading && canGoForward,
       ),
     );
   }
@@ -521,274 +510,492 @@ class _MonthHero extends StatelessWidget {
     final enough = total >= _standardWorkUnits;
     final missing = (_standardWorkUnits - total).clamp(0, _standardWorkUnits);
     final ratio = (total / _standardWorkUnits).clamp(0.0, 1.0);
-    final percent = (ratio * 100).round();
+    final tone = enough ? AppColors.onBrandRing : AppColors.secondaryLight;
+    final period = month > 0 && year > 0
+        ? 'Tháng ${month.toString().padLeft(2, '0')}/$year'
+        : null;
 
     return Padding(
       padding: AppSpacing.pageH,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-        decoration: BoxDecoration(
-          gradient: AppGradients.brand,
-          borderRadius: AppRadius.brXl,
-          boxShadow: AppShadows.tinted(AppColors.primary),
-        ),
-        child: Stack(
+      child: BrandHeroCard(
+        ornamentIcon: Icons.event_available_rounded,
+        ornamentOnTop: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Positioned(
-              right: -20,
-              top: -28,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.08),
-                ),
-              ),
-            ),
-            Positioned(
-              right: 36,
-              bottom: -42,
-              child: Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.05),
-                ),
-              ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            // ── Đầu thẻ: icon + nhãn + kỳ / định mức ─────────────────────
+            Row(
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.16),
-                        borderRadius: AppRadius.brMd,
-                      ),
-                      child: const Icon(
-                        Icons.insights_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'TỔNG CÔNG THÁNG',
-                            style: AppTypography.style(
-                              color: Colors.white.withValues(alpha: 0.78),
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.65,
-                            ),
-                          ),
-                          Text(
-                            'Định mức ${AppFormat.compactNumber(_standardWorkUnits)} công',
-                            style: AppTypography.style(
-                              color: Colors.white.withValues(alpha: 0.82),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.16),
-                        borderRadius: AppRadius.brPill,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.12),
+                const BrandGlassIconTile(
+                  icon: Icons.insights_rounded,
+                  size: 40,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const BrandHeroEyebrow(text: 'Tổng công tháng'),
+                      const SizedBox(height: 5),
+                      Text(
+                        [
+                          ?period,
+                          'Định mức ${AppFormat.score(_standardWorkUnits)} công',
+                        ].join('  ·  '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white.withValues(alpha: 0.82),
                         ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            enough
-                                ? Icons.check_circle_rounded
-                                : Icons.error_outline_rounded,
-                            size: 14,
-                            color: Colors.white,
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            enough ? 'Đủ công' : 'Thiếu công',
-                            style: AppTypography.style(
-                              color: Colors.white,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: FittedBox(
+              ],
+            ),
+            const SizedBox(height: 18),
+            // ── Số chính + vòng tiến độ định mức ─────────────────────────
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
                         child: Text.rich(
                           TextSpan(
                             children: [
                               TextSpan(
-                                text: AppFormat.compactNumber(total),
-                                style: AppTypography.metric(
-                                  fontSize: 36,
+                                text: AppFormat.workUnits(total),
+                                style: AppTypography.display(
+                                  fontSize: 42,
                                   color: Colors.white,
-                                  fontWeight: FontWeight.w800,
+                                  height: 1.0,
                                 ),
                               ),
                               TextSpan(
-                                text: ' công',
+                                text:
+                                    '  / ${AppFormat.score(_standardWorkUnits)} công',
                                 style: AppTypography.style(
-                                  fontSize: 16,
-                                  color: Colors.white.withValues(alpha: 0.85),
+                                  fontSize: 14.5,
                                   fontWeight: FontWeight.w600,
+                                  color: Colors.white.withValues(alpha: 0.7),
                                 ),
                               ),
                             ],
                           ),
                         ),
                       ),
-                    ),
-                    Text(
-                      '$percent%',
-                      style: AppTypography.style(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
+                      const SizedBox(height: 10),
+                      _HeroStatusPill(
+                        enough: enough,
+                        tone: tone,
+                        label: enough
+                            ? 'Đã đạt định mức'
+                            : 'Còn thiếu ${AppFormat.workUnits(missing)} công',
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: AppRadius.brPill,
-                  child: LinearProgressIndicator(
-                    value: ratio,
-                    minHeight: 9,
-                    backgroundColor: Colors.white.withValues(alpha: 0.18),
-                    valueColor: AlwaysStoppedAnimation(
-                      enough
-                          ? Colors.white
-                          : AppColors.secondaryLight.withValues(alpha: 0.95),
-                    ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    _HeroBreakdownChip(
-                      label:
-                          '${AppFormat.compactNumber(summary.clockedWorkUnits)} chấm',
-                    ),
-                    _HeroBreakdownChip(
-                      label:
-                          '${AppFormat.compactNumber(summary.leaveWorkUnits)} phép',
-                    ),
-                    _HeroBreakdownChip(
-                      label:
-                          '${AppFormat.compactNumber(summary.dutyWorkUnitsTotal)} trực',
-                    ),
-                    _HeroBreakdownChip(
-                      label: '$deploymentDayCount đ.động',
-                      highlighted: deploymentDayCount > 0,
-                    ),
-                    if (_supplementCount > 0)
-                      _HeroBreakdownChip(
-                        label: '$_supplementCount bổ sung',
-                        highlighted: true,
-                        icon: Icons.add_circle_outline_rounded,
-                      ),
-                  ],
+                const SizedBox(width: 12),
+                _HeroRing(ratio: ratio, tone: tone),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // ── Cơ cấu công 2×2 ──────────────────────────────────────────
+            _HeroBreakdown(
+              cells: [
+                _BreakdownCell(
+                  icon: Icons.fingerprint_rounded,
+                  label: 'Chấm công',
+                  value: AppFormat.workUnits(summary.clockedWorkUnits),
+                  tone: AppColors.onBrandRing,
+                  active: summary.clockedWorkUnits > 0,
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  enough
-                      ? 'Bạn đã đạt định mức công tháng này.'
-                      : 'Còn thiếu ${AppFormat.compactNumber(missing)} công so với định mức tháng.',
-                  style: AppTypography.style(
-                    fontSize: 12.5,
-                    color: Colors.white.withValues(alpha: 0.9),
-                    fontWeight: FontWeight.w600,
+                _BreakdownCell(
+                  icon: Icons.beach_access_rounded,
+                  label: 'Phép',
+                  value: AppFormat.workUnits(summary.leaveWorkUnits),
+                  tone: AppColors.onBrandSoft,
+                  active: summary.leaveWorkUnits > 0,
+                ),
+                _BreakdownCell(
+                  icon: Icons.nights_stay_rounded,
+                  label: 'Trực',
+                  value: AppFormat.workUnits(summary.dutyWorkUnitsTotal),
+                  tone: AppColors.secondaryLight,
+                  active: summary.dutyWorkUnitsTotal > 0,
+                ),
+                _BreakdownCell(
+                  icon: Icons.swap_horiz_rounded,
+                  label: 'Điều động',
+                  value: '$deploymentDayCount',
+                  unit: 'ngày',
+                  tone: AppColors.secondaryLight,
+                  active: deploymentDayCount > 0,
+                ),
+              ],
+            ),
+            if (_supplementCount > 0) ...[
+              const SizedBox(height: 8),
+              _HeroNote(
+                icon: Icons.add_circle_outline_rounded,
+                text: '$_supplementCount ngày bổ sung công Quang Trung',
+                tone: AppColors.secondaryLight,
+                expand: true,
+              ),
+            ],
+            if (summary.requiresDiscipline) ...[
+              const SizedBox(height: 8),
+              _HeroNote(
+                icon: Icons.gavel_rounded,
+                text: summary.latePenalty > 0
+                    ? 'Muộn ≥201′ · phạt ${AppFormat.currency(summary.latePenalty)} · cần xem xét kỷ luật'
+                    : 'Muộn ≥201 phút · cần xem xét kỷ luật',
+                tone: AppColors.onBrandAlert,
+                expand: true,
+              ),
+            ],
+            if (canManageSupplements) ...[
+              const SizedBox(height: 14),
+              _HeroActionButtons(
+                employeeId: employeeId,
+                year: year,
+                month: month,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Vòng tiến độ so với định mức: rãnh tối, cung sáng theo sắc, % ở giữa.
+class _HeroRing extends StatelessWidget {
+  const _HeroRing({required this.ratio, required this.tone});
+
+  final double ratio;
+  final Color tone;
+
+  static const double _size = 78;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Đạt ${(ratio * 100).round()}% định mức',
+      excludeSemantics: true,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: ratio),
+        duration: AppDurations.slow,
+        curve: Curves.easeOutCubic,
+        builder: (context, t, _) => SizedBox.square(
+          dimension: _size,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Nền kính tròn sau vòng.
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black.withValues(alpha: 0.12),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.10),
                   ),
                 ),
-                if (summary.requiresDiscipline) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 7,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      borderRadius: AppRadius.brMd,
-                    ),
-                    child: Row(
+              ),
+              Padding(
+                padding: const EdgeInsets.all(5),
+                child: SizedBox.expand(
+                  child: CircularProgressIndicator(
+                    value: t,
+                    strokeWidth: 6,
+                    strokeCap: StrokeCap.round,
+                    backgroundColor: Colors.white.withValues(alpha: 0.12),
+                    valueColor: AlwaysStoppedAnimation(tone),
+                  ),
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text.rich(
+                    TextSpan(
                       children: [
-                        Icon(
-                          Icons.gavel_rounded,
-                          size: 15,
-                          color: Colors.white.withValues(alpha: 0.95),
+                        TextSpan(
+                          text: '${(t * 100).round()}',
+                          style: AppTypography.display(
+                            fontSize: 20,
+                            color: Colors.white,
+                            height: 1.0,
+                          ),
                         ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            summary.requiresDiscipline
-                                ? (summary.latePenalty > 0
-                                      ? 'Muộn ≥201′ · phạt ${AppFormat.currency(summary.latePenalty)} · cần xem xét kỷ luật'
-                                      : 'Muộn ≥201 phút · cần xem xét kỷ luật')
-                                : 'Có vi phạm cần xem xét kỷ luật',
-                            style: AppTypography.style(
-                              fontSize: 12,
-                              color: Colors.white.withValues(alpha: 0.95),
-                              fontWeight: FontWeight.w700,
-                            ),
+                        TextSpan(
+                          text: '%',
+                          style: AppTypography.display(
+                            fontSize: 12,
+                            color: Colors.white.withValues(alpha: 0.8),
+                            height: 1.0,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
-                // ── Action buttons: Điều động & Bổ sung công ──
-                if (canManageSupplements) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    height: 1,
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
-                  const SizedBox(height: 10),
-                  _HeroActionButtons(
-                    employeeId: employeeId,
-                    year: year,
-                    month: month,
+                  const SizedBox(height: 3),
+                  Text(
+                    'ĐỊNH MỨC',
+                    style: AppTypography.uppercase(
+                      fontSize: 7.5,
+                      letterSpacing: 0.6,
+                      color: Colors.white.withValues(alpha: 0.65),
+                    ),
                   ),
                 ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Viên trạng thái dưới số chính: icon theo sắc + "Còn thiếu…"/"Đã đạt…".
+class _HeroStatusPill extends StatelessWidget {
+  const _HeroStatusPill({
+    required this.enough,
+    required this.tone,
+    required this.label,
+  });
+
+  final bool enough;
+  final Color tone;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 5, 11, 5),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.16),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(color: tone.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            enough ? Icons.check_circle_rounded : Icons.trending_down_rounded,
+            size: 14,
+            color: tone,
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.style(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                height: AppTypography.uppercaseHeight,
+                color: tone,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BreakdownCell {
+  const _BreakdownCell({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.tone,
+    this.unit,
+    this.active = true,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? unit;
+  final Color tone;
+
+  /// Ô có số > 0: số sáng rõ; ô bằng 0 lùi xuống để mắt dừng ở ô có dữ liệu.
+  final bool active;
+}
+
+/// Lưới 2×2 cơ cấu công: mỗi ô kính có icon sắc riêng, nhãn đầy đủ, số bên phải.
+class _HeroBreakdown extends StatelessWidget {
+  const _HeroBreakdown({required this.cells});
+
+  final List<_BreakdownCell> cells;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <List<_BreakdownCell>>[
+      for (var i = 0; i < cells.length; i += 2)
+        cells.sublist(i, (i + 2).clamp(0, cells.length)),
+    ];
+    return Column(
+      children: [
+        for (final (r, row) in rows.indexed) ...[
+          if (r > 0) const SizedBox(height: 8),
+          Row(
+            children: [
+              for (final (i, c) in row.indexed) ...[
+                if (i > 0) const SizedBox(width: 8),
+                Expanded(child: _BreakdownTile(cell: c)),
+              ],
+              if (row.length == 1) ...[
+                const SizedBox(width: 8),
+                const Expanded(child: SizedBox.shrink()),
+              ],
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _BreakdownTile extends StatelessWidget {
+  const _BreakdownTile({required this.cell});
+
+  final _BreakdownCell cell;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = cell;
+    final valueColor = c.active
+        ? Colors.white
+        : Colors.white.withValues(alpha: 0.55);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(9, 9, 10, 9),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.12),
+        borderRadius: AppRadius.brControl,
+        border: Border.all(
+          color: c.active
+              ? c.tone.withValues(alpha: 0.28)
+              : Colors.white.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: c.tone.withValues(alpha: c.active ? 0.20 : 0.10),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(
+              c.icon,
+              size: 16,
+              color: c.active ? c.tone : c.tone.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  c.label.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.uppercase(
+                    fontSize: 9.5,
+                    letterSpacing: 0.5,
+                    color: Colors.white.withValues(alpha: 0.68),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: c.value,
+                          style: AppTypography.metric(
+                            fontSize: 16,
+                            color: valueColor,
+                            height: 1.1,
+                          ),
+                        ),
+                        if (c.unit != null)
+                          TextSpan(
+                            text: ' ${c.unit}',
+                            style: AppTypography.style(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white.withValues(alpha: 0.65),
+                            ),
+                          ),
+                      ],
+                    ),
+                    maxLines: 1,
+                  ),
+                ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dòng ghi chú trên nền brand (bổ sung công, cảnh báo kỷ luật).
+class _HeroNote extends StatelessWidget {
+  const _HeroNote({
+    required this.icon,
+    required this.text,
+    required this.tone,
+    this.expand = false,
+  });
+
+  final IconData icon;
+  final String text;
+  final Color tone;
+  final bool expand;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = Text(
+      text,
+      style: AppTypography.style(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        height: 1.35,
+        color: Colors.white.withValues(alpha: 0.95),
+      ),
+    );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(9, 6, 11, 6),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.14),
+        borderRadius: AppRadius.brControl,
+        border: Border.all(color: tone.withValues(alpha: 0.32)),
+      ),
+      child: Row(
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: tone),
+          const SizedBox(width: 6),
+          if (expand) Expanded(child: label) else Flexible(child: label),
+        ],
       ),
     );
   }
@@ -842,6 +1049,7 @@ class _HeroActionButtons extends StatelessWidget {
   }
 }
 
+/// Nút kính trắng trên nền brand, có hiệu ứng chạm.
 class _HeroActionBtn extends StatelessWidget {
   const _HeroActionBtn({
     required this.icon,
@@ -855,82 +1063,48 @@ class _HeroActionBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 9),
+    return Material(
+      type: MaterialType.transparency,
+      shape: RoundedRectangleBorder(
+        borderRadius: AppRadius.brControl,
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.24)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.14),
-          borderRadius: AppRadius.brMd,
-          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.22),
+              Colors.white.withValues(alpha: 0.08),
+            ],
+          ),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 15, color: Colors.white),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: AppTypography.style(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HeroBreakdownChip extends StatelessWidget {
-  const _HeroBreakdownChip({
-    required this.label,
-    this.highlighted = false,
-    this.icon,
-  });
-
-  final String label;
-
-  /// Khi true, chip nổi bật hơn (màu trắng đậm hơn).
-  final bool highlighted;
-  final IconData? icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: icon != null ? 7 : 9,
-        vertical: 5,
-      ),
-      decoration: BoxDecoration(
-        color: highlighted
-            ? Colors.white.withValues(alpha: 0.22)
-            : Colors.white.withValues(alpha: 0.14),
-        borderRadius: AppRadius.brPill,
-        border: Border.all(
-          color: highlighted
-              ? Colors.white.withValues(alpha: 0.3)
-              : Colors.white.withValues(alpha: 0.1),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 12, color: Colors.white.withValues(alpha: 0.95)),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            label,
-            style: AppTypography.style(
-              fontSize: 11,
-              fontWeight: highlighted ? FontWeight.w800 : FontWeight.w700,
-              color: Colors.white.withValues(alpha: 0.95),
+        child: InkWell(
+          onTap: onTap,
+          splashColor: Colors.white.withValues(alpha: 0.12),
+          highlightColor: Colors.white.withValues(alpha: 0.06),
+          child: SizedBox(
+            height: 42,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 17, color: Colors.white),
+                const SizedBox(width: 7),
+                Text(
+                  label,
+                  style: AppTypography.style(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    height: AppTypography.uppercaseHeight,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -958,7 +1132,7 @@ class _MetricsStripState extends State<_MetricsStrip> {
 
   @override
   Widget build(BuildContext context) {
-    final clocked = AppFormat.compactNumber(s.clockedWorkUnits);
+    final clocked = AppFormat.workUnits(s.clockedWorkUnits);
     final meal = AppFormat.currency(s.mealAllowance);
 
     return Padding(
@@ -977,18 +1151,10 @@ class _MetricsStripState extends State<_MetricsStrip> {
           children: [
             Row(
               children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.analytics_rounded,
-                    size: 18,
-                    color: AppColors.primary,
-                  ),
+                const TintedIconTile(
+                  icon: Icons.analytics_rounded,
+                  color: AppColors.primary,
+                  size: 36,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -998,17 +1164,21 @@ class _MetricsStripState extends State<_MetricsStrip> {
                       Text(
                         'Chỉ số tháng',
                         style: AppTypography.style(
-                          fontSize: 15,
+                          fontSize: 15.5,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: -0.2,
+                          letterSpacing: -0.3,
+                          height: AppTypography.uppercaseHeight,
+                          color: AppColors.textPrimary,
                         ),
                       ),
+                      const SizedBox(height: 2),
                       Text(
                         _expanded
-                            ? 'Đầy đủ công · phạt · phụ cấp'
-                            : '2 chỉ số chính — mở để xem thêm',
+                            ? 'Cơ cấu công · muộn & phạt · phụ cấp'
+                            : 'Công chấm · phụ cấp · vi phạm',
                         style: AppTypography.style(
-                          fontSize: 11.5,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
                           color: AppColors.textSecondary,
                         ),
                       ),
@@ -1016,35 +1186,47 @@ class _MetricsStripState extends State<_MetricsStrip> {
                   ),
                 ),
                 Material(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: AppRadius.brPill,
-                  child: InkWell(
-                    onTap: () => setState(() => _expanded = !_expanded),
+                  type: MaterialType.transparency,
+                  shape: RoundedRectangleBorder(
                     borderRadius: AppRadius.brPill,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 11,
-                        vertical: 7,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            _expanded ? 'Thu gọn' : 'Chi tiết',
-                            style: AppTypography.style(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primaryDark,
+                    side: BorderSide(
+                      color: AppColors.primary.withValues(alpha: 0.22),
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Ink(
+                    color: _expanded
+                        ? AppColors.primary.withValues(alpha: 0.10)
+                        : AppColors.surface,
+                    child: InkWell(
+                      onTap: () => setState(() => _expanded = !_expanded),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _expanded ? 'Thu gọn' : 'Chi tiết',
+                              style: AppTypography.style(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                height: AppTypography.uppercaseHeight,
+                                color: AppColors.primaryDark,
+                              ),
                             ),
-                          ),
-                          Icon(
-                            _expanded
-                                ? Icons.expand_less_rounded
-                                : Icons.expand_more_rounded,
-                            size: 18,
-                            color: AppColors.primaryDark,
-                          ),
-                        ],
+                            const SizedBox(width: 2),
+                            AnimatedRotation(
+                              turns: _expanded ? 0.5 : 0,
+                              duration: AppDurations.normal,
+                              curve: Curves.easeOutCubic,
+                              child: const Icon(
+                                Icons.expand_more_rounded,
+                                size: 18,
+                                color: AppColors.primaryDark,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1067,7 +1249,7 @@ class _MetricsStripState extends State<_MetricsStrip> {
                 Expanded(
                   child: _HighlightTile(
                     icon: Icons.restaurant_rounded,
-                    color: const Color(0xFFE65100),
+                    color: _mealTone,
                     value: meal,
                     label: 'Phụ cấp ăn',
                     sub: s.mealAllowanceSub,
@@ -1076,29 +1258,33 @@ class _MetricsStripState extends State<_MetricsStrip> {
               ],
             ),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                _QuickPill(
-                  label:
-                      'Phép ${AppFormat.compactNumber(s.leaveWorkUnits)} (không tính tổng)',
-                  color: const Color(0xFF0F766E),
+            _QuickStatsStrip(
+              items: [
+                _QuickStat(
+                  label: 'Phút muộn',
+                  value: '${s.lateMinutesTotal}′',
+                  tone: AppColors.warning,
+                  active: s.lateMinutesTotal > 0,
                 ),
-                _QuickPill(
-                  label:
-                      'Trực ${AppFormat.compactNumber(s.dutyWorkUnitsTotal)}',
-                  color: const Color(0xFF7C3AED),
+                _QuickStat(
+                  label: 'Quên chấm',
+                  value: '${s.forgotFineCount} lần',
+                  tone: AppColors.error,
+                  active: s.forgotFineCount > 0,
                 ),
-                _QuickPill(
-                  label: 'Đ.động ${widget.deploymentDayCount} ngày',
-                  color: AppColors.info,
+                _QuickStat(
+                  label: 'Bị trừ',
+                  value: AppFormat.currencyCompact(
+                    s.latePenalty + s.forgotPenalty,
+                  ),
+                  tone: AppColors.error,
+                  active: s.latePenalty + s.forgotPenalty > 0,
                 ),
-                _QuickPill(
-                  label: 'Muộn ${s.lateMinutesTotal}′',
-                  color: s.lateMinutesTotal > 0
-                      ? AppColors.warning
-                      : AppColors.success,
+                _QuickStat(
+                  label: 'Tiền trực',
+                  value: AppFormat.currencyCompact(s.dutyBonusTotal),
+                  tone: _dutyTone,
+                  active: s.dutyBonusTotal > 0,
                 ),
               ],
             ),
@@ -1116,22 +1302,18 @@ class _MetricsStripState extends State<_MetricsStrip> {
                             rows: [
                               _DetailRowData(
                                 icon: Icons.beach_access_rounded,
-                                color: const Color(0xFF0F766E),
+                                color: _leaveTone,
                                 label: 'Công phép',
-                                value: AppFormat.compactNumber(
-                                  s.leaveWorkUnits,
-                                ),
+                                value: AppFormat.workUnits(s.leaveWorkUnits),
                                 sub: 'Nghỉ có lương',
                               ),
                               _DetailRowData(
                                 icon: Icons.nights_stay_rounded,
-                                color: const Color(0xFF7C3AED),
+                                color: _dutyTone,
                                 label: 'Công trực',
                                 value: s.dutyWorkUnitsTotal > 0
-                                    ? '+${AppFormat.compactNumber(s.dutyWorkUnitsTotal)}'
-                                    : AppFormat.compactNumber(
-                                        s.dutyWorkUnitsTotal,
-                                      ),
+                                    ? '+${AppFormat.workUnits(s.dutyWorkUnitsTotal)}'
+                                    : AppFormat.workUnits(s.dutyWorkUnitsTotal),
                                 sub: '${s.dutyShiftCount} ca trực',
                               ),
                               _DetailRowData(
@@ -1140,7 +1322,7 @@ class _MetricsStripState extends State<_MetricsStrip> {
                                 label: 'Điều động',
                                 value: '${widget.deploymentDayCount} ngày',
                                 sub: widget.deploymentOvertimeUnits > 0
-                                    ? '+${AppFormat.compactNumber(widget.deploymentOvertimeUnits)} ngoài giờ'
+                                    ? '+${AppFormat.workUnits(widget.deploymentOvertimeUnits)} ngoài giờ'
                                     : 'Ngày gắn Đ.động',
                               ),
                             ],
@@ -1195,7 +1377,7 @@ class _MetricsStripState extends State<_MetricsStrip> {
                               ),
                               _DetailRowData(
                                 icon: Icons.payments_outlined,
-                                color: const Color(0xFF7C3AED),
+                                color: _dutyTone,
                                 label: 'Tiền hỗ trợ',
                                 value: AppFormat.currency(
                                   s.seminarSupportTotal,
@@ -1206,7 +1388,7 @@ class _MetricsStripState extends State<_MetricsStrip> {
                               ),
                               _DetailRowData(
                                 icon: Icons.local_hospital_outlined,
-                                color: const Color(0xFF0F766E),
+                                color: _leaveTone,
                                 label: 'PC Quang Trung',
                                 value: AppFormat.currency(
                                   s.quangTrungAllowance,
@@ -1245,11 +1427,12 @@ class _HighlightTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final subText = (sub ?? '').trim();
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 11),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(14),
+        gradient: TintedCardBackdrop.gradient(color),
+        borderRadius: AppRadius.brCard,
         border: Border.all(color: color.withValues(alpha: 0.16)),
       ),
       child: Column(
@@ -1258,46 +1441,42 @@ class _HighlightTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(8),
+              TintedIconTile(icon: icon, color: color, size: 30),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.uppercase(
+                    fontSize: 10,
+                    letterSpacing: 0.6,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-                child: Icon(icon, size: 15, color: color),
               ),
             ],
           ),
           const SizedBox(height: 10),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.style(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.3,
-              color: color,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: AppTypography.metric(
+                fontSize: 21,
+                color: Color.lerp(color, AppColors.textPrimary, 0.25)!,
+              ),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
-            label,
+            subText.isEmpty ? ' ' : subText,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppTypography.style(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            (sub ?? '').trim().isEmpty ? ' ' : sub!,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.style(
-              fontSize: 10.5,
+              fontSize: 11,
               color: AppColors.textTertiary,
               fontWeight: FontWeight.w600,
             ),
@@ -1308,27 +1487,107 @@ class _HighlightTile extends StatelessWidget {
   }
 }
 
-class _QuickPill extends StatelessWidget {
-  const _QuickPill({required this.label, required this.color});
+class _QuickStat {
+  const _QuickStat({
+    required this.label,
+    required this.value,
+    required this.tone,
+    this.active = true,
+  });
 
   final String label;
-  final Color color;
+  final String value;
+  final Color tone;
+
+  /// Có phát sinh: chấm sắc + số đậm; bằng 0: lùi xuống màu trung tính.
+  final bool active;
+}
+
+/// Dải 4 cột trong rãnh nhạt: chấm sắc + nhãn in hoa, số bên dưới.
+class _QuickStatsStrip extends StatelessWidget {
+  const _QuickStatsStrip({required this.items});
+
+  final List<_QuickStat> items;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: AppRadius.brPill,
-        border: Border.all(color: color.withValues(alpha: 0.18)),
+        color: AppColors.surfaceAlt,
+        borderRadius: AppRadius.brCard,
+        border: Border.all(color: AppColors.borderSoft),
       ),
-      child: Text(
-        label,
-        style: AppTypography.style(
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          color: color,
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            for (final (i, it) in items.indexed) ...[
+              if (i > 0)
+                const VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: AppColors.divider,
+                ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: it.active
+                                  ? it.tone
+                                  : AppColors.textTertiary.withValues(
+                                      alpha: 0.5,
+                                    ),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              it.label.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.uppercase(
+                                fontSize: 9,
+                                letterSpacing: 0.4,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          it.value,
+                          maxLines: 1,
+                          style: AppTypography.metric(
+                            fontSize: 14.5,
+                            color: it.active
+                                ? Color.lerp(
+                                    it.tone,
+                                    AppColors.textPrimary,
+                                    0.25,
+                                  )!
+                                : AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -1416,7 +1675,8 @@ class _DetailRow extends StatelessWidget {
             height: 32,
             decoration: BoxDecoration(
               color: data.color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: AppRadius.brControl,
+              border: Border.all(color: data.color.withValues(alpha: 0.18)),
             ),
             child: Icon(data.icon, size: 16, color: data.color),
           ),
@@ -1448,10 +1708,9 @@ class _DetailRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             data.value,
-            style: AppTypography.style(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: data.color,
+            style: AppTypography.metric(
+              fontSize: 15,
+              color: Color.lerp(data.color, AppColors.textPrimary, 0.2)!,
             ),
           ),
         ],
@@ -1463,6 +1722,7 @@ class _DetailRow extends StatelessWidget {
 class _DayRow extends StatelessWidget {
   const _DayRow({
     required this.employeeId,
+    this.employeeName,
     required this.day,
     this.duty,
     this.isContinuousDay = false,
@@ -1470,6 +1730,7 @@ class _DayRow extends StatelessWidget {
   });
 
   final int employeeId;
+  final String? employeeName;
   final AttendanceDay day;
   final DutyShiftEntry? duty;
   final bool isContinuousDay;
@@ -1503,9 +1764,77 @@ class _DayRow extends StatelessWidget {
         !hasAfternoon &&
         (day.checkIn != null || day.checkOut != null);
     final accent = _statusColor(day.status);
-    final attUnits = day.totalWorkUnits;
-    final dutyUnits = duty?.workUnits ?? 0;
-    final displayUnits = attUnits + dutyUnits;
+    final now = DateTime.now();
+    final isToday =
+        date != null &&
+        date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day;
+    final displayUnits = day.totalWorkUnits + (duty?.workUnits ?? 0);
+
+    final tags = <Widget>[
+      if (day.isLeaveDay)
+        const _DayTag(
+          label: 'Phép',
+          color: _leaveTone,
+          icon: Icons.beach_access_rounded,
+        ),
+      if (isContinuousDay)
+        const _DayTag(
+          label: 'Thông tầm',
+          color: AppColors.success,
+          icon: Icons.timeline_rounded,
+        ),
+      if (isSplitDay)
+        const _DayTag(
+          label: 'Sáng–chiều',
+          color: AppColors.primaryDark,
+          icon: Icons.call_split_rounded,
+        ),
+      if (day.isDeploymentDay)
+        const _DayTag(
+          label: 'Điều động',
+          color: AppColors.info,
+          icon: Icons.swap_horiz_rounded,
+        ),
+      if (duty != null)
+        _DayTag(
+          label: 'Trực',
+          color: _dutyTone,
+          icon: Icons.nights_stay_rounded,
+          tooltip: duty!.shiftTypeLabel,
+        ),
+      if (day.overtimeWorkUnits > 0)
+        _DayTag(
+          label: 'Ngoài giờ ${AppFormat.workUnits(day.overtimeWorkUnits)}',
+          color: AppColors.info,
+          icon: Icons.more_time_rounded,
+        ),
+      if (day.youngChild)
+        const _DayTag(
+          label: 'Con nhỏ',
+          color: _youngChildTone,
+          icon: Icons.child_care_rounded,
+        ),
+      if (day.quangTrung)
+        const _DayTag(
+          label: 'Quang Trung',
+          color: _quangTrungTone,
+          icon: Icons.local_hospital_outlined,
+        ),
+      if (day.lateMinutesExempt && late > 0)
+        const _DayTag(
+          label: 'Miễn muộn',
+          color: AppColors.success,
+          icon: Icons.verified_rounded,
+        ),
+      if (showLate)
+        _DayTag(
+          label: 'Muộn $late′',
+          color: AppColors.warning,
+          icon: Icons.timer_outlined,
+        ),
+    ];
 
     return Material(
       color: Colors.transparent,
@@ -1514,206 +1843,320 @@ class _DayRow extends StatelessWidget {
           context,
           day: day,
           employeeId: employeeId,
+          employeeName: employeeName,
         ),
         borderRadius: AppRadius.brLg,
         child: Ink(
-          padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
           decoration: BoxDecoration(
-            color: AppColors.surface,
+            gradient: TintedCardBackdrop.gradient(accent),
             borderRadius: AppRadius.brLg,
-            border: Border.all(color: accent.withValues(alpha: 0.14)),
-            boxShadow: AppShadows.soft,
+            border: Border.all(
+              color: isToday
+                  ? AppColors.primary.withValues(alpha: 0.45)
+                  : accent.withValues(alpha: 0.16),
+              width: isToday ? 1.4 : 1,
+            ),
+            boxShadow: isToday
+                ? AppShadows.tinted(AppColors.primary)
+                : AppShadows.soft,
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 48,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  gradient: isWeekend
-                      ? null
-                      : LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            AppColors.primary.withValues(alpha: 0.14),
-                            AppColors.primary.withValues(alpha: 0.06),
-                          ],
-                        ),
-                  color: isWeekend ? AppColors.errorLight : null,
-                  borderRadius: AppRadius.brMd,
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      date == null ? '--' : date.day.toString().padLeft(2, '0'),
-                      style: AppTypography.style(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.3,
-                        color: isWeekend
-                            ? AppColors.errorDark
-                            : AppColors.primaryDark,
-                      ),
-                    ),
-                    const SizedBox(height: 1),
-                    Text(
-                      date == null ? '' : _weekdayShort[date.weekday - 1],
-                      style: AppTypography.style(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                        color: isWeekend
-                            ? AppColors.error
-                            : AppColors.primary.withValues(alpha: 0.75),
-                      ),
-                    ),
-                  ],
-                ),
+              _DateBadge(
+                day: date == null ? '--' : date.day.toString().padLeft(2, '0'),
+                weekday: date == null ? '' : _weekdayShort[date.weekday - 1],
+                isToday: isToday,
+                isWeekend: isWeekend,
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (hasMorning || hasAfternoon)
-                      _CompactShiftTimes(
-                        morningFrom: hasMorning ? day.morningCheckIn : null,
-                        morningTo: hasMorning ? day.morningCheckOut : null,
-                        afternoonFrom: hasAfternoon
-                            ? day.afternoonCheckIn
-                            : null,
-                        afternoonTo: hasAfternoon
-                            ? day.afternoonCheckOut
-                            : null,
-                      )
-                    else if (hasLegacyOnly)
-                      _ShiftTimeLine(
+                    _StatusPill(
+                      label: day.statusLabel,
+                      color: accent,
+                      icon: switch (day.status) {
+                        'PRESENT' => Icons.check_circle_rounded,
+                        'ABSENT' => Icons.cancel_rounded,
+                        'PARTIAL' => Icons.timelapse_rounded,
+                        _ => Icons.circle,
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    if (hasMorning || hasAfternoon) ...[
+                      _ShiftLine(
+                        icon: Icons.wb_sunny_rounded,
+                        color: _morningShiftTone,
+                        label: 'Sáng',
+                        from: day.morningCheckIn,
+                        to: day.morningCheckOut,
+                      ),
+                      const SizedBox(height: 4),
+                      _ShiftLine(
+                        icon: Icons.nightlight_round,
+                        color: _afternoonShiftTone,
+                        label: 'Chiều',
+                        from: day.afternoonCheckIn,
+                        to: day.afternoonCheckOut,
+                      ),
+                    ] else if (hasLegacyOnly)
+                      _ShiftLine(
                         icon: Icons.schedule_rounded,
-                        iconColor: AppColors.info,
+                        color: AppColors.info,
                         label: 'Ca',
                         from: day.checkIn,
                         to: day.checkOut,
                       )
                     else
-                      Text(
-                        duty != null
-                            ? (duty!.shiftTypeLabel ?? 'Ca trực')
-                            : 'Chưa có dữ liệu chấm công',
-                        style: AppTypography.style(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textTertiary,
-                        ),
+                      Row(
+                        children: [
+                          Icon(
+                            duty != null
+                                ? Icons.nights_stay_rounded
+                                : Icons.fingerprint_rounded,
+                            size: 13,
+                            color: AppColors.textTertiary,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              duty != null
+                                  ? (duty!.shiftTypeLabel ?? 'Ca trực')
+                                  : 'Chưa có dữ liệu chấm công',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.style(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        StatusChip(
-                          label: day.statusLabel,
-                          color: accent,
-                          dense: true,
-                          showDot: false,
-                          icon: day.status == 'PRESENT'
-                              ? Icons.check_rounded
-                              : day.status == 'ABSENT'
-                              ? Icons.close_rounded
-                              : null,
-                        ),
-                        _DayTag(
-                          label:
-                              '${AppFormat.compactNumber(displayUnits)} công',
-                          color: AppColors.primary,
-                          emphasized: true,
-                        ),
-                        if (day.isLeaveDay)
-                          const _DayTag(
-                            label: 'Phép',
-                            color: Color(0xFF0F766E),
-                            icon: Icons.beach_access_rounded,
-                          ),
-                        if (isContinuousDay)
-                          const _DayTag(
-                            label: 'TT',
-                            color: AppColors.success,
-                            icon: Icons.timeline_rounded,
-                          ),
-                        if (isSplitDay)
-                          const _DayTag(
-                            label: 'SC',
-                            color: AppColors.primaryDark,
-                            icon: Icons.schedule_rounded,
-                          ),
-                        if (day.isDeploymentDay)
-                          const _DayTag(
-                            label: 'Đ.động',
-                            color: AppColors.info,
-                            icon: Icons.swap_horiz_rounded,
-                          ),
-                        if (duty != null)
-                          _DayTag(
-                            label: 'Trực',
-                            color: const Color(0xFF7C3AED),
-                            icon: Icons.nights_stay_rounded,
-                            tooltip: duty!.shiftTypeLabel,
-                          ),
-                        if (day.overtimeWorkUnits > 0)
-                          _DayTag(
-                            label:
-                                'Ngoài giờ ${day.overtimeWorkUnits.toStringAsFixed(2).replaceAll('.', ',')}',
-                            color: AppColors.info,
-                          ),
-                        if (day.youngChild)
-                          const _DayTag(
-                            label: 'Con nhỏ',
-                            color: Color(0xFFC2410C),
-                            icon: Icons.child_care_rounded,
-                          ),
-                        if (day.quangTrung)
-                          const _DayTag(
-                            label: 'QT',
-                            color: Color(0xFF0F766E),
-                            icon: Icons.local_hospital_outlined,
-                          ),
-                        if (day.lateMinutesExempt && late > 0)
-                          const _DayTag(
-                            label: 'Miễn muộn',
-                            color: AppColors.success,
-                          ),
-                        if (showLate)
-                          _DayTag(
-                            label: 'Muộn $late phút',
-                            color: AppColors.warning,
-                            icon: Icons.schedule_rounded,
-                          ),
-                      ],
-                    ),
+                    if (tags.isNotEmpty) ...[
+                      const SizedBox(height: 9),
+                      Wrap(spacing: 5, runSpacing: 5, children: tags),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceAlt,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    size: 18,
-                    color: AppColors.textTertiary.withValues(alpha: 0.85),
-                  ),
-                ),
-              ),
+              const SizedBox(width: 10),
+              _UnitsColumn(units: displayUnits),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Sắc riêng cho mốc giờ ca sáng / chiều trên thẻ ngày.
+const Color _morningShiftTone = Color(0xFFD97706);
+const Color _afternoonShiftTone = Color(0xFF7C3AED);
+
+/// Viên trạng thái ngày (Có mặt / Vắng / Thiếu ca…).
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(6, 3, 9, 3),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brPill,
+        border: Border.all(color: color.withValues(alpha: 0.32)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: icon == Icons.circle ? 8 : 13, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              height: AppTypography.uppercaseHeight,
+              color: Color.lerp(color, AppColors.textPrimary, 0.2)!,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Một dòng mốc giờ: icon ca + nhãn ca + giờ vào → ra (mốc thiếu hiện "—" nhạt).
+class _ShiftLine extends StatelessWidget {
+  const _ShiftLine({
+    required this.icon,
+    required this.color,
+    required this.label,
+    this.from,
+    this.to,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+  final String? from;
+  final String? to;
+
+  @override
+  Widget build(BuildContext context) {
+    final none = from == null && to == null;
+    Widget time(String? v) => Text(
+      v ?? '—',
+      style: AppTypography.metric(
+        fontSize: 13.5,
+        color: v == null ? AppColors.textTertiary : AppColors.textPrimary,
+      ),
+    );
+
+    return Opacity(
+      opacity: none ? 0.6 : 1,
+      child: Row(
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 38,
+            child: Text(
+              label,
+              style: AppTypography.style(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          time(from),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 12,
+              color: AppColors.textTertiary,
+            ),
+          ),
+          time(to),
+        ],
+      ),
+    );
+  }
+}
+
+/// Cột phải thẻ ngày: số công cỡ lớn + nhãn "CÔNG" + mũi tên mở chi tiết.
+class _UnitsColumn extends StatelessWidget {
+  const _UnitsColumn({required this.units});
+
+  final double units;
+
+  @override
+  Widget build(BuildContext context) {
+    final has = units > 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          AppFormat.workUnits(units),
+          style: AppTypography.metric(
+            fontSize: 19,
+            color: has ? AppColors.primaryDark : AppColors.textTertiary,
+            height: 1.1,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'CÔNG',
+          style: AppTypography.uppercase(
+            fontSize: 8.5,
+            letterSpacing: 0.8,
+            color: AppColors.textTertiary,
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Icon(
+          Icons.chevron_right_rounded,
+          size: 20,
+          color: AppColors.textTertiary,
+        ),
+      ],
+    );
+  }
+}
+
+/// Ô ngày bên trái thẻ: số ngày + thứ. Hôm nay đặc màu brand, cuối tuần sắc đỏ.
+class _DateBadge extends StatelessWidget {
+  const _DateBadge({
+    required this.day,
+    required this.weekday,
+    required this.isToday,
+    required this.isWeekend,
+  });
+
+  final String day;
+  final String weekday;
+  final bool isToday;
+  final bool isWeekend;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = isWeekend ? AppColors.error : AppColors.primary;
+    final Color numColor = isToday
+        ? Colors.white
+        : (isWeekend ? AppColors.errorDark : AppColors.primaryDark);
+    final Color subColor = isToday
+        ? Colors.white.withValues(alpha: 0.85)
+        : tone.withValues(alpha: 0.8);
+
+    return Container(
+      width: 50,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        gradient: isToday
+            ? AppGradients.brand
+            : LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  tone.withValues(alpha: 0.14),
+                  tone.withValues(alpha: 0.05),
+                ],
+              ),
+        borderRadius: AppRadius.brMd,
+        border: isToday
+            ? null
+            : Border.all(color: tone.withValues(alpha: 0.14)),
+        boxShadow: isToday ? AppShadows.tinted(AppColors.primary) : null,
+      ),
+      child: Column(
+        children: [
+          Text(day, style: AppTypography.metric(fontSize: 19, color: numColor)),
+          const SizedBox(height: 2),
+          Text(
+            isToday ? 'HÔM NAY' : weekday,
+            maxLines: 1,
+            style: AppTypography.uppercase(
+              fontSize: isToday ? 8 : 10.5,
+              letterSpacing: isToday ? 0.4 : 0.3,
+              color: subColor,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1724,38 +2167,37 @@ class _DayTag extends StatelessWidget {
     required this.label,
     required this.color,
     this.icon,
-    this.emphasized = false,
     this.tooltip,
   });
 
   final String label;
   final Color color;
   final IconData? icon;
-  final bool emphasized;
   final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
     final child = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(6, 3, 8, 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: emphasized ? 0.12 : 0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: AppRadius.brPill,
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 12, color: color),
+            Icon(icon, size: 11, color: color),
             const SizedBox(width: 4),
           ],
           Text(
             label,
             style: AppTypography.style(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: color,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              height: AppTypography.uppercaseHeight,
+              color: Color.lerp(color, AppColors.textPrimary, 0.2)!,
             ),
           ),
         ],
@@ -1763,141 +2205,5 @@ class _DayTag extends StatelessWidget {
     );
     if (tooltip == null || tooltip!.isEmpty) return child;
     return Tooltip(message: tooltip!, child: child);
-  }
-}
-
-class _CompactShiftTimes extends StatelessWidget {
-  const _CompactShiftTimes({
-    this.morningFrom,
-    this.morningTo,
-    this.afternoonFrom,
-    this.afternoonTo,
-  });
-
-  final String? morningFrom;
-  final String? morningTo;
-  final String? afternoonFrom;
-  final String? afternoonTo;
-
-  @override
-  Widget build(BuildContext context) {
-    final morning = morningFrom != null || morningTo != null;
-    final afternoon = afternoonFrom != null || afternoonTo != null;
-
-    return Row(
-      children: [
-        if (morning)
-          Expanded(
-            child: _MiniShift(
-              icon: Icons.wb_sunny_rounded,
-              color: AppColors.primary,
-              from: morningFrom,
-              to: morningTo,
-            ),
-          ),
-        if (morning && afternoon) const SizedBox(width: 8),
-        if (afternoon)
-          Expanded(
-            child: _MiniShift(
-              icon: Icons.nightlight_round,
-              color: AppColors.secondary,
-              from: afternoonFrom,
-              to: afternoonTo,
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _MiniShift extends StatelessWidget {
-  const _MiniShift({
-    required this.icon,
-    required this.color,
-    this.from,
-    this.to,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String? from;
-  final String? to;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 13, color: color),
-          const SizedBox(width: 5),
-          Expanded(
-            child: Text(
-              '${from ?? '—'}→${to ?? '—'}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTypography.style(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-                letterSpacing: -0.2,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ShiftTimeLine extends StatelessWidget {
-  const _ShiftTimeLine({
-    required this.icon,
-    required this.iconColor,
-    required this.label,
-    required this.from,
-    required this.to,
-  });
-
-  final IconData icon;
-  final Color iconColor;
-  final String label;
-  final String? from;
-  final String? to;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 14, color: iconColor),
-        const SizedBox(width: 5),
-        Text(
-          label,
-          style: AppTypography.style(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textSecondary,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            '${from ?? '—'}  →  ${to ?? '—'}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.style(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-              letterSpacing: -0.1,
-            ),
-          ),
-        ),
-      ],
-    );
   }
 }

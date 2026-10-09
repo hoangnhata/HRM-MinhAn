@@ -7,12 +7,15 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_action_button.dart';
 import '../../../core/widgets/app_ambient_background.dart';
+import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notice_banner.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 import '../../../shared/models/attendance_models.dart';
 import '../data/attendance_repository.dart';
 
@@ -40,9 +43,7 @@ class _DayAssignment {
       continuousStart: split
           ? (type.morningStart ?? type.startTime)
           : type.startTime,
-      continuousEnd: split
-          ? (type.afternoonEnd ?? type.endTime)
-          : type.endTime,
+      continuousEnd: split ? (type.afternoonEnd ?? type.endTime) : type.endTime,
     );
   }
 
@@ -294,29 +295,30 @@ class _ContinuousShiftScreenState extends ConsumerState<ContinuousShiftScreen> {
     try {
       final days = _selected.entries.toList()
         ..sort((a, b) => a.key.compareTo(b.key));
-      final result =
-          await ref.read(attendanceRepositoryProvider).setContinuousShiftDays(
-                employeeId: widget.employeeId,
-                year: widget.year,
-                month: widget.month,
-                days: [
-                  for (final e in days)
-                    ContinuousShiftDayInfo(
-                      date: e.key,
-                      shiftTypeId: e.value.shiftTypeId == 0
-                          ? null
-                          : e.value.shiftTypeId,
-                      shiftTypeName: e.value.shiftTypeName,
-                      continuousStart: e.value.continuousStart,
-                      continuousEnd: e.value.continuousEnd,
-                    ),
-                ],
-              );
+      final result = await ref
+          .read(attendanceRepositoryProvider)
+          .setContinuousShiftDays(
+            employeeId: widget.employeeId,
+            year: widget.year,
+            month: widget.month,
+            days: [
+              for (final e in days)
+                ContinuousShiftDayInfo(
+                  date: e.key,
+                  shiftTypeId: e.value.shiftTypeId == 0
+                      ? null
+                      : e.value.shiftTypeId,
+                  shiftTypeName: e.value.shiftTypeName,
+                  continuousStart: e.value.continuousStart,
+                  continuousEnd: e.value.continuousEnd,
+                ),
+            ],
+          );
       if (!mounted) return;
       final msg = result.recalculateWarning?.trim().isNotEmpty == true
           ? result.recalculateWarning!
           : 'Đã lưu ${result.dayCount} ngày xếp ca'
-              '${result.recalculated > 0 ? ' · tính lại ${result.recalculated} ngày' : ''}';
+                '${result.recalculated > 0 ? ' · tính lại ${result.recalculated} ngày' : ''}';
       showAppSnackBar(context, msg, isSuccess: true);
       context.pop(true);
     } on ApiException catch (e) {
@@ -338,12 +340,9 @@ class _ContinuousShiftScreenState extends ConsumerState<ContinuousShiftScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = _brush != null
-        ? _shiftColor(_brush!.id)
-        : AppColors.primary;
+    final accent = _brush != null ? _shiftColor(_brush!.id) : AppColors.primary;
     final name = widget.employeeName?.trim();
-    final periodLabel =
-        '${_monthNames[widget.month]} / ${widget.year}';
+    final periodLabel = '${_monthNames[widget.month]} / ${widget.year}';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -371,126 +370,147 @@ class _ContinuousShiftScreenState extends ConsumerState<ContinuousShiftScreen> {
                         onRefresh: () => _load(silent: true),
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.page,
-                          10,
-                          AppSpacing.page,
-                          120,
-                        ),
-                        children: [
-                          if (_error != null) ...[
-                            NoticeBanner.error(message: _error!),
-                            const SizedBox(height: 10),
-                          ],
-                          _ContextCard(
-                            employeeName: name,
-                            periodLabel: periodLabel,
-                            selectedCount: _selected.length,
-                            accent: accent,
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.page,
+                            10,
+                            AppSpacing.page,
+                            120,
                           ),
-                          const SizedBox(height: 14),
-                          _SectionLabel(
-                            title: 'Chọn ca để gắn',
-                            trailing: _types.isEmpty
-                                ? null
-                                : '${_types.length} loại',
-                          ),
-                          const SizedBox(height: 8),
-                          if (_types.isEmpty)
-                            NoticeBanner.warning(
-                              message:
-                                  'Chưa có khung ca. Tạo danh mục ca (TT/SC) trên web (HCNS) trước.',
-                            )
-                          else
-                            SizedBox(
-                              height: 118,
-                              child: ListView.separated(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: _types.length,
-                                separatorBuilder: (_, _) =>
-                                    const SizedBox(width: 10),
-                                itemBuilder: (context, index) {
-                                  final type = _types[index];
-                                  return _ShiftTypeCard(
-                                    type: type,
-                                    selected: _brush?.id == type.id,
-                                    color: _shiftColor(type.id),
-                                    onTap: () => _selectBrush(type),
-                                  );
-                                },
-                              ),
+                          children: [
+                            if (_error != null) ...[
+                              NoticeBanner.error(message: _error!),
+                              const SizedBox(height: 10),
+                            ],
+                            _ContextCard(
+                              employeeName: name,
+                              periodLabel: periodLabel,
+                              selectedCount: _selected.length,
+                              totalDays: DateTime(
+                                widget.year,
+                                widget.month + 1,
+                                0,
+                              ).day,
                             ),
-                          if (_brush != null) ...[
-                            const SizedBox(height: 12),
-                            _BrushHint(
-                              name: _brush!.name,
-                              timeLabel: _brush!.timeLabel,
-                              kindLabel: _brush!.displayLabel,
-                              color: accent,
+                            const SizedBox(height: 14),
+                            _SectionLabel(
+                              title: 'Chọn ca để gắn',
+                              icon: Icons.layers_rounded,
+                              trailing: _types.isEmpty
+                                  ? null
+                                  : '${_types.length} loại',
                             ),
-                          ],
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _QuickAction(
-                                  icon: Icons.calendar_month_rounded,
-                                  label: 'Gắn cả tháng',
-                                  color: accent,
-                                  filled: true,
-                                  onTap: _types.isEmpty ? null : _applyMonth,
+                            const SizedBox(height: 8),
+                            if (_types.isEmpty)
+                              NoticeBanner.warning(
+                                message:
+                                    'Chưa có khung ca. Tạo danh mục ca (TT/SC) trên web (HCNS) trước.',
+                              )
+                            else
+                              SizedBox(
+                                height: 122,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: _types.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(width: 10),
+                                  itemBuilder: (context, index) {
+                                    final type = _types[index];
+                                    return _ShiftTypeCard(
+                                      type: type,
+                                      selected: _brush?.id == type.id,
+                                      color: _shiftColor(type.id),
+                                      onTap: () => _selectBrush(type),
+                                    );
+                                  },
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _QuickAction(
-                                  icon: Icons.layers_clear_rounded,
-                                  label: 'Bỏ chọn',
-                                  color: AppColors.textSecondary,
-                                  filled: false,
-                                  onTap: _selected.isEmpty ? null : _clearAll,
-                                ),
+                            if (_brush != null) ...[
+                              const SizedBox(height: 12),
+                              _BrushHint(
+                                name: _brush!.name,
+                                timeLabel: _brush!.timeLabel,
+                                color: accent,
                               ),
                             ],
-                          ),
-                          const SizedBox(height: 14),
-                          _SectionLabel(
-                            title: 'Lịch tháng',
-                            trailing: _selected.isEmpty
-                                ? 'Chưa gắn'
-                                : '${_selected.length} ngày',
-                          ),
-                          const SizedBox(height: 8),
-                          _CalendarGrid(
-                            weekdays: _weekdays,
-                            cells: _cells(),
-                            selected: _selected,
-                            brushId: _brush?.id,
-                            onToggle: _toggleDay,
-                          ),
-                          if (_usedTypeCounts.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _QuickAction(
+                                    icon: Icons.event_repeat_rounded,
+                                    label: 'Gắn cả tháng',
+                                    color: accent,
+                                    onTap: _types.isEmpty ? null : _applyMonth,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _QuickAction(
+                                    icon: Icons.layers_clear_rounded,
+                                    label: 'Bỏ hết ngày',
+                                    color: AppColors.error,
+                                    onTap: _selected.isEmpty ? null : _clearAll,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            _SectionLabel(
+                              title: 'Lịch tháng',
+                              icon: Icons.calendar_month_rounded,
+                              trailing: _selected.isEmpty
+                                  ? 'Chưa gắn'
+                                  : '${_selected.length} ngày',
+                            ),
+                            const SizedBox(height: 8),
+                            _CalendarGrid(
+                              weekdays: _weekdays,
+                              cells: _cells(),
+                              selected: _selected,
+                              brushId: _brush?.id,
+                              onToggle: _toggleDay,
+                            ),
+                            if (_usedTypeCounts.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _Legend(
+                                types: _types,
+                                counts: _usedTypeCounts,
+                                customAssignments: [
+                                  for (final a in _selected.values)
+                                    if (_types.every(
+                                      (t) => t.id != a.shiftTypeId,
+                                    ))
+                                      a,
+                                ],
+                              ),
+                            ],
                             const SizedBox(height: 12),
-                            _Legend(
-                              types: _types,
-                              counts: _usedTypeCounts,
-                              customAssignments: [
-                                for (final a in _selected.values)
-                                  if (_types.every((t) => t.id != a.shiftTypeId))
-                                    a,
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 1),
+                                  child: Icon(
+                                    Icons.info_outline_rounded,
+                                    size: 14,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Ngày trống = ca bình thường (sáng/chiều theo mùa). Danh mục ca chỉ cấu hình trên web.',
+                                    style: AppTypography.style(
+                                      fontSize: 12,
+                                      height: 1.4,
+                                      color: AppColors.textTertiary,
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ],
-                          const SizedBox(height: 12),
-                          Text(
-                            'Ngày trống = ca bình thường (sáng/chiều theo mùa). Danh mục ca chỉ cấu hình trên web.',
-                            textAlign: TextAlign.center,
-                            style: AppTypography.style(
-                              fontSize: 12,
-                              color: AppColors.textTertiary,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
                       ),
               ),
             ],
@@ -498,7 +518,6 @@ class _ContinuousShiftScreenState extends ConsumerState<ContinuousShiftScreen> {
         ],
       ),
       bottomNavigationBar: _BottomBar(
-        accent: accent,
         saving: _saving,
         loading: _loading,
         selectedCount: _selected.length,
@@ -514,114 +533,171 @@ class _ContextCard extends StatelessWidget {
     required this.employeeName,
     required this.periodLabel,
     required this.selectedCount,
-    required this.accent,
+    required this.totalDays,
   });
 
   final String? employeeName;
   final String periodLabel;
   final int selectedCount;
-  final Color accent;
+  final int totalDays;
 
   @override
   Widget build(BuildContext context) {
+    const accent = AppColors.primary;
+    final name = (employeeName == null || employeeName!.isEmpty)
+        ? 'Nhân viên'
+        : employeeName!;
+    final ratio = totalDays == 0 ? 0.0 : selectedCount / totalDays;
+
     return AppCard(
-      accentColor: accent,
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      gradient: TintedCardBackdrop.gradient(accent),
+      borderRadius: AppRadius.brCard,
+      padding: EdgeInsets.zero,
       margin: EdgeInsets.zero,
-      child: Row(
-        children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  accent.withValues(alpha: 0.22),
-                  accent.withValues(alpha: 0.08),
+      child: TintedCardBackdrop(
+        accent: accent,
+        watermarkIcon: Icons.edit_calendar_rounded,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  AppAvatar(name: name, size: 44),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.style(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                            height: AppTypography.uppercaseHeight,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          periodLabel,
+                          style: AppTypography.style(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '$selectedCount',
+                              style: AppTypography.metric(
+                                fontSize: 20,
+                                color: AppColors.primaryDark,
+                                height: 1.0,
+                              ),
+                            ),
+                            TextSpan(
+                              text: '/$totalDays',
+                              style: AppTypography.metric(
+                                fontSize: 12.5,
+                                color: AppColors.textTertiary,
+                                height: 1.0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'NGÀY ĐÃ GẮN',
+                        style: AppTypography.uppercase(
+                          fontSize: 8.5,
+                          letterSpacing: 0.6,
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(Icons.person_rounded, color: accent, size: 24),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  (employeeName == null || employeeName!.isEmpty)
-                      ? 'Nhân viên'
-                      : employeeName!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: AppRadius.brPill,
+                child: Container(
+                  height: 6,
+                  color: accent.withValues(alpha: 0.10),
+                  alignment: Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    widthFactor: ratio.clamp(0.0, 1.0),
+                    heightFactor: 1,
+                    child: const DecoratedBox(
+                      decoration: BoxDecoration(gradient: AppGradients.brand),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  periodLabel,
-                  style: AppTypography.style(
-                    fontSize: 12.5,
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: AppRadius.brPill,
-            ),
-            child: Text(
-              '$selectedCount ngày',
-              style: AppTypography.style(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w800,
-                color: accent,
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.title, this.trailing});
+  const _SectionLabel({required this.title, required this.icon, this.trailing});
 
   final String title;
+  final IconData icon;
   final String? trailing;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text(
-          title,
-          style: AppTypography.style(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.15,
+        TintedIconTile(icon: icon, color: AppColors.primary, size: 28),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            title,
+            style: AppTypography.style(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.2,
+              height: AppTypography.uppercaseHeight,
+              color: AppColors.textPrimary,
+            ),
           ),
         ),
-        const Spacer(),
         if (trailing != null)
-          Text(
-            trailing!,
-            style: AppTypography.style(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textTertiary,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: AppRadius.brPill,
+              border: Border.all(color: AppColors.borderSoft),
+            ),
+            child: Text(
+              trailing!,
+              style: AppTypography.style(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                height: AppTypography.uppercaseHeight,
+                color: AppColors.textSecondary,
+              ),
             ),
           ),
       ],
@@ -644,114 +720,126 @@ class _ShiftTypeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: selected ? color.withValues(alpha: 0.14) : AppColors.surface,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-          child: AnimatedContainer(
-          duration: AppDurations.fast,
-          width: 168,
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: selected ? color : AppColors.borderSoft,
-              width: selected ? 1.6 : 1,
-            ),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color: color.withValues(alpha: 0.18),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ]
-                : null,
+    final dark = Color.lerp(color, AppColors.textPrimary, 0.3)!;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${type.name}, ${type.displayLabel}, ${type.timeLabel}',
+      excludeSemantics: true,
+      child: Material(
+        type: MaterialType.transparency,
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.brCard,
+          side: BorderSide(
+            color: selected ? color : AppColors.borderSoft,
+            width: selected ? 1.6 : 1,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: selected ? null : AppColors.surface,
+            gradient: selected ? TintedCardBackdrop.gradient(color) : null,
+          ),
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              width: 196,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        TintedIconTile(
+                          icon: type.isSplit
+                              ? Icons.call_split_rounded
+                              : Icons.timeline_rounded,
+                          color: color,
+                          size: 28,
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.10),
+                            borderRadius: AppRadius.brPill,
+                          ),
+                          child: Text(
+                            type.displayLabel,
+                            style: AppTypography.style(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              height: AppTypography.uppercaseHeight,
+                              color: dark,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        AnimatedContainer(
+                          duration: AppDurations.fast,
+                          width: 20,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: selected ? color : AppColors.surface,
+                            border: Border.all(
+                              color: selected ? color : AppColors.border,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: selected
+                              ? const Icon(
+                                  Icons.check_rounded,
+                                  size: 13,
+                                  color: Colors.white,
+                                )
+                              : null,
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: type.isSplit
-                          ? AppColors.primary.withValues(alpha: 0.12)
-                          : AppColors.success.withValues(alpha: 0.12),
-                      borderRadius: AppRadius.brPill,
-                    ),
-                    child: Text(
-                      type.kind.shortLabel,
+                    const SizedBox(height: 9),
+                    Text(
+                      type.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: AppTypography.style(
-                        fontSize: 10,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w800,
-                        color: type.isSplit
-                            ? AppColors.primaryDark
-                            : AppColors.success,
+                        height: 1.3,
+                        color: AppColors.textPrimary,
                       ),
                     ),
-                  ),
-                  const Spacer(),
-                  if (selected)
-                    Icon(Icons.check_circle_rounded, size: 16, color: color)
-                  else
-                    const SizedBox(width: 16, height: 16),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                type.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.style(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  height: 1.15,
-                  color: selected ? color : AppColors.textPrimary,
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.schedule_rounded,
+                          size: 13,
+                          color: color.withValues(alpha: 0.8),
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            type.timeLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.metric(
+                              fontSize: 13,
+                              color: dark,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                type.displayLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.style(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  height: 1.15,
-                  color: AppColors.textTertiary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                type.timeLabel,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.style(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  height: 1.15,
-                  color: selected
-                      ? color.withValues(alpha: 0.9)
-                      : AppColors.textSecondary,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -759,59 +847,66 @@ class _ShiftTypeCard extends StatelessWidget {
   }
 }
 
+/// Thanh "cọ" đang chọn: ca nào sẽ được gắn khi chạm ngày.
 class _BrushHint extends StatelessWidget {
   const _BrushHint({
     required this.name,
     required this.timeLabel,
-    required this.kindLabel,
     required this.color,
   });
 
   final String name;
   final String timeLabel;
-  final String kindLabel;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(10, 9, 12, 9),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: AppRadius.brMd,
-        border: Border.all(color: color.withValues(alpha: 0.18)),
+        color: AppColors.surface,
+        borderRadius: AppRadius.brCard,
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+        boxShadow: AppShadows.soft,
       ),
       child: Row(
         children: [
-          Icon(Icons.touch_app_rounded, size: 18, color: color),
-          const SizedBox(width: 8),
+          TintedIconTile(icon: Icons.touch_app_rounded, color: color, size: 32),
+          const SizedBox(width: 10),
           Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: AppTypography.style(
-                  fontSize: 12.5,
-                  color: AppColors.textSecondary,
-                  height: 1.35,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'CHẠM NGÀY ĐỂ GẮN / BỎ',
+                  style: AppTypography.uppercase(
+                    fontSize: 9.5,
+                    letterSpacing: 0.6,
+                    color: AppColors.textTertiary,
+                  ),
                 ),
-                children: [
-                  const TextSpan(text: 'Chạm ngày để gắn/bỏ '),
-                  TextSpan(
-                    text: name,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: color,
-                    ),
+                const SizedBox(height: 2),
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.style(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    height: AppTypography.uppercaseHeight,
+                    color: Color.lerp(color, AppColors.textPrimary, 0.3)!,
                   ),
-                  TextSpan(
-                    text: ' ($kindLabel · $timeLabel)',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            timeLabel,
+            style: AppTypography.metric(
+              fontSize: 12.5,
+              color: AppColors.textSecondary,
             ),
           ),
         ],
@@ -825,43 +920,37 @@ class _QuickAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.color,
-    required this.filled,
     this.onTap,
   });
 
   final IconData icon;
   final String label;
   final Color color;
-  final bool filled;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
-    return Opacity(
-      opacity: enabled ? 1 : 0.45,
-      child: Material(
-        color: filled
-            ? color.withValues(alpha: 0.12)
-            : AppColors.surface,
+    final fg = enabled ? color : AppColors.textTertiary;
+    return Material(
+      type: MaterialType.transparency,
+      shape: RoundedRectangleBorder(
         borderRadius: AppRadius.brCard,
+        side: BorderSide(
+          color: enabled ? color.withValues(alpha: 0.28) : AppColors.borderSoft,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        color: enabled ? AppColors.surface : AppColors.surfaceAlt,
         child: InkWell(
           onTap: onTap,
-          borderRadius: AppRadius.brCard,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            decoration: BoxDecoration(
-              borderRadius: AppRadius.brCard,
-              border: Border.all(
-                color: filled
-                    ? color.withValues(alpha: 0.22)
-                    : AppColors.borderSoft,
-              ),
-            ),
+          child: SizedBox(
+            height: 44,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, size: 17, color: color),
+                Icon(icon, size: 17, color: fg),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -871,7 +960,10 @@ class _QuickAction extends StatelessWidget {
                     style: AppTypography.style(
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
-                      color: color,
+                      height: AppTypography.uppercaseHeight,
+                      color: enabled
+                          ? Color.lerp(color, AppColors.textPrimary, 0.25)!
+                          : AppColors.textTertiary,
                     ),
                   ),
                 ),
@@ -901,19 +993,17 @@ class _CalendarGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final todayIso =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: AppRadius.brCard,
         border: Border.all(color: AppColors.borderSoft),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        boxShadow: AppShadows.soft,
       ),
       child: Column(
         children: [
@@ -924,11 +1014,11 @@ class _CalendarGrid extends StatelessWidget {
                   child: Center(
                     child: Text(
                       w,
-                      style: AppTypography.style(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
+                      style: AppTypography.uppercase(
+                        fontSize: 10.5,
+                        letterSpacing: 0.3,
                         color: i >= 5
-                            ? AppColors.warning
+                            ? AppColors.errorDark.withValues(alpha: 0.75)
                             : AppColors.textTertiary,
                       ),
                     ),
@@ -946,6 +1036,8 @@ class _CalendarGrid extends StatelessWidget {
                     Expanded(
                       child: _DayCell(
                         cell: cells[row * 7 + col],
+                        weekend: col >= 5,
+                        today: cells[row * 7 + col].iso == todayIso,
                         assignment: cells[row * 7 + col].iso == null
                             ? null
                             : selected[cells[row * 7 + col].iso],
@@ -968,48 +1060,61 @@ class _DayCell extends StatelessWidget {
   const _DayCell({
     required this.cell,
     required this.assignment,
+    this.weekend = false,
+    this.today = false,
     this.brushId,
     this.onTap,
   });
 
   final ({int? day, String? iso}) cell;
   final _DayAssignment? assignment;
+  final bool weekend;
+  final bool today;
   final int? brushId;
   final VoidCallback? onTap;
 
+  static const double _height = 54;
+
   @override
   Widget build(BuildContext context) {
-    if (cell.day == null) {
-      return const SizedBox(height: 58);
-    }
+    if (cell.day == null) return const SizedBox(height: _height);
 
     final active = assignment != null;
-    final color =
-        active ? _shiftColor(assignment!.shiftTypeId) : AppColors.textPrimary;
+    final color = active
+        ? _shiftColor(assignment!.shiftTypeId)
+        : AppColors.primary;
     final matchesBrush =
         active && brushId != null && assignment!.shiftTypeId == brushId;
-    final subLabel = assignment?.cellSubLabel;
+    final numberColor = active
+        ? Color.lerp(color, AppColors.textPrimary, 0.3)!
+        : weekend
+        ? AppColors.errorDark.withValues(alpha: 0.75)
+        : AppColors.textPrimary;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Material(
-        color: active ? color.withValues(alpha: 0.14) : AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(14),
+        type: MaterialType.transparency,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: AppRadius.brControl,
           child: AnimatedContainer(
             duration: AppDurations.fast,
-            height: 58,
+            height: _height,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
+              color: active
+                  ? color.withValues(alpha: 0.12)
+                  : AppColors.surfaceAlt,
+              borderRadius: AppRadius.brControl,
               border: Border.all(
                 color: matchesBrush
                     ? color
                     : active
-                        ? color.withValues(alpha: 0.35)
-                        : Colors.transparent,
-                width: matchesBrush ? 1.6 : 1,
+                    ? color.withValues(alpha: 0.35)
+                    : today
+                    ? AppColors.primary.withValues(alpha: 0.5)
+                    : AppColors.borderSoft,
+                width: matchesBrush || today ? 1.5 : 1,
               ),
             ),
             child: Column(
@@ -1017,28 +1122,41 @@ class _DayCell extends StatelessWidget {
               children: [
                 Text(
                   '${cell.day}',
-                  style: AppTypography.style(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: active ? color : AppColors.textPrimary,
+                  style: AppTypography.metric(
+                    fontSize: 14.5,
+                    color: numberColor,
                   ),
                 ),
-                if (active && subLabel != null) ...[
-                  const SizedBox(height: 1),
-                  Text(
-                    subLabel,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.style(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      height: 1.05,
+                const SizedBox(height: 4),
+                if (active)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
                       color: color,
+                      borderRadius: AppRadius.brPill,
+                    ),
+                    child: Text(
+                      assignment!.kind.shortLabel,
+                      style: AppTypography.style(
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w800,
+                        height: 1.2,
+                        color: Colors.white,
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: today ? AppColors.primary : Colors.transparent,
+                      shape: BoxShape.circle,
                     ),
                   ),
-                ] else
-                  const SizedBox(height: 11),
               ],
             ),
           ),
@@ -1061,13 +1179,14 @@ class _Legend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = <({Color color, String label, int count})>[];
+    final items = <({Color color, String label, String time, int count})>[];
     for (final type in types) {
       final count = counts[type.id];
       if (count == null || count <= 0) continue;
       items.add((
         color: _shiftColor(type.id),
-        label: '${type.name} (${type.kind.shortLabel})',
+        label: type.name,
+        time: type.timeLabel,
         count: count,
       ));
     }
@@ -1077,53 +1196,102 @@ class _Legend extends StatelessWidget {
       items.add((
         color: _shiftColor(a.shiftTypeId),
         label: a.shiftTypeName,
+        time: a.timeLabel,
         count: counts[a.shiftTypeId] ?? 0,
       ));
     }
     if (items.isEmpty) return const SizedBox.shrink();
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final item in items)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: item.color.withValues(alpha: 0.1),
-              borderRadius: AppRadius.brPill,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: item.color,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '${item.label} · ${item.count}',
-                  style: AppTypography.style(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                    color: item.color,
-                  ),
-                ),
-              ],
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brCard,
+        border: Border.all(color: AppColors.borderSoft),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'CHÚ GIẢI',
+            style: AppTypography.uppercase(
+              fontSize: 9.5,
+              letterSpacing: 0.6,
+              color: AppColors.textTertiary,
             ),
           ),
-      ],
+          const SizedBox(height: 6),
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: item.color,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.style(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  if (item.time.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      item.time,
+                      style: AppTypography.metric(
+                        fontSize: 11.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 8),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 26),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: item.color.withValues(alpha: 0.12),
+                      borderRadius: AppRadius.brPill,
+                    ),
+                    child: Text(
+                      '${item.count}',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.metric(
+                        fontSize: 11.5,
+                        color: Color.lerp(
+                          item.color,
+                          AppColors.textPrimary,
+                          0.3,
+                        )!,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
 
 class _BottomBar extends StatelessWidget {
   const _BottomBar({
-    required this.accent,
     required this.saving,
     required this.loading,
     required this.selectedCount,
@@ -1131,7 +1299,6 @@ class _BottomBar extends StatelessWidget {
     required this.onSave,
   });
 
-  final Color accent;
   final bool saving;
   final bool loading;
   final int selectedCount;
@@ -1140,67 +1307,39 @@ class _BottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      elevation: 8,
-      color: AppColors.surface,
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.xl),
+        ),
+        boxShadow: AppShadows.nav,
+      ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           child: Row(
             children: [
               Expanded(
-                child: OutlinedButton(
+                flex: 2,
+                child: AppActionButton(
+                  variant: AppActionVariant.outlineNeutral,
+                  label: 'Hủy',
                   onPressed: saving ? null : onCancel,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: AppColors.border),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: AppRadius.brMd,
-                    ),
-                  ),
-                  child: const Text('Hủy'),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
-                flex: 2,
-                child: FilledButton(
-                  onPressed: saving || loading ? null : onSave,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: accent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: AppRadius.brMd,
-                    ),
-                  ),
-                  child: saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.save_rounded, size: 18),
-                            const SizedBox(width: 8),
-                            Text(
-                              selectedCount == 0
-                                  ? 'Lưu (xóa hết)'
-                                  : 'Lưu · $selectedCount ngày',
-                              style: AppTypography.style(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
+                flex: 3,
+                child: AppActionButton(
+                  variant: AppActionVariant.primary,
+                  icon: Icons.save_rounded,
+                  label: selectedCount == 0
+                      ? 'Lưu (bỏ hết ca)'
+                      : 'Lưu · $selectedCount ngày',
+                  loading: saving,
+                  onPressed: loading ? null : onSave,
                 ),
               ),
             ],

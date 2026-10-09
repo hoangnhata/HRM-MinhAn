@@ -38,6 +38,7 @@ Future<DepartmentPickResult?> showDepartmentPicker(
 }) {
   return showModalBottomSheet<DepartmentPickResult>(
     context: context,
+    showDragHandle: false,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
@@ -90,6 +91,7 @@ Future<WorkUnitPickResult?> showWorkUnitPicker(
 }) {
   return showModalBottomSheet<WorkUnitPickResult>(
     context: context,
+    showDragHandle: false,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,

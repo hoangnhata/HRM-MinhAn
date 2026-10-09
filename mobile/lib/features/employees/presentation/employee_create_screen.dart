@@ -351,6 +351,7 @@ class _EmployeeCreateScreenState extends ConsumerState<EmployeeCreateScreen> {
   Future<void> _clearPositionViaSheet(List<JobPosition> positions) async {
     final picked = await showModalBottomSheet<_PosPick>(
       context: context,
+      showDragHandle: false,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,

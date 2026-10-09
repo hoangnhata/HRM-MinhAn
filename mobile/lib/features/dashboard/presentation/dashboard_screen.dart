@@ -15,6 +15,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_motion.dart';
 import '../../../core/widgets/brand_mark.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/notification_bell_button.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/widgets/list_section_title.dart';
@@ -96,11 +97,12 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
-/// Thanh đầu teal: logo BV | tên | chuông + avatar.
+/// Thanh đầu teal: logo BV | tên + nhãn hệ thống | cụm chuông + avatar.
 class _DashboardTopBar extends ConsumerWidget {
   const _DashboardTopBar();
 
-  static const double _actionSize = 44;
+  static const double _actionSize = 40;
+  static const double _logoSize = 46;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -108,120 +110,194 @@ class _DashboardTopBar extends ConsumerWidget {
     final me = auth.currentUser;
     final unread = ref.watch(notificationControllerProvider).unreadCount;
     final name = me?.displayName ?? auth.fullName ?? '';
-    final topInset = MediaQuery.paddingOf(context).top;
+    final today = DateTime.now();
 
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(
+    return GradientHeader(
+      padding: const EdgeInsets.fromLTRB(
         AppSpacing.page,
-        topInset + 10,
+        AppSpacing.sm,
         AppSpacing.page,
-        22,
+        AppSpacing.xl,
       ),
-      decoration: BoxDecoration(
-        gradient: AppGradients.appBar,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(26),
-          bottomRight: Radius.circular(26),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryDark.withValues(alpha: 0.28),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
+      bottomRadius: 28,
+      ornamentIcon: Icons.local_hospital_rounded,
+      ornamentScale: 0.82,
+      child: Row(
         children: [
-          Positioned(
-            right: -30,
-            top: -40,
-            child: IgnorePointer(
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.07),
-                ),
-              ),
-            ),
-          ),
-          Row(
-            children: [
-              Transform.translate(
-                offset: const Offset(0, 2),
-                child: Container(
-                  width: _actionSize,
-                  height: _actionSize,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.primaryDark.withValues(alpha: 0.26),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
+          const _BrandLogoBadge(size: _logoSize),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Semantics(
+                  header: true,
+                  child: Text(
+                    'Bệnh viện Minh An',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        AppTypography.style(
+                          color: Colors.white,
+                          fontSize: 17.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                          height: AppTypography.uppercaseHeight,
+                        ).copyWith(
+                          shadows: [
+                            Shadow(
+                              color: AppColors.primaryDark.withValues(
+                                alpha: 0.35,
+                              ),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
                   ),
-                  clipBehavior: Clip.antiAlias,
-                  child: const BrandMark(size: _actionSize),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 4),
+                Row(
                   children: [
-                    Text(
-                      'Bệnh viện Minh An',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.style(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.14),
-                        borderRadius: AppRadius.brPill,
-                      ),
+                    const _SystemTag(),
+                    const SizedBox(width: AppSpacing.xs),
+                    Flexible(
                       child: Text(
-                        'Hệ thống HRM',
+                        '${AppFormat.weekday(today)}, '
+                        '${today.day.toString().padLeft(2, '0')}/'
+                        '${today.month.toString().padLeft(2, '0')}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
-                          color: Colors.white.withValues(alpha: 0.92),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.4,
+                          color: Colors.white.withValues(alpha: 0.78),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          height: AppTypography.uppercaseHeight,
                         ),
                       ),
                     ),
                   ],
                 ),
-              ),
-              NotificationBellButton(
-                unreadCount: unread,
-                size: _DashboardTopBar._actionSize,
-                onTap: () => openNotifications(context),
-              ),
-              const SizedBox(width: 10),
-              _HeaderAvatarButton(
-                name: name,
-                hasAvatar: me?.hasAvatar == true,
-                onTap: () => ref.read(shellTabProvider.notifier).state =
-                    AppShellTab.profile,
-              ),
-            ],
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          // Cụm hành động dạng viên kính — chuông và avatar chung một khối.
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: AppRadius.brPill,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.10),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                NotificationBellButton(
+                  unreadCount: unread,
+                  size: _DashboardTopBar._actionSize,
+                  framed: false,
+                  onTap: () => openNotifications(context),
+                ),
+                const SizedBox(width: 4),
+                _HeaderAvatarButton(
+                  name: name,
+                  hasAvatar: me?.hasAvatar == true,
+                  onTap: () => ref.read(shellTabProvider.notifier).state =
+                      AppShellTab.profile,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Logo tròn nền trắng với quầng sáng mảnh — nổi trên nền teal.
+class _BrandLogoBadge extends StatelessWidget {
+  const _BrandLogoBadge({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white.withValues(alpha: 0.16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+      ),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primaryDark.withValues(alpha: 0.35),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: BrandMark(size: size),
+      ),
+    );
+  }
+}
+
+/// Nhãn "HỆ THỐNG HRM" — chấm vàng đồng như eyebrow của các header khác.
+class _SystemTag extends StatelessWidget {
+  const _SystemTag();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(7, 2, 9, 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.14),
+        borderRadius: AppRadius.brPill,
+        border: Border.all(
+          color: AppColors.secondaryLight.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(
+              color: AppColors.secondaryLight,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.secondaryLight.withValues(alpha: 0.6),
+                  blurRadius: 5,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            'HỆ THỐNG HRM',
+            style: AppTypography.uppercase(
+              color: AppColors.secondaryLight,
+              fontSize: 9.5,
+              letterSpacing: 1.0,
+            ),
           ),
         ],
       ),
@@ -256,8 +332,9 @@ class _HeaderAvatarButton extends StatelessWidget {
               name: name,
               size: _DashboardTopBar._actionSize,
               authImageUrl: hasAvatar ? ProfileRepository.myAvatarUrl : null,
-              borderColor: Colors.white.withValues(alpha: 0.92),
-              borderWidth: 1.8,
+              borderColor: Colors.white,
+              borderWidth: 2,
+              showShadow: false,
             ),
           ),
         ),
@@ -721,9 +798,8 @@ class _AdminPulseBlock extends StatelessWidget {
                               alignment: Alignment.centerLeft,
                               child: Text(
                                 AppFormat.number(totalEmployees),
-                                style: AppTypography.metric(
+                                style: AppTypography.display(
                                   fontSize: 48,
-                                  fontWeight: FontWeight.w800,
                                   color: Colors.white,
                                 ),
                               ),
@@ -1660,9 +1736,8 @@ class _NursingPulseBlock extends StatelessWidget {
                             children: [
                               Text(
                                 AppFormat.number(total),
-                                style: AppTypography.metric(
+                                style: AppTypography.display(
                                   fontSize: 48,
-                                  fontWeight: FontWeight.w800,
                                   color: Colors.white,
                                 ),
                               ),

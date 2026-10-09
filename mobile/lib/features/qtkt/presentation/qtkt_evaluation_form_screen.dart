@@ -191,6 +191,7 @@ class _QtktEvaluationFormScreenState
     if (_readOnly || widget.existing != null) return;
     final selected = await showModalBottomSheet<QtktEmployee>(
       context: context,
+      showDragHandle: false,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,

@@ -23,6 +23,7 @@ Future<bool?> showBulkDeploymentSheet(
 }) {
   return showModalBottomSheet<bool>(
     context: context,
+    showDragHandle: false,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (_) => _BulkDeploymentSheet(
@@ -33,7 +34,7 @@ Future<bool?> showBulkDeploymentSheet(
 }
 
 typedef _EmpDeployConfig = ({
-  String timeMode, // OUTSIDE | INSIDE
+  String timeMode, // OUTSIDE | INSIDE | MIXED
   String insideScope, // MORNING | AFTERNOON | FULL_DAY
   TimeOfDay? outsideStart,
   TimeOfDay? outsideEnd,
@@ -53,6 +54,46 @@ _EmpDeployConfig _defaultDeployConfig(DayShiftSchedule? schedule) {
     morningEnd: _parseHm(schedule?.morningEnd),
     afternoonStart: _parseHm(schedule?.afternoonStart),
     afternoonEnd: _parseHm(schedule?.afternoonEnd),
+  );
+}
+
+int _todMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
+
+bool _rangeStraddles(
+  TimeOfDay? start,
+  TimeOfDay? end,
+  DayShiftSchedule? schedule,
+) {
+  if (start == null || end == null || schedule == null) return false;
+  final s = _todMinutes(start);
+  final e = _todMinutes(end);
+  if (e <= s) return false;
+  var inside = 0;
+  void addWindow(String? a, String? b) {
+    final from = _parseHm(a);
+    final to = _parseHm(b);
+    if (from == null || to == null) return;
+    final am = _todMinutes(from);
+    final bm = _todMinutes(to);
+    if (bm <= am) return;
+    final overlap = (e < bm ? e : bm) - (s > am ? s : am);
+    if (overlap > 0) inside += overlap;
+  }
+
+  addWindow(schedule.morningStart, schedule.morningEnd);
+  addWindow(schedule.afternoonStart, schedule.afternoonEnd);
+  return inside > 0 && (e - s - inside) > 0;
+}
+
+({TimeOfDay start, TimeOfDay end})? _mixedDefaults(DayShiftSchedule? schedule) {
+  final from = _parseHm(schedule?.morningStart);
+  final to = _parseHm(schedule?.afternoonEnd);
+  if (from == null || to == null) return null;
+  var endMin = _todMinutes(to) + 120;
+  if (endMin > 23 * 60 + 59) endMin = 23 * 60 + 59;
+  return (
+    start: from,
+    end: TimeOfDay(hour: endMin ~/ 60, minute: endMin % 60),
   );
 }
 
@@ -96,6 +137,9 @@ String _fmtSubmit(TimeOfDay t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:00';
 
 String _configSummary(_EmpDeployConfig cfg) {
+  if (cfg.timeMode == 'MIXED') {
+    return 'Trong & ngoài ca ${_fmtHm(cfg.outsideStart)}–${_fmtHm(cfg.outsideEnd)}';
+  }
   if (cfg.timeMode == 'OUTSIDE') {
     return 'Ngoài ca ${_fmtHm(cfg.outsideStart)}–${_fmtHm(cfg.outsideEnd)}';
   }
@@ -239,6 +283,13 @@ class _BulkDeploymentSheetState extends ConsumerState<_BulkDeploymentSheet> {
       _quickMode = mode;
       if (mode == 'INSIDE') {
         _applyScheduleToQuick(_schedule);
+      } else if (mode == 'MIXED' &&
+          !_rangeStraddles(_quickOutStart, _quickOutEnd, _schedule)) {
+        final next = _mixedDefaults(_schedule);
+        if (next != null) {
+          _quickOutStart = next.start;
+          _quickOutEnd = next.end;
+        }
       }
     });
   }
@@ -359,9 +410,19 @@ class _BulkDeploymentSheetState extends ConsumerState<_BulkDeploymentSheet> {
           break;
         }
       }
-      if (cfg.timeMode == 'OUTSIDE') {
+      if (cfg.timeMode == 'OUTSIDE' || cfg.timeMode == 'MIXED') {
         if (cfg.outsideStart == null || cfg.outsideEnd == null) {
-          return '$name: chưa nhập giờ ngoài ca.';
+          return cfg.timeMode == 'MIXED'
+              ? '$name: chưa nhập khung trong ca & ngoài ca.'
+              : '$name: chưa nhập giờ ngoài ca.';
+        }
+        if (cfg.timeMode == 'MIXED' &&
+            !_rangeStraddles(
+              cfg.outsideStart,
+              cfg.outsideEnd,
+              _scheduleByEmp[id] ?? _schedule,
+            )) {
+          return '$name: khung phải vừa nằm trong ca vừa vượt ra ngoài ca.';
         }
       } else {
         final scope = cfg.insideScope;
@@ -389,7 +450,7 @@ class _BulkDeploymentSheetState extends ConsumerState<_BulkDeploymentSheet> {
     final reason = _reasonController.text.trim();
     final items = _selectedIds.map((id) {
       final cfg = _configByEmp[id] ?? _defaultDeployConfig(_schedule);
-      if (cfg.timeMode == 'OUTSIDE') {
+      if (cfg.timeMode == 'OUTSIDE' || cfg.timeMode == 'MIXED') {
         return (
           employeeId: id,
           shiftScope: 'FULL_DAY',
@@ -827,10 +888,10 @@ class _QuickPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isOutside = timeMode == 'OUTSIDE';
+    final usesRange = timeMode == 'OUTSIDE' || timeMode == 'MIXED';
     final showMorning =
-        !isOutside && (insideScope == 'MORNING' || insideScope == 'FULL_DAY');
-    final showAfternoon = !isOutside &&
+        !usesRange && (insideScope == 'MORNING' || insideScope == 'FULL_DAY');
+    final showAfternoon = !usesRange &&
         (insideScope == 'AFTERNOON' || insideScope == 'FULL_DAY');
 
     return Container(
@@ -881,24 +942,33 @@ class _QuickPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: _SegChip(
-                  label: 'Ngoài ca',
+                  label: 'Ngoài',
                   icon: Icons.nights_stay_rounded,
-                  selected: isOutside,
+                  selected: timeMode == 'OUTSIDE',
                   onTap: () => onTimeModeChanged('OUTSIDE'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _SegChip(
-                  label: 'Trong ca',
+                  label: 'Trong',
                   icon: Icons.work_history_rounded,
-                  selected: !isOutside,
+                  selected: timeMode == 'INSIDE',
                   onTap: () => onTimeModeChanged('INSIDE'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SegChip(
+                  label: 'Cả hai',
+                  icon: Icons.join_inner_rounded,
+                  selected: timeMode == 'MIXED',
+                  onTap: () => onTimeModeChanged('MIXED'),
                 ),
               ),
             ],
           ),
-          if (!isOutside) ...[
+          if (!usesRange) ...[
             const SizedBox(height: 8),
             Row(
               children: [
@@ -920,7 +990,7 @@ class _QuickPanel extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 10),
-          if (isOutside)
+          if (usesRange)
             _TimePair(
               startLabel: _fmtHm(outsideStart),
               endLabel: _fmtHm(outsideEnd),
@@ -1352,10 +1422,11 @@ class _EmployeeTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isOutside = config.timeMode == 'OUTSIDE';
+    final usesRange =
+        config.timeMode == 'OUTSIDE' || config.timeMode == 'MIXED';
     final showMorning =
-        !isOutside && (config.insideScope == 'MORNING' || config.insideScope == 'FULL_DAY');
-    final showAfternoon = !isOutside &&
+        !usesRange && (config.insideScope == 'MORNING' || config.insideScope == 'FULL_DAY');
+    final showAfternoon = !usesRange &&
         (config.insideScope == 'AFTERNOON' || config.insideScope == 'FULL_DAY');
 
     return AnimatedContainer(
@@ -1460,9 +1531,9 @@ class _EmployeeTile extends StatelessWidget {
                     children: [
                       Expanded(
                         child: _SegChip(
-                          label: 'Ngoài ca',
+                          label: 'Ngoài',
                           icon: Icons.nights_stay_rounded,
-                          selected: isOutside,
+                          selected: config.timeMode == 'OUTSIDE',
                           onTap: () =>
                               onChanged(_copy(timeMode: 'OUTSIDE')),
                         ),
@@ -1470,9 +1541,9 @@ class _EmployeeTile extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: _SegChip(
-                          label: 'Trong ca',
+                          label: 'Trong',
                           icon: Icons.work_history_rounded,
-                          selected: !isOutside,
+                          selected: config.timeMode == 'INSIDE',
                           onTap: () => onChanged(
                             _withInsideTimes(
                               _copy(timeMode: 'INSIDE'),
@@ -1481,9 +1552,31 @@ class _EmployeeTile extends StatelessWidget {
                           ),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _SegChip(
+                          label: 'Cả hai',
+                          icon: Icons.join_inner_rounded,
+                          selected: config.timeMode == 'MIXED',
+                          onTap: () {
+                            final next = _mixedDefaults(schedule);
+                            final seed = next != null &&
+                                !_rangeStraddles(
+                                  config.outsideStart,
+                                  config.outsideEnd,
+                                  schedule,
+                                );
+                            onChanged(_copy(
+                              timeMode: 'MIXED',
+                              outsideStart: seed ? next.start : null,
+                              outsideEnd: seed ? next.end : null,
+                            ));
+                          },
+                        ),
+                      ),
                     ],
                   ),
-                  if (!isOutside) ...[
+                  if (!usesRange) ...[
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -1506,7 +1599,7 @@ class _EmployeeTile extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 10),
-                  if (isOutside)
+                  if (usesRange)
                     _TimePair(
                       startLabel: _fmtHm(config.outsideStart),
                       endLabel: _fmtHm(config.outsideEnd),

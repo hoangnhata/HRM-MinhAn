@@ -139,7 +139,8 @@ class ProbationScoreCatalog {
   static int maxScoreOf(String formType) =>
       formType.toUpperCase() == 'DOCTOR' ? 30 : 100;
 
-  static String formTypeLabel(String formType) => switch (formType.toUpperCase()) {
+  static String formTypeLabel(String formType) =>
+      switch (formType.toUpperCase()) {
         'DOCTOR' => 'Bác sĩ',
         'NURSE' => 'Điều dưỡng',
         _ => 'Nhân viên',
@@ -183,7 +184,8 @@ class ProbationScoreCatalog {
           ProbationCriterion(
             code: code,
             label: (map['label'] ?? code).toString(),
-            maxScore: (map['maxScore'] as num?)?.toInt() ??
+            maxScore:
+                (map['maxScore'] as num?)?.toInt() ??
                 (map['max_score'] as num?)?.toInt() ??
                 0,
             detail: (map['detail'] as String?)?.trim(),
@@ -216,8 +218,7 @@ class ProbationScoreSheet extends StatelessWidget {
   final Map<String, int> scores;
   final void Function(String code, int value) onChanged;
 
-  int get _total =>
-      criteria.fold(0, (sum, c) => sum + (scores[c.code] ?? 0));
+  int get _total => criteria.fold(0, (sum, c) => sum + (scores[c.code] ?? 0));
 
   @override
   Widget build(BuildContext context) {
@@ -320,12 +321,7 @@ class ProbationScoreSheet extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   '$total / $maxScore',
-                  style: AppTypography.style(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.4,
-                    color: gradeColor,
-                  ),
+                  style: AppTypography.metric(fontSize: 22, color: gradeColor),
                 ),
                 const SizedBox(height: 8),
                 ClipRRect(
@@ -573,9 +569,7 @@ class _CriterionTileState extends State<_CriterionTile> {
                     contentPadding: const EdgeInsets.symmetric(vertical: 10),
                     filled: true,
                     fillColor: AppColors.surfaceMuted,
-                    border: OutlineInputBorder(
-                      borderRadius: AppRadius.brSm,
-                    ),
+                    border: OutlineInputBorder(borderRadius: AppRadius.brSm),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: AppRadius.brSm,
                       borderSide: const BorderSide(color: AppColors.borderSoft),
@@ -656,9 +650,7 @@ class _StepButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: enabled
-          ? accent.withValues(alpha: 0.12)
-          : AppColors.surfaceMuted,
+      color: enabled ? accent.withValues(alpha: 0.12) : AppColors.surfaceMuted,
       borderRadius: AppRadius.brSm,
       child: InkWell(
         onTap: enabled ? onTap : null,

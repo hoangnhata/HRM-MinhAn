@@ -23,7 +23,8 @@ class WorkforceReportRepository {
   }
 }
 
-final workforceReportRepositoryProvider =
-    Provider<WorkforceReportRepository>((ref) {
+final workforceReportRepositoryProvider = Provider<WorkforceReportRepository>((
+  ref,
+) {
   return WorkforceReportRepository(ref.watch(apiClientProvider));
 });

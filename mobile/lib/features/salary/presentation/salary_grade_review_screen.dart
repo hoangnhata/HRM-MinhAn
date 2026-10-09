@@ -444,9 +444,8 @@ class _ReviewHero extends StatelessWidget {
             children: [
               Text(
                 '${report.total}',
-                style: AppTypography.metric(
+                style: AppTypography.display(
                   fontSize: 32,
-                  fontWeight: FontWeight.w800,
                   color: AppColors.primaryDark,
                 ),
               ),

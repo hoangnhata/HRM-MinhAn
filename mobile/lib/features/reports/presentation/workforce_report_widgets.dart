@@ -5,7 +5,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_avatar.dart';
-import '../../../core/widgets/status_chip.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 import '../../../shared/models/workforce_report.dart';
 
 /// Màu ổn định cho từng thứ hạng chức vụ — dùng chung giữa thanh phân bổ ở
@@ -34,7 +34,7 @@ String workforceDeptInitials(String name) {
   return buf.toString();
 }
 
-/// Tiêu đề section: icon nhỏ + tiêu đề + số lượng + chú thích bên phải.
+/// Tiêu đề section: ô icon đặc + tiêu đề + huy hiệu số lượng + gợi ý bên phải.
 class WorkforceSectionTitle extends StatelessWidget {
   const WorkforceSectionTitle({
     super.key,
@@ -59,20 +59,10 @@ class WorkforceSectionTitle extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Row(
         children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: AppRadius.brXs,
-            ),
-            child: Icon(icon, size: 15, color: color),
-          ),
-          const SizedBox(width: 9),
+          TintedIconTile(icon: icon, color: color, size: 30),
+          const SizedBox(width: 10),
           Expanded(
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
               children: [
                 Flexible(
                   child: Text(
@@ -80,35 +70,72 @@ class WorkforceSectionTitle extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTypography.style(
-                      fontSize: 14.5,
+                      fontSize: 15,
                       fontWeight: FontWeight.w800,
-                      letterSpacing: -0.2,
+                      letterSpacing: -0.3,
+                      color: AppColors.textPrimary,
+                      height: AppTypography.uppercaseHeight,
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  '$count',
-                  style: AppTypography.style(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textTertiary,
-                    tabular: true,
+                const SizedBox(width: 8),
+                Container(
+                  constraints: const BoxConstraints(minWidth: 24),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.10),
+                    borderRadius: AppRadius.brPill,
+                    border: Border.all(color: color.withValues(alpha: 0.18)),
+                  ),
+                  child: Text(
+                    AppFormat.number(count),
+                    textAlign: TextAlign.center,
+                    style: AppTypography.display(
+                      fontSize: 12,
+                      color: Color.lerp(color, AppColors.textPrimary, 0.3)!,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           if (action != null)
             action!
           else if (trailing != null)
-            Text(
-              trailing!,
-              style: AppTypography.style(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
-                tabular: true,
+            Container(
+              padding: const EdgeInsets.fromLTRB(7, 3, 9, 3),
+              decoration: BoxDecoration(
+                color: AppColors.surface.withValues(alpha: 0.8),
+                borderRadius: AppRadius.brPill,
+                border: Border.all(color: AppColors.borderSoft),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.touch_app_outlined,
+                    size: 13,
+                    color: AppColors.textTertiary,
+                  ),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      trailing!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.style(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                        height: AppTypography.uppercaseHeight,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
@@ -117,7 +144,8 @@ class WorkforceSectionTitle extends StatelessWidget {
   }
 }
 
-/// Thẻ nhóm danh sách — nền trắng, viền mảnh, bóng nhẹ, divider thụt lề.
+/// Thẻ nhóm danh sách — nền pha teal rất nhẹ, viền mảnh, bóng mềm, divider
+/// thụt lề.
 class WorkforceGroupCard extends StatelessWidget {
   const WorkforceGroupCard({
     super.key,
@@ -132,10 +160,10 @@ class WorkforceGroupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadius.brCard,
-        border: Border.all(color: AppColors.borderSoft),
-        boxShadow: AppShadows.soft,
+        gradient: TintedCardBackdrop.gradient(AppColors.primary),
+        borderRadius: AppRadius.brLg,
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.10)),
+        boxShadow: AppShadows.card,
       ),
       clipBehavior: Clip.antiAlias,
       child: Material(
@@ -146,10 +174,10 @@ class WorkforceGroupCard extends StatelessWidget {
               if (i > 0)
                 Padding(
                   padding: EdgeInsets.only(left: dividerIndent),
-                  child: const Divider(
+                  child: Divider(
                     height: 1,
                     thickness: 1,
-                    color: AppColors.divider,
+                    color: AppColors.primary.withValues(alpha: 0.08),
                   ),
                 ),
               children[i],
@@ -205,7 +233,7 @@ class WorkforceInitialsBadge extends StatelessWidget {
   }
 }
 
-/// Hàng chức vụ: chấm màu theo thứ hạng + số + % + thanh tỉ lệ.
+/// Hàng chức vụ: huy hiệu thứ hạng + tên + số (font hiển thị) + % + thanh tỉ lệ.
 class WorkforceRoleTile extends StatelessWidget {
   const WorkforceRoleTile({
     super.key,
@@ -227,101 +255,142 @@ class WorkforceRoleTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = workforceRoleColor(index);
+    final ink = Color.lerp(color, AppColors.textPrimary, 0.25)!;
     final share = total <= 0 ? 0.0 : (count / total).clamp(0.0, 1.0);
     final pct = (share * 100).round();
 
     final body = Padding(
-      padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 13),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: color.withValues(alpha: 0.35),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
+          // Huy hiệu thứ hạng: số thứ tự trong ô bo cùng sắc chức vụ.
+          AnimatedContainer(
+            duration: AppDurations.fast,
+            width: 34,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: AppRadius.brControl,
+              gradient: selected
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color.lerp(color, Colors.white, 0.12)!, color],
+                    )
+                  : null,
+              color: selected ? null : color.withValues(alpha: 0.10),
+              border: Border.all(
+                color: color.withValues(alpha: selected ? 0 : 0.2),
+              ),
+              boxShadow: selected ? AppShadows.tinted(color) : null,
+            ),
+            child: selected
+                ? const Icon(Icons.check_rounded, size: 18, color: Colors.white)
+                : Text(
+                    '${index + 1}',
+                    style: AppTypography.display(fontSize: 14, color: ink),
+                  ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.style(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.15,
+                          height: AppTypography.uppercaseHeight,
+                          color: selected
+                              ? AppColors.primaryDark
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      AppFormat.number(count),
+                      style: AppTypography.display(
+                        fontSize: 18,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.10),
+                        borderRadius: AppRadius.brPill,
+                      ),
+                      child: Text(
+                        '$pct%',
+                        style: AppTypography.style(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: ink,
+                          tabular: true,
+                          height: AppTypography.uppercaseHeight,
+                        ),
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.15,
-                    color: selected
-                        ? AppColors.primaryDark
-                        : AppColors.textPrimary,
+                const SizedBox(height: 8),
+                // Rãnh nhạt + vệt chuyển sắc, mọc dần khi hàng xuất hiện.
+                Container(
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.10),
+                    borderRadius: AppRadius.brPill,
                   ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                AppFormat.number(count),
-                style: AppTypography.metric(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              SizedBox(
-                width: 42,
-                child: Text(
-                  '$pct%',
-                  textAlign: TextAlign.right,
-                  style: AppTypography.style(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textTertiary,
-                    tabular: true,
-                  ),
-                ),
-              ),
-              if (onTap != null) ...[
-                const SizedBox(width: 6),
-                AnimatedRotation(
-                  turns: selected ? 0.25 : 0,
-                  duration: AppDurations.fast,
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    size: 18,
-                    color: selected ? AppColors.primary : AppColors.textTertiary,
+                  alignment: Alignment.centerLeft,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: share),
+                    duration: AppDurations.slow,
+                    curve: Curves.easeOutCubic,
+                    builder: (context, v, _) => FractionallySizedBox(
+                      heightFactor: 1,
+                      widthFactor: v <= 0 ? 0 : v.clamp(0.03, 1.0),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: AppRadius.brPill,
+                          gradient: LinearGradient(
+                            colors: [
+                              Color.lerp(color, Colors.white, 0.3)!,
+                              color,
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: color.withValues(alpha: 0.35),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
-            ],
-          ),
-          const SizedBox(height: 9),
-          Padding(
-            padding: const EdgeInsets.only(left: 20),
-            child: ClipRRect(
-              borderRadius: AppRadius.brPill,
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: share),
-                duration: AppDurations.slow,
-                curve: Curves.easeOutCubic,
-                builder: (context, v, _) => LinearProgressIndicator(
-                  value: v,
-                  minHeight: 5,
-                  color: color,
-                  backgroundColor: color.withValues(alpha: 0.1),
-                ),
-              ),
             ),
           ),
+          if (onTap != null) ...[
+            const SizedBox(width: 10),
+            TintedChevron(accent: color),
+          ],
         ],
       ),
     );
@@ -331,11 +400,15 @@ class WorkforceRoleTile extends StatelessWidget {
       button: true,
       selected: selected,
       label: '$label, $count người, $pct%',
+      excludeSemantics: true,
       child: Material(
-        color: selected
-            ? AppColors.primary.withValues(alpha: 0.06)
-            : Colors.transparent,
-        child: InkWell(onTap: onTap, child: body),
+        color: selected ? color.withValues(alpha: 0.07) : Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          splashColor: color.withValues(alpha: 0.10),
+          highlightColor: color.withValues(alpha: 0.05),
+          child: body,
+        ),
       ),
     );
   }
@@ -358,25 +431,23 @@ class WorkforcePersonTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final statusColor = daily
         ? (row.attendanceStatus == 'PRESENT'
-            ? AppColors.success
-            : AppColors.warning)
+              ? AppColors.success
+              : AppColors.warning)
         : (row.employeeStatus == 'ACTIVE'
-            ? AppColors.success
-            : AppColors.warning);
-    final meta = [
-      if (row.employeeCode.isNotEmpty) row.employeeCode,
-      if (row.positionTitle.isNotEmpty) row.positionTitle,
-    ].join(' · ');
+              ? AppColors.success
+              : AppColors.warning);
+    final position = row.positionTitle.trim();
+    final code = row.employeeCode.trim();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(name: row.fullName, size: 42, showShadow: false),
+              _StatusRingAvatar(name: row.fullName, color: statusColor),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -387,23 +458,57 @@ class WorkforcePersonTile extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.style(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.15,
-                        height: 1.25,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.25,
+                        height: AppTypography.uppercaseHeight,
+                        color: AppColors.textPrimary,
                       ),
                     ),
-                    if (meta.isNotEmpty) ...[
+                    if (position.isNotEmpty || code.isNotEmpty) ...[
                       const SizedBox(height: 2),
-                      Text(
-                        meta,
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            if (position.isNotEmpty)
+                              TextSpan(
+                                text: position,
+                                style: AppTypography.style(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.primaryDark,
+                                ),
+                              ),
+                            if (position.isNotEmpty && code.isNotEmpty)
+                              const TextSpan(text: '   '),
+                            if (code.isNotEmpty) ...[
+                              const WidgetSpan(
+                                alignment: PlaceholderAlignment.middle,
+                                child: Padding(
+                                  padding: EdgeInsets.only(right: 3),
+                                  child: Icon(
+                                    Icons.tag_rounded,
+                                    size: 12,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                ),
+                              ),
+                              TextSpan(
+                                text: code,
+                                style: AppTypography.style(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.textTertiary,
+                                  tabular: true,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
-                          height: 1.3,
+                          height: AppTypography.uppercaseHeight,
                         ),
                       ),
                     ],
@@ -413,7 +518,7 @@ class WorkforcePersonTile extends StatelessWidget {
                         children: [
                           const Icon(
                             Icons.apartment_rounded,
-                            size: 12,
+                            size: 13,
                             color: AppColors.textTertiary,
                           ),
                           const SizedBox(width: 4),
@@ -423,41 +528,38 @@ class WorkforcePersonTile extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: AppTypography.style(
-                                fontSize: 11.5,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w500,
-                                color: AppColors.textTertiary,
-                                height: 1.3,
+                                color: AppColors.textSecondary,
+                                height: AppTypography.uppercaseHeight,
                               ),
                             ),
                           ),
                         ],
                       ),
                     ],
-                    const SizedBox(height: 7),
+                    const SizedBox(height: 8),
                     Wrap(
                       spacing: 6,
-                      runSpacing: 5,
+                      runSpacing: 6,
                       children: [
-                        StatusChip(
+                        _PersonTag(
                           label: daily
                               ? row.attendanceStatusLabel
                               : row.employeeStatusLabel,
                           color: statusColor,
-                          dense: true,
+                          dot: true,
                         ),
                         if (row.categoryLabel.isNotEmpty)
-                          StatusChip(
+                          _PersonTag(
                             label: row.categoryLabel,
                             color: AppColors.primary,
-                            dense: true,
-                            showDot: false,
+                            icon: Icons.badge_outlined,
                           ),
                         if (daily && row.lateMinutes > 0)
-                          StatusChip(
+                          _PersonTag(
                             label: 'Muộn ${row.lateMinutes}’',
                             color: AppColors.warning,
-                            dense: true,
-                            showDot: false,
                             icon: Icons.schedule_rounded,
                           ),
                       ],
@@ -467,10 +569,117 @@ class WorkforcePersonTile extends StatelessWidget {
               ),
             ],
           ),
-          if (daily) ...[
-            const SizedBox(height: 10),
-            _PunchBar(row: row),
-          ],
+          if (daily) ...[const SizedBox(height: 10), _PunchBar(row: row)],
+        ],
+      ),
+    );
+  }
+}
+
+/// Avatar với viền chuyển sắc theo trạng thái, khe trắng mảnh và chấm trạng thái.
+class _StatusRingAvatar extends StatelessWidget {
+  const _StatusRingAvatar({required this.name, required this.color});
+
+  final String name;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 50,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  color.withValues(alpha: 0.6),
+                  color.withValues(alpha: 0.12),
+                ],
+              ),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.surface,
+              ),
+              child: AppAvatar(name: name, size: 42, showShadow: false),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.surface, width: 2.5),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Nhãn gọn: chấm hoặc icon + chữ trên nền pha nhạt, viền mảnh cùng sắc.
+class _PersonTag extends StatelessWidget {
+  const _PersonTag({
+    required this.label,
+    required this.color,
+    this.dot = false,
+    this.icon,
+  });
+
+  final String label;
+  final Color color;
+  final bool dot;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    // Chữ đậm hơn nền một bậc để đủ tương phản trên nền pha 8%.
+    final ink = Color.lerp(color, AppColors.textPrimary, 0.25)!;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(7, 3, 9, 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: AppRadius.brChip,
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (dot)
+            Container(
+              width: 6,
+              height: 6,
+              margin: const EdgeInsets.only(right: 5),
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            )
+          else if (icon != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Icon(icon, size: 12, color: ink),
+            ),
+          Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              height: AppTypography.uppercaseHeight,
+              color: ink,
+            ),
+          ),
         ],
       ),
     );
@@ -499,11 +708,7 @@ class _PunchBar extends StatelessWidget {
               icon: Icons.login_rounded,
             ),
           ),
-          Container(
-            width: 1,
-            height: 26,
-            color: AppColors.divider,
-          ),
+          Container(width: 1, height: 26, color: AppColors.divider),
           Expanded(
             child: _PunchCol(
               label: 'Ra',
@@ -588,18 +793,72 @@ class _PunchCol extends StatelessWidget {
 /// Bỏ dấu tiếng Việt + hạ chữ thường để tìm kiếm không phân biệt dấu.
 String foldVi(String raw) {
   const map = {
-    'à': 'a', 'á': 'a', 'ạ': 'a', 'ả': 'a', 'ã': 'a',
-    'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ậ': 'a', 'ẩ': 'a', 'ẫ': 'a',
-    'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ặ': 'a', 'ẳ': 'a', 'ẵ': 'a',
-    'è': 'e', 'é': 'e', 'ẹ': 'e', 'ẻ': 'e', 'ẽ': 'e',
-    'ê': 'e', 'ề': 'e', 'ế': 'e', 'ệ': 'e', 'ể': 'e', 'ễ': 'e',
-    'ì': 'i', 'í': 'i', 'ị': 'i', 'ỉ': 'i', 'ĩ': 'i',
-    'ò': 'o', 'ó': 'o', 'ọ': 'o', 'ỏ': 'o', 'õ': 'o',
-    'ô': 'o', 'ồ': 'o', 'ố': 'o', 'ộ': 'o', 'ổ': 'o', 'ỗ': 'o',
-    'ơ': 'o', 'ờ': 'o', 'ớ': 'o', 'ợ': 'o', 'ở': 'o', 'ỡ': 'o',
-    'ù': 'u', 'ú': 'u', 'ụ': 'u', 'ủ': 'u', 'ũ': 'u',
-    'ư': 'u', 'ừ': 'u', 'ứ': 'u', 'ự': 'u', 'ử': 'u', 'ữ': 'u',
-    'ỳ': 'y', 'ý': 'y', 'ỵ': 'y', 'ỷ': 'y', 'ỹ': 'y',
+    'à': 'a',
+    'á': 'a',
+    'ạ': 'a',
+    'ả': 'a',
+    'ã': 'a',
+    'â': 'a',
+    'ầ': 'a',
+    'ấ': 'a',
+    'ậ': 'a',
+    'ẩ': 'a',
+    'ẫ': 'a',
+    'ă': 'a',
+    'ằ': 'a',
+    'ắ': 'a',
+    'ặ': 'a',
+    'ẳ': 'a',
+    'ẵ': 'a',
+    'è': 'e',
+    'é': 'e',
+    'ẹ': 'e',
+    'ẻ': 'e',
+    'ẽ': 'e',
+    'ê': 'e',
+    'ề': 'e',
+    'ế': 'e',
+    'ệ': 'e',
+    'ể': 'e',
+    'ễ': 'e',
+    'ì': 'i',
+    'í': 'i',
+    'ị': 'i',
+    'ỉ': 'i',
+    'ĩ': 'i',
+    'ò': 'o',
+    'ó': 'o',
+    'ọ': 'o',
+    'ỏ': 'o',
+    'õ': 'o',
+    'ô': 'o',
+    'ồ': 'o',
+    'ố': 'o',
+    'ộ': 'o',
+    'ổ': 'o',
+    'ỗ': 'o',
+    'ơ': 'o',
+    'ờ': 'o',
+    'ớ': 'o',
+    'ợ': 'o',
+    'ở': 'o',
+    'ỡ': 'o',
+    'ù': 'u',
+    'ú': 'u',
+    'ụ': 'u',
+    'ủ': 'u',
+    'ũ': 'u',
+    'ư': 'u',
+    'ừ': 'u',
+    'ứ': 'u',
+    'ự': 'u',
+    'ử': 'u',
+    'ữ': 'u',
+    'ỳ': 'y',
+    'ý': 'y',
+    'ỵ': 'y',
+    'ỷ': 'y',
+    'ỹ': 'y',
     'đ': 'd',
   };
   final lower = raw.toLowerCase();

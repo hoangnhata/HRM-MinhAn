@@ -177,6 +177,27 @@ class AppDurations {
 class AppGradients {
   AppGradients._();
 
+  /// Header app: teal sâu theo đường chéo — sáng ở góc trên trái, lắng dần
+  /// xuống góc dưới phải để khối tiêu đề nổi mà vẫn trầm, hợp app nội bộ.
+  static const LinearGradient header = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFF0E8078),
+      Color(0xFF076661),
+      Color(0xFF044A47),
+    ],
+    stops: [0.0, 0.55, 1.0],
+  );
+
+  /// Vệt sáng mềm phía sau huy hiệu tiêu đề — tạo chiều sâu, không lộ đường viền.
+  static const RadialGradient headerGlow = RadialGradient(
+    center: Alignment(-0.62, -0.75),
+    radius: 1.15,
+    colors: [Color(0x26FFFFFF), Color(0x00FFFFFF)],
+    stops: [0.0, 1.0],
+  );
+
   /// Khớp panel gradient web: dark → main → #0a7a76.
   static const LinearGradient brand = LinearGradient(
     begin: Alignment.topLeft,

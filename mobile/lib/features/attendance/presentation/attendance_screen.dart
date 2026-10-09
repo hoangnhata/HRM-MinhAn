@@ -12,6 +12,7 @@ import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_motion.dart';
 import '../../../core/widgets/gradient_header.dart';
+import '../../../core/widgets/tinted_card_backdrop.dart';
 import '../../../shared/models/employee.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/attendance_month_controller.dart';
@@ -86,11 +87,14 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
   Future<void> _openDepartmentMatrix() async {
     if (!_canPickOthers) return;
-    final employeeId = _selected?.id ?? ref.read(authControllerProvider).employeeId ?? 0;
+    final employeeId =
+        _selected?.id ?? ref.read(authControllerProvider).employeeId ?? 0;
     int? year;
     int? month;
     if (employeeId > 0) {
-      final monthState = ref.read(attendanceMonthControllerProvider(employeeId));
+      final monthState = ref.read(
+        attendanceMonthControllerProvider(employeeId),
+      );
       year = monthState.year;
       month = monthState.month;
     }
@@ -238,101 +242,137 @@ class _EmployeeSelectorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const accent = AppColors.primary;
     final name = employee?.fullName ?? 'Chọn nhân viên';
     final meta = [
       if ((employee?.positionTitle ?? '').isNotEmpty) employee!.positionTitle!,
-      if ((employee?.departmentName ?? '').isNotEmpty) employee!.departmentName!,
+      if ((employee?.departmentName ?? '').isNotEmpty)
+        employee!.departmentName!,
     ].join(' · ');
 
     return AppCard(
       onTap: onPick,
-      accentColor: AppColors.primary,
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      gradient: TintedCardBackdrop.gradient(accent),
+      borderRadius: AppRadius.brLg,
+      padding: EdgeInsets.zero,
       margin: EdgeInsets.zero,
-      child: Row(
-        children: [
-          AppAvatar(
-            name: name,
-            imageUrl: employee?.avatarUrl,
-            size: 46,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+      child: TintedCardBackdrop(
+        accent: accent,
+        watermarkIcon: Icons.manage_accounts_rounded,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+          child: Row(
+            children: [
+              AppAvatar(
+                name: name,
+                imageUrl: employee?.avatarUrl,
+                size: 46,
+                borderColor: AppColors.surface,
+                borderWidth: 2,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Flexible(
-                      child: Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.style(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.2,
-                        ),
+                    Text(
+                      viewingSelf ? 'ĐANG XEM · CÔNG CỦA TÔI' : 'ĐANG XEM',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.uppercase(
+                        fontSize: 9.5,
+                        letterSpacing: 0.8,
+                        color: AppColors.primary,
                       ),
                     ),
-                    if (viewingSelf) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.12),
-                          borderRadius: AppRadius.brPill,
-                        ),
-                        child: Text(
-                          'Tôi',
-                          style: AppTypography.style(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.primaryDark,
-                          ),
-                        ),
+                    const SizedBox(height: 2),
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.style(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                        height: AppTypography.uppercaseHeight,
+                        color: AppColors.textPrimary,
                       ),
-                    ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      meta.isEmpty ? 'Chạm để tìm và chọn nhân viên' : meta,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.style(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  meta.isEmpty ? 'Chạm để tìm và chọn nhân viên' : meta,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.style(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
+              ),
+              const SizedBox(width: 8),
+              if (onSelf != null && !viewingSelf) ...[
+                _SelectorPill(
+                  icon: Icons.person_rounded,
+                  label: 'Của tôi',
+                  onTap: onSelf!,
                 ),
+                const SizedBox(width: 6),
               ],
-            ),
+              const _SelectorPill(icon: Icons.swap_horiz_rounded, label: 'Đổi'),
+            ],
           ),
-          const SizedBox(width: 6),
-          if (onSelf != null && !viewingSelf)
-            IconButton(
-              tooltip: 'Công của tôi',
-              onPressed: onSelf,
-              icon: const Icon(Icons.home_rounded, size: 20),
-              color: AppColors.primary,
-            ),
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.swap_horiz_rounded,
-              size: 18,
-              color: AppColors.primary,
+        ),
+      ),
+    );
+  }
+}
+
+/// Viên nút nhỏ trên thẻ chọn nhân viên. Không có [onTap] thì chạm rơi về thẻ.
+class _SelectorPill extends StatelessWidget {
+  const _SelectorPill({required this.icon, required this.label, this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final pill = Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 10, 6),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.brPill,
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+        boxShadow: AppShadows.soft,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: AppColors.primary),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: AppTypography.style(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              height: AppTypography.uppercaseHeight,
+              color: AppColors.primaryDark,
             ),
           ),
         ],
+      ),
+    );
+    if (onTap == null) return pill;
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: pill,
       ),
     );
   }

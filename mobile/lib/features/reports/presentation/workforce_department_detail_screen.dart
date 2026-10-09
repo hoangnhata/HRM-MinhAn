@@ -13,6 +13,7 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/gradient_header.dart';
 import '../../../core/widgets/search_field.dart';
 import '../../../core/widgets/status_chip.dart';
+import '../../../core/widgets/brand_hero.dart';
 import '../../../shared/models/workforce_report.dart';
 import 'workforce_report_widgets.dart';
 
@@ -47,10 +48,7 @@ class WorkforceAbsentDeptDetailArgs {
 }
 
 class WorkforceDepartmentDetailScreen extends StatefulWidget {
-  const WorkforceDepartmentDetailScreen({
-    super.key,
-    required this.args,
-  });
+  const WorkforceDepartmentDetailScreen({super.key, required this.args});
 
   final WorkforceDeptDetailArgs args;
 
@@ -147,14 +145,11 @@ class _WorkforceDepartmentDetailScreenState
                         title: 'Phân bổ chức vụ',
                         count: breakdown.length,
                         icon: Icons.badge_rounded,
-                        trailing: _roleFilter == null
-                            ? 'Chạm để lọc'
-                            : null,
+                        trailing: _roleFilter == null ? 'Chạm để lọc' : null,
                         action: _roleFilter == null
                             ? null
                             : _ClearFilterButton(
-                                onTap: () =>
-                                    setState(() => _roleFilter = null),
+                                onTap: () => setState(() => _roleFilter = null),
                               ),
                       ),
                       const SizedBox(height: 10),
@@ -170,10 +165,9 @@ class _WorkforceDepartmentDetailScreenState
                               onTap: () {
                                 HapticFeedback.selectionClick();
                                 setState(() {
-                                  _roleFilter =
-                                      _roleFilter == breakdown[i].$1
-                                          ? null
-                                          : breakdown[i].$1;
+                                  _roleFilter = _roleFilter == breakdown[i].$1
+                                      ? null
+                                      : breakdown[i].$1;
                                 });
                               },
                             ),
@@ -190,12 +184,17 @@ class _WorkforceDepartmentDetailScreenState
                           : 'Lọc: $_roleFilter',
                     ),
                     const SizedBox(height: 10),
-                    AppSearchField(
-                      controller: _search,
-                      hintText: 'Tìm tên, mã, chức danh trong khoa…',
-                      dense: true,
-                      borderRadius: BorderRadius.circular(12),
-                      onChanged: (v) => setState(() => _query = v.trim()),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: AppRadius.brMd,
+                        boxShadow: AppShadows.soft,
+                      ),
+                      child: AppSearchField(
+                        controller: _search,
+                        hintText: 'Tìm tên, mã, chức danh trong khoa…',
+                        borderRadius: AppRadius.brMd,
+                        onChanged: (v) => setState(() => _query = v.trim()),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     if (people.isEmpty)
@@ -222,7 +221,7 @@ class _WorkforceDepartmentDetailScreenState
                       )
                     else
                       WorkforceGroupCard(
-                        dividerIndent: 68,
+                        dividerIndent: 76,
                         children: [
                           for (final p in people)
                             WorkforcePersonTile(
@@ -244,10 +243,7 @@ class _WorkforceDepartmentDetailScreenState
 }
 
 class WorkforceAbsentDepartmentDetailScreen extends StatefulWidget {
-  const WorkforceAbsentDepartmentDetailScreen({
-    super.key,
-    required this.args,
-  });
+  const WorkforceAbsentDepartmentDetailScreen({super.key, required this.args});
 
   final WorkforceAbsentDeptDetailArgs args;
 
@@ -284,7 +280,8 @@ class _WorkforceAbsentDepartmentDetailScreenState
   Widget build(BuildContext context) {
     final row = widget.args.row;
     final people = _visible;
-    final hasDate = widget.args.reportDateLabel != null &&
+    final hasDate =
+        widget.args.reportDateLabel != null &&
         widget.args.reportDateLabel!.isNotEmpty;
 
     return Scaffold(
@@ -320,8 +317,7 @@ class _WorkforceAbsentDepartmentDetailScreenState
                       child: _AbsentSummaryCard(
                         name: row.departmentName,
                         total: row.total,
-                        dateLabel:
-                            hasDate ? widget.args.reportDateLabel : null,
+                        dateLabel: hasDate ? widget.args.reportDateLabel : null,
                       ),
                     ),
                     const SizedBox(height: 18),
@@ -351,7 +347,7 @@ class _WorkforceAbsentDepartmentDetailScreenState
                       )
                     else
                       WorkforceGroupCard(
-                        dividerIndent: 68,
+                        dividerIndent: 76,
                         children: [
                           for (final e in people) _AbsentPersonTile(row: e),
                         ],
@@ -432,139 +428,127 @@ class _DeptSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.borderSoft),
-        boxShadow: AppShadows.card,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
+    return BrandHeroCard(
+      ornamentIcon: Icons.apartment_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Positioned(
-            right: -46,
-            top: -58,
-            child: IgnorePointer(
-              child: Container(
-                width: 180,
-                height: 180,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      AppColors.primary.withValues(alpha: 0.12),
-                      AppColors.primary.withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    BrandHeroEyebrow(
+                      text: daily ? 'Có mặt tại khoa' : 'Biên chế khoa',
+                    ),
+                    const SizedBox(height: 10),
+                    _HeroNumber(value: total, unit: 'người'),
+                    if (topRole != null) ...[
+                      const SizedBox(height: 6),
+                      Row(
                         children: [
-                          Text(
-                            (daily ? 'Có mặt tại khoa' : 'Biên chế khoa')
-                                .toUpperCase(),
-                            style: AppTypography.style(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.9,
-                              color: AppColors.primaryDark,
+                          Icon(
+                            Icons.workspace_premium_rounded,
+                            size: 14,
+                            color: AppColors.secondaryLight.withValues(
+                              alpha: 0.9,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(
-                                AppFormat.number(total),
-                                style: AppTypography.metric(
-                                  fontSize: 44,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.textPrimary,
-                                ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text.rich(
+                              TextSpan(
+                                text: 'Đông nhất: ',
+                                children: [
+                                  TextSpan(
+                                    text: '${topRole!.$1} · ${topRole!.$2}',
+                                    style: AppTypography.style(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'người',
-                                style: AppTypography.style(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textSecondary,
-                                ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.style(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white.withValues(alpha: 0.75),
+                                height: 1.4,
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            topRole == null
-                                ? 'Chiếm $sharePct% toàn viện'
-                                : 'Chiếm $sharePct% toàn viện · nhiều nhất: ${topRole!.$1} ${topRole!.$2}',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.style(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.textSecondary,
-                              height: 1.35,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    WorkforceInitialsBadge(
-                      text: workforceDeptInitials(name),
-                      color: AppColors.primary,
-                      size: 52,
-                    ),
+                    ],
                   ],
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _MiniStat(
-                        icon: Icons.pie_chart_rounded,
-                        label: 'Tỉ lệ viện',
-                        value: '$sharePct%',
-                        accent: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _MiniStat(
-                        icon: Icons.badge_rounded,
-                        label: 'Chức vụ',
-                        value: '$roleCount',
-                        accent: AppColors.info,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _MiniStat(
-                        icon: Icons.folder_shared_rounded,
-                        label: 'Hồ sơ',
-                        value: '$peopleCount',
-                        accent: AppColors.secondary,
-                      ),
-                    ),
-                  ],
+              ),
+              const SizedBox(width: 12),
+              _GlassInitials(text: workforceDeptInitials(name)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Tỷ trọng khoa trong toàn viện — trực quan hơn một con số % đứng riêng.
+          Row(
+            children: [
+              Text(
+                'Tỷ trọng toàn viện',
+                style: AppTypography.style(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withValues(alpha: 0.78),
                 ),
-              ],
+              ),
+              const Spacer(),
+              Text(
+                '$sharePct%',
+                style: AppTypography.display(fontSize: 15, color: Colors.white),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          BrandGlassTrack(
+            child: FractionallySizedBox(
+              heightFactor: 1,
+              alignment: Alignment.centerLeft,
+              // Khoa nhỏ vẫn thấy một vệt để biết thanh có dữ liệu.
+              widthFactor: share <= 0 ? 0 : share.clamp(0.02, 1.0),
+              child: const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.onBrandRing, AppColors.onBrandSoft],
+                  ),
+                  borderRadius: AppRadius.brPill,
+                ),
+              ),
             ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: BrandHeroStat(
+                  icon: Icons.badge_rounded,
+                  label: 'Chức vụ',
+                  value: '$roleCount',
+                  accent: const Color(0xFF93C5FD),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs + 2),
+              Expanded(
+                child: BrandHeroStat(
+                  icon: Icons.folder_shared_rounded,
+                  label: 'Hồ sơ',
+                  value: '$peopleCount',
+                  accent: const Color(0xFFFCD34D),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -585,162 +569,135 @@ class _AbsentSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.borderSoft),
-        boxShadow: AppShadows.card,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
+    return BrandHeroCard(
+      ornamentIcon: Icons.person_off_rounded,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Positioned(
-            right: -46,
-            top: -58,
-            child: IgnorePointer(
-              child: Container(
-                width: 180,
-                height: 180,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      AppColors.warning.withValues(alpha: 0.12),
-                      AppColors.warning.withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-            child: Row(
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'NHÂN SỰ KHÔNG ĐI LÀM',
-                        style: AppTypography.style(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.9,
-                          color: AppColors.warningDark,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            '$total',
-                            style: AppTypography.metric(
-                              fontSize: 44,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'người',
-                            style: AppTypography.style(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
+                const BrandHeroEyebrow(text: 'Nhân sự không đi làm'),
+                const SizedBox(height: 10),
+                _HeroNumber(value: total, unit: 'người'),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.fingerprint_rounded,
+                      size: 14,
+                      color: Colors.white.withValues(alpha: 0.65),
+                    ),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
                         dateLabel == null
                             ? 'Chưa ghi nhận chấm công trong ngày'
                             : 'Chưa ghi nhận chấm công ngày $dateLabel',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: AppTypography.style(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
+                          color: Colors.white.withValues(alpha: 0.78),
+                          height: 1.4,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                WorkforceInitialsBadge(
-                  text: workforceDeptInitials(name),
-                  color: AppColors.warning,
-                  size: 52,
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 12),
+          _GlassInitials(text: workforceDeptInitials(name)),
         ],
       ),
     );
   }
 }
 
-class _MiniStat extends StatelessWidget {
-  const _MiniStat({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.accent,
-  });
+/// Số hero trắng (font hiển thị) + đơn vị, canh theo baseline.
+class _HeroNumber extends StatelessWidget {
+  const _HeroNumber({required this.value, required this.unit});
 
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color accent;
+  final int value;
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: value.toDouble()),
+          duration: AppDurations.slow,
+          curve: Curves.easeOutCubic,
+          builder: (context, v, _) => Text(
+            AppFormat.number(v.round()),
+            style: AppTypography.display(fontSize: 48, color: Colors.white)
+                .copyWith(
+                  shadows: [
+                    Shadow(
+                      color: AppColors.primaryDark.withValues(alpha: 0.45),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          unit,
+          style: AppTypography.style(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Colors.white.withValues(alpha: 0.78),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Viết tắt tên khoa trong ô kính trắng mờ.
+class _GlassInitials extends StatelessWidget {
+  const _GlassInitials({required this.text});
+
+  final String text;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(11, 10, 10, 10),
+      width: 56,
+      height: 56,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: AppRadius.brMd,
-        border: Border.all(color: AppColors.borderSoft),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: AppRadius.brXs,
-            ),
-            child: Icon(icon, size: 15, color: accent),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            maxLines: 1,
-            style: AppTypography.metric(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 1),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.style(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
-            ),
+        borderRadius: BorderRadius.circular(17),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.30),
+            Colors.white.withValues(alpha: 0.08),
+          ],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        style: AppTypography.display(fontSize: 18, color: Colors.white),
       ),
     );
   }
