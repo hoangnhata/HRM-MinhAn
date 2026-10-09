@@ -6,11 +6,13 @@ import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
 import WbTwilightIcon from '@mui/icons-material/WbTwilight';
 import { Box, Grid, Stack, TextField, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { todayLocalIso } from '../utils/dateFormat';
 import * as att from '../services/attendanceService';
 import * as employeeService from '../services/employeeService';
+import { workRequestSubmitSteps } from '../utils/nursingBlock';
+import { extractApiErrorMessage } from '../services/approvalSignatureService';
 import { DatePickerField, TimePickerField, dateTimeFieldSx } from '../components/ui/DateTimeFields';
 import {
   FormSection,
@@ -102,6 +104,8 @@ function PartialShiftFields({
   outValue,
   onInChange,
   onOutChange,
+  inLabel = 'Giờ vào',
+  outLabel = 'Giờ ra',
 }: {
   existingIn?: string;
   existingOut?: string;
@@ -111,6 +115,8 @@ function PartialShiftFields({
   outValue: string;
   onInChange: (v: string) => void;
   onOutChange: (v: string) => void;
+  inLabel?: string;
+  outLabel?: string;
 }) {
   return (
     <Stack spacing={1.5}>
@@ -118,27 +124,39 @@ function PartialShiftFields({
         <TextField
           fullWidth
           size="small"
-          label="Giờ vào (đã chấm)"
+          label={`${inLabel} (đã chấm)`}
           value={formatPunchTime(existingIn)}
           disabled
           sx={fieldSx}
         />
       )}
       {missingIn && (
-        <TimePickerField required label="Giờ vào (cần bổ sung)" value={inValue} onChange={onInChange} sx={fieldSx} />
+        <TimePickerField
+          required
+          label={`${inLabel} (cần bổ sung)`}
+          value={inValue}
+          onChange={onInChange}
+          sx={fieldSx}
+        />
       )}
       {existingOut && !missingOut && (
         <TextField
           fullWidth
           size="small"
-          label="Giờ ra (đã chấm)"
+          label={`${outLabel} (đã chấm)`}
           value={formatPunchTime(existingOut)}
           disabled
           sx={fieldSx}
         />
       )}
       {missingOut && (
-        <TimePickerField required label="Giờ ra (cần bổ sung)" value={outValue} onChange={onOutChange} sx={fieldSx} />
+        <TimePickerField
+          required
+          label={`${outLabel} (cần bổ sung)`}
+          value={outValue}
+          onChange={onOutChange}
+          sx={fieldSx}
+        />
       )}
     </Stack>
   );
@@ -176,10 +194,23 @@ export function AttendanceUpdateRequestDialog({
   const [twoPunchDay, setTwoPunchDay] = useState(Boolean(twoPunchAttendance));
 
   const isContinuous = continuousDay || Boolean(scenario?.continuous);
-  const isTwoPunch = (!isContinuous && (twoPunchDay || Boolean(scenario?.twoPunch)));
+  const isTwoPunch = !isContinuous && (twoPunchDay || Boolean(scenario?.twoPunch));
   const isTwoSlotDay = isContinuous || isTwoPunch;
+  const slotScenario = useMemo(() => {
+    if (isTwoPunch) {
+      return att.detectUpdateFromRow(attendanceRow, false, true, daySchedule);
+    }
+    if (isContinuous) {
+      return scenario?.continuous
+        ? scenario
+        : att.detectUpdateFromRow(attendanceRow, true, false, daySchedule);
+    }
+    return scenario;
+  }, [isTwoPunch, isContinuous, attendanceRow, daySchedule, scenario]);
   const isFullDay = updateKind === 'FULL_DAY_SUPPLEMENT';
-  const forgotUnits = att.forgotUnitsForUpdateChoice(updateKind, scenario);
+  const forgotUnits = isTwoSlotDay
+    ? att.forgotUnitsForUpdateChoice('FULL_DAY_SUPPLEMENT', slotScenario)
+    : att.forgotUnitsForUpdateChoice(updateKind, scenario);
   const kindLocked = Boolean(scenario?.locked) || isTwoSlotDay || isEditing;
   const showKindHint =
     Boolean(scenario) &&
@@ -265,7 +296,12 @@ export function AttendanceUpdateRequestDialog({
 
     const initialContinuous = Boolean(continuousShift);
     const initialTwoPunch = Boolean(twoPunchAttendance) && !initialContinuous;
-    const detected = att.detectUpdateFromRow(attendanceRow, initialContinuous, initialTwoPunch);
+    const detected = att.detectUpdateFromRow(
+      attendanceRow,
+      initialContinuous,
+      initialTwoPunch,
+      fallbackSchedule,
+    );
     setWorkDate(wd);
     setUpdateKind(detected.updateKind);
     setScenario(detected);
@@ -282,7 +318,7 @@ export function AttendanceUpdateRequestDialog({
         if (cancelled) return;
         const continuous = Boolean(continuousShift || sch.continuousShift);
         const twoPunch = Boolean(twoPunchAttendance || sch.twoPunchAttendance) && !continuous;
-        const next = att.detectUpdateFromRow(attendanceRow, continuous, twoPunch);
+        const next = att.detectUpdateFromRow(attendanceRow, continuous, twoPunch, sch);
         setDaySchedule(sch);
         setContinuousDay(continuous);
         setTwoPunchDay(twoPunch);
@@ -309,19 +345,23 @@ export function AttendanceUpdateRequestDialog({
 
     att.fetchShiftSchedule(nextDate, employeeId ?? undefined)
       .then((sch) => {
-        const continuous = Boolean(sch.continuousShift);
-        const twoPunch = Boolean(sch.twoPunchAttendance) && !continuous;
-        const next = att.detectUpdateFromRow(null, continuous, twoPunch);
+        const continuous = Boolean(continuousShift || sch.continuousShift);
+        const twoPunch = Boolean(twoPunchAttendance || sch.twoPunchAttendance) && !continuous;
+        const sameDay =
+          attendanceRow != null &&
+          String(attendanceRow.workDate ?? '').slice(0, 10) === nextDate;
+        const next = att.detectUpdateFromRow(
+          sameDay ? attendanceRow : null,
+          continuous,
+          twoPunch,
+          sch,
+        );
         setDaySchedule(sch);
         setContinuousDay(continuous);
         setTwoPunchDay(twoPunch);
-        if (!kindLocked) {
-          setUpdateKind(next.updateKind);
-          setScenario(next);
-          applyScheduleTimes(sch, next, continuous, twoPunch);
-        } else if (continuous || twoPunch) {
-          applyScheduleTimes(sch, scenario ?? next, continuous, twoPunch);
-        }
+        setUpdateKind(next.updateKind);
+        setScenario(next);
+        applyScheduleTimes(sch, next, continuous, twoPunch);
       })
       .catch(() => {
         if (kindLocked) return;
@@ -345,6 +385,14 @@ export function AttendanceUpdateRequestDialog({
       setErr('Nhập lý do cập nhật công.');
       return;
     }
+    if (isTwoSlotDay && morningStart && morningEnd && morningStart >= morningEnd) {
+      setErr(
+        isContinuous
+          ? 'Giờ vào phải trước giờ ra.'
+          : 'Giờ vào sáng phải trước giờ ra chiều — sửa lại hai mốc giờ trước khi gửi.',
+      );
+      return;
+    }
     setLoading(true);
     try {
       const payload: att.SubmitWorkRequest = {
@@ -355,13 +403,14 @@ export function AttendanceUpdateRequestDialog({
         reason: reason.trim(),
       };
       if (isTwoSlotDay) {
+        const slot = slotScenario;
         payload.requestedStart =
-          scenario?.missingMorningIn === false && scenario?.existingMorningIn
-            ? scenario.existingMorningIn
+          slot?.missingMorningIn === false && slot?.existingMorningIn
+            ? slot.existingMorningIn
             : morningStart;
         payload.requestedEnd =
-          scenario?.missingAfternoonOut === false && scenario?.existingAfternoonOut
-            ? scenario.existingAfternoonOut
+          slot?.missingAfternoonOut === false && slot?.existingAfternoonOut
+            ? slot.existingAfternoonOut
             : morningEnd;
       } else if (isFullDay) {
         payload.requestedStart =
@@ -402,8 +451,13 @@ export function AttendanceUpdateRequestDialog({
       }
       onSubmitted?.();
       onClose();
-    } catch {
-      setErr('Gửi đơn thất bại. Kiểm tra ngày đã có đơn chờ duyệt hoặc thiếu thông tin.');
+    } catch (ex) {
+      setErr(
+        extractApiErrorMessage(
+          ex,
+          'Gửi đơn thất bại. Kiểm tra ngày đã có đơn chờ duyệt hoặc thiếu thông tin.',
+        ),
+      );
     } finally {
       setLoading(false);
     }
@@ -439,12 +493,7 @@ export function AttendanceUpdateRequestDialog({
     >
       <RequestFlowSteps
         accent={accent}
-        steps={[
-          { label: 'Gửi đơn', hint: 'Nhân viên' },
-          { label: 'Lãnh đạo duyệt', hint: 'Trưởng khoa / ĐD trưởng' },
-          { label: 'HCNS duyệt', hint: 'Hành chính nhân sự' },
-          { label: 'Giám đốc duyệt', hint: 'Quyết định trừ tiền' },
-        ]}
+        steps={workRequestSubmitSteps(user?.role)}
       />
 
       <InfoBanner>
@@ -458,10 +507,10 @@ export function AttendanceUpdateRequestDialog({
         ) : isTwoPunch ? (
           <>
             Nhân viên được <strong>phân quyền công</strong>: vẫn ca sáng/chiều bình thường, chỉ cần{' '}
-            <strong>vào sáng</strong> và <strong>ra chiều</strong> để đủ công. Đơn bổ sung 2 mốc đó. Mỗi ngày chỉ
-            gửi một đơn đang chờ duyệt. Nếu Giám đốc chọn trừ tiền quên chấm: đơn này trừ{' '}
-            <strong>{forgotUnits} lần</strong>
-            {scenario?.partial ? ` (thiếu ${forgotUnits} mốc chấm)` : ''}.
+            <strong>vào sáng</strong> và <strong>ra chiều</strong> — không tính ra sáng / vào chiều.
+            Đã chấm mốc nào thì giữ nguyên, chỉ bổ sung mốc còn thiếu. Nếu Giám đốc chọn trừ tiền quên
+            chấm: đơn này trừ <strong>{forgotUnits} lần</strong>
+            {forgotUnits === 1 ? ' (thiếu 1 mốc)' : forgotUnits === 2 ? ' (thiếu cả 2 mốc)' : ' (đã đủ 2 mốc)'}.
           </>
         ) : (
           <>
@@ -583,16 +632,19 @@ export function AttendanceUpdateRequestDialog({
           </Stack>
 
           {isTwoSlotDay ? (
-            scenario?.partial ? (
+            slotScenario && (slotScenario.partial || slotScenario.existingMorningIn || slotScenario.existingAfternoonOut) &&
+            (slotScenario.missingMorningIn || slotScenario.missingAfternoonOut) ? (
               <PartialShiftFields
-                existingIn={scenario.existingMorningIn}
-                existingOut={scenario.existingAfternoonOut}
-                missingIn={scenario.missingMorningIn}
-                missingOut={scenario.missingAfternoonOut}
+                existingIn={slotScenario.existingMorningIn}
+                existingOut={slotScenario.existingAfternoonOut}
+                missingIn={slotScenario.missingMorningIn}
+                missingOut={slotScenario.missingAfternoonOut}
                 inValue={morningStart}
                 outValue={morningEnd}
                 onInChange={setMorningStart}
                 onOutChange={setMorningEnd}
+                inLabel={isTwoPunch ? 'Giờ vào sáng' : 'Giờ vào'}
+                outLabel={isTwoPunch ? 'Giờ ra chiều' : 'Giờ ra'}
               />
             ) : (
               <ShiftTimeBlock

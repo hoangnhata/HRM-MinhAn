@@ -18,6 +18,7 @@ import {
   requestFieldSx,
 } from './work/WorkRequestFormUi';
 import { LeaveBalanceAlert } from './work/LeaveBalanceAlert';
+import { workRequestSubmitSteps } from '../utils/nursingBlock';
 
 const MONTHLY_WORK_CAP = 27;
 
@@ -63,6 +64,38 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
   const [err, setErr] = useState<string | null>(null);
 
   const leaveDays = useMemo(() => daysInclusive(fromDate, toDate), [fromDate, toDate]);
+
+  /**
+   * Khi sửa đơn: số ngày của chính đơn này đã nằm trong «chờ duyệt» của hạn mức,
+   * phải cộng lại để không bị trừ hai lần.
+   */
+  const editingPendingDays = useMemo(() => {
+    if (!editRequest || editRequest.requestType !== 'LEAVE') return 0;
+    if (!att.isRequestPending(editRequest.status)) return 0;
+    const from = editRequest.workDate;
+    if (!from) return 0;
+    return daysInclusive(from, editRequest.endDate || from);
+  }, [editRequest]);
+
+  /** Hạn mức đã cộng lại phần ngày của đơn đang sửa (nếu cùng năm với hạn mức đang xem). */
+  const effectiveBalance = useMemo(() => {
+    if (!balance) return null;
+    const sameYear =
+      editingPendingDays > 0 && Number(editRequest?.workDate?.slice(0, 4)) === balance.year;
+    if (!sameYear) return balance;
+    const pendingDays = Math.max(0, balance.pendingDays - editingPendingDays);
+    const remainingDays = Math.max(0, balance.entitlementDays - balance.usedDays - pendingDays);
+    return {
+      ...balance,
+      pendingDays,
+      remainingDays,
+      overLimit: balance.usedDays + pendingDays > balance.entitlementDays,
+      warning:
+        remainingDays <= 2
+          ? `Còn ${remainingDays}/${balance.entitlementDays} ngày phép năm ${balance.year} — lưu ý không vượt hạn mức.`
+          : '',
+    };
+  }, [balance, editingPendingDays, editRequest]);
   const recordedWork = monthWorkExcludingDeployment(monthSummary);
   const remainWorkDays = Math.max(0, Math.floor(MONTHLY_WORK_CAP - recordedWork + 1e-9));
   const monthCapBlocked = recordedWork >= MONTHLY_WORK_CAP || leaveDays > remainWorkDays;
@@ -129,9 +162,9 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
       setErr('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.');
       return;
     }
-    if (balance && leaveDays > balance.remainingDays) {
+    if (effectiveBalance && leaveDays > effectiveBalance.remainingDays) {
       setErr(
-        `Vượt hạn mức phép: còn ${balance.remainingDays}/${balance.entitlementDays} ngày, đơn xin ${leaveDays} ngày.`,
+        `Vượt hạn mức phép: còn ${effectiveBalance.remainingDays}/${effectiveBalance.entitlementDays} ngày, đơn xin ${leaveDays} ngày.`,
       );
       return;
     }
@@ -184,12 +217,7 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
     >
       <RequestFlowSteps
         accent={accent}
-        steps={[
-          { label: 'Gửi đơn', hint: 'Nhân viên' },
-          { label: 'Lãnh đạo duyệt', hint: 'Trưởng khoa / ĐD trưởng' },
-          { label: 'HCNS duyệt', hint: 'Hành chính nhân sự' },
-          { label: 'Giám đốc duyệt', hint: 'Duyệt cuối' },
-        ]}
+        steps={workRequestSubmitSteps(user?.role)}
       />
 
       <InfoBanner>
@@ -214,9 +242,9 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
         </Alert>
       )}
 
-      {balance && (
+      {effectiveBalance && (
         <LeaveBalanceAlert
-          balance={balance}
+          balance={effectiveBalance}
           requestDays={leaveDays > 0 ? leaveDays : undefined}
           requestPending={false}
         />
@@ -259,9 +287,9 @@ export function LeaveRequestDialog({ open, onClose, onSubmitted, defaultFrom, ed
           <DatePickerField label="Từ ngày" required value={fromDate} onChange={setFromDate} sx={fieldSx} />
           <DatePickerField label="Đến ngày" required value={toDate} onChange={setToDate} sx={fieldSx} />
         </Box>
-        {leaveDays > 0 && balance && leaveDays > balance.remainingDays && (
+        {leaveDays > 0 && effectiveBalance && leaveDays > effectiveBalance.remainingDays && (
           <Typography variant="body2" color="error" sx={{ mt: 0.5 }}>
-            Đơn xin {leaveDays} ngày nhưng chỉ còn {balance.remainingDays} ngày phép.
+            Đơn xin {leaveDays} ngày nhưng chỉ còn {effectiveBalance.remainingDays} ngày phép.
           </Typography>
         )}
         {leaveDays > 0 && remainWorkDays > 0 && leaveDays > remainWorkDays && (

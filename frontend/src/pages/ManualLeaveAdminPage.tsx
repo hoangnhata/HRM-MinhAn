@@ -3,6 +3,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import EventBusyOutlinedIcon from '@mui/icons-material/EventBusyOutlined';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -94,6 +95,7 @@ export default function ManualLeaveAdminPage() {
   const [snack, setSnack] = useState<Snack>({ open: false, message: '', severity: 'success' });
   const [manualOpen, setManualOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [editing, setEditing] = useState<svc.ManualLeave | null>(null);
   const [deleting, setDeleting] = useState<svc.ManualLeave | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
@@ -337,9 +339,24 @@ export default function ManualLeaveAdminPage() {
                       </Typography>
                     )}
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                    <Tooltip title="Sửa ngày nghỉ / ghi chú">
+                      <IconButton
+                        size="small"
+                        onClick={() => setEditing(x)}
+                        sx={{ color: ACCENT, mr: 0.5 }}
+                        aria-label={`Sửa phép của ${x.employeeName}`}
+                      >
+                        <EditOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title="Xoá — hoàn lại hạn mức phép">
-                      <IconButton size="small" color="error" onClick={() => setDeleting(x)}>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => setDeleting(x)}
+                        aria-label={`Xoá phép của ${x.employeeName}`}
+                      >
                         <DeleteOutlineIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
@@ -356,6 +373,16 @@ export default function ManualLeaveAdminPage() {
         onClose={() => setManualOpen(false)}
         onDone={(msg) => {
           setManualOpen(false);
+          setSnack({ open: true, message: msg, severity: 'success' });
+          void load();
+        }}
+      />
+      <ManualAttachDialog
+        open={!!editing}
+        editing={editing}
+        onClose={() => setEditing(null)}
+        onDone={(msg) => {
+          setEditing(null);
           setSnack({ open: true, message: msg, severity: 'success' });
           void load();
         }}
@@ -464,13 +491,17 @@ function StatCard({
 
 function ManualAttachDialog({
   open,
+  editing = null,
   onClose,
   onDone,
 }: {
   open: boolean;
+  /** Có giá trị → sửa bản ghi đã gắn (nhân viên cố định). */
+  editing?: svc.ManualLeave | null;
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
+  const isEdit = !!editing;
   const theme = useTheme();
   const [emp, setEmp] = useState<employeeService.EmployeeSummary | null>(null);
   const [options, setOptions] = useState<employeeService.EmployeeSummary[]>([]);
@@ -496,11 +527,19 @@ function ManualAttachDialog({
       setApplyAttendance(true);
       setBalance(null);
       setError('');
+      return;
     }
-  }, [open]);
+    if (editing) {
+      setFromDate(editing.fromDate);
+      setToDate(editing.toDate);
+      setNote(editing.note ?? '');
+      setApplyAttendance(true);
+      setError('');
+    }
+  }, [open, editing]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || editing) return;
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(async () => {
       setSearching(true);
@@ -520,35 +559,56 @@ function ManualAttachDialog({
     return () => {
       if (timer.current) window.clearTimeout(timer.current);
     };
-  }, [input, open]);
+  }, [input, open, editing]);
 
+  const employeeId = editing ? editing.employeeId : emp?.id;
   const year = fromDate ? Number(fromDate.slice(0, 4)) : new Date().getFullYear();
   useEffect(() => {
-    if (!emp) {
+    if (!employeeId) {
       setBalance(null);
       return;
     }
     let live = true;
     svc
-      .fetchLeaveBalance(emp.id, year)
+      .fetchLeaveBalance(employeeId, year)
       .then((b) => live && setBalance(b))
       .catch(() => live && setBalance(null));
     return () => {
       live = false;
     };
-  }, [emp, year]);
+  }, [employeeId, year]);
 
   const days = fromDate && toDate ? daysInclusive(fromDate, toDate) : 0;
-  const projectedRemaining = balance ? balance.remainingDays - days : null;
-  const canSubmit = !!emp && !!fromDate && !!toDate && days > 0 && !busy;
+  // Khi sửa: số ngày cũ cùng năm đã nằm trong "đã dùng" → cộng lại trước khi trừ số ngày mới.
+  const releasedDays =
+    editing && Number(editing.fromDate.slice(0, 4)) === year ? editing.days : 0;
+  const projectedRemaining = balance ? balance.remainingDays + releasedDays - days : null;
+  const unchanged =
+    !!editing &&
+    fromDate === editing.fromDate &&
+    toDate === editing.toDate &&
+    note.trim() === (editing.note ?? '').trim();
+  const canSubmit = !!employeeId && !!fromDate && !!toDate && days > 0 && !busy && !unchanged;
 
   const submit = async () => {
-    if (!emp) return;
+    if (!employeeId) return;
     setBusy(true);
     setError('');
     try {
+      if (editing) {
+        const res = await svc.updateManualLeave(editing.id, {
+          fromDate,
+          toDate,
+          note: note.trim() || undefined,
+          applyAttendance,
+        });
+        onDone(
+          `Đã cập nhật phép của ${res.employeeName}: ${fmtRange(res.fromDate, res.toDate)} (${res.days} ngày) — còn ${res.balance.remainingDays}/${res.balance.entitlementDays} ngày phép năm ${res.balance.year}.`,
+        );
+        return;
+      }
       const res = await svc.attachManualLeave({
-        employeeId: emp.id,
+        employeeId,
         fromDate,
         toDate,
         note: note.trim() || undefined,
@@ -558,7 +618,7 @@ function ManualAttachDialog({
         `Đã gắn ${res.days} ngày phép cho ${res.employeeName} — còn ${res.balance.remainingDays}/${res.balance.entitlementDays} ngày phép năm ${res.balance.year}.`,
       );
     } catch (e) {
-      setError(errMsg(e, 'Không gắn được phép.'));
+      setError(errMsg(e, isEdit ? 'Không cập nhật được phép.' : 'Không gắn được phép.'));
     } finally {
       setBusy(false);
     }
@@ -579,20 +639,41 @@ function ManualAttachDialog({
               color: ACCENT,
             }}
           >
-            <EventBusyOutlinedIcon fontSize="small" />
+            {isEdit ? <EditOutlinedIcon fontSize="small" /> : <EventBusyOutlinedIcon fontSize="small" />}
           </Box>
           <Box>
             <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-              Gắn tay ngày phép đã nghỉ
+              {isEdit ? 'Sửa ngày phép đã gắn' : 'Gắn tay ngày phép đã nghỉ'}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Ghi nhận phép năm đã nghỉ ngoài hệ thống, trừ thẳng vào hạn mức
+              {isEdit
+                ? 'Bảng công và hạn mức phép được cập nhật lại theo khoảng ngày mới'
+                : 'Ghi nhận phép năm đã nghỉ ngoài hệ thống, trừ thẳng vào hạn mức'}
             </Typography>
           </Box>
         </Stack>
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2.25} sx={{ pt: 0.5 }}>
+          {editing ? (
+            <Paper
+              variant="outlined"
+              sx={{ p: 1.5, borderRadius: 2, borderColor: alpha(ACCENT, 0.2), bgcolor: alpha(ACCENT, 0.03) }}
+            >
+              <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                NHÂN VIÊN
+              </Typography>
+              <Typography variant="body1" fontWeight={800}>
+                {editing.employeeName}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {[editing.idCardNumber || editing.employeeCode, editing.departmentName]
+                  .filter(Boolean)
+                  .join(' · ')}
+                {' · '}đang ghi nhận {fmtRange(editing.fromDate, editing.toDate)} ({editing.days} ngày)
+              </Typography>
+            </Paper>
+          ) : (
           <Autocomplete
             options={options}
             value={emp}
@@ -633,8 +714,9 @@ function ManualAttachDialog({
               />
             )}
           />
+          )}
 
-          {emp && (
+          {employeeId && (
             <Paper
               variant="outlined"
               sx={{
@@ -673,7 +755,7 @@ function ManualAttachDialog({
                           fontWeight: 600,
                         }}
                       >
-                        → sau khi gắn còn {Math.max(0, projectedRemaining)}
+                        → sau khi {isEdit ? 'sửa' : 'gắn'} còn {Math.max(0, projectedRemaining)}
                         {projectedRemaining < 0 ? ` (vượt ${-projectedRemaining} ngày)` : ''}
                       </Typography>
                     )}
@@ -701,7 +783,9 @@ function ManualAttachDialog({
           </Box>
           <Typography variant="caption" color={days > 0 ? 'text.secondary' : 'text.disabled'}>
             {days > 0
-              ? `Số ngày phép sẽ trừ: ${days} ngày (tính cả ngày đầu và ngày cuối)`
+              ? isEdit && editing && days !== editing.days
+                ? `Số ngày phép sẽ trừ: ${days} ngày (trước đây ${editing.days} ngày) — tính cả ngày đầu và ngày cuối`
+                : `Số ngày phép sẽ trừ: ${days} ngày (tính cả ngày đầu và ngày cuối)`
               : fromDate && toDate
                 ? 'Đến ngày phải sau hoặc bằng Từ ngày'
                 : 'Chọn khoảng ngày đã nghỉ'}
@@ -751,7 +835,13 @@ function ManualAttachDialog({
           disabled={!canSubmit}
           sx={{ fontWeight: 700, bgcolor: ACCENT, '&:hover': { bgcolor: '#115e59' } }}
         >
-          {busy ? 'Đang ghi nhận…' : `Gắn ${days > 0 ? `${days} ngày ` : ''}phép`}
+          {busy
+            ? isEdit
+              ? 'Đang lưu…'
+              : 'Đang ghi nhận…'
+            : isEdit
+              ? 'Lưu thay đổi'
+              : `Gắn ${days > 0 ? `${days} ngày ` : ''}phép`}
         </Button>
       </DialogActions>
     </Dialog>

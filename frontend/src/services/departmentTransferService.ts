@@ -17,6 +17,7 @@ export type DepartmentTransfer = {
   reason: string;
   status: string;
   requestedByUsername?: string | null;
+  requesterSignatureUrl?: string | null;
   directorReviewerUsername?: string | null;
   directorComment?: string | null;
   directorReviewedAt?: string | null;

@@ -128,6 +128,87 @@ export async function fetchNursingTemplate(code: string) {
   return data;
 }
 
+/* ---------------- Chỉnh sửa mẫu đánh giá (ADMIN / Trưởng phòng ĐD) ---------------- */
+
+export type NursingTemplateEditorState = {
+  template: NursingTemplate;
+  version: number;
+  isDefault: boolean;
+  defaultVersion: number;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  changeNote?: string | null;
+};
+
+export type NursingTemplateRevision = {
+  id: number;
+  version: number;
+  current: boolean;
+  createdAt: string;
+  createdBy?: string | null;
+  changeNote?: string | null;
+  name: string;
+  criteriaCount: number;
+  baseMaxPoints: number;
+};
+
+/** Nội dung gửi lên khi lưu — server tự tính STT, điểm mục, tổng điểm chuẩn. */
+export type NursingTemplateDraft = {
+  name: string;
+  note?: string;
+  criteriaGroups: Array<{
+    id: string;
+    section: string;
+    title: string;
+    options: CriterionOption[];
+    bonus?: boolean;
+    penalty?: boolean;
+  }>;
+  gradingScale: Array<{ min: number; label: string; proposal: string }>;
+};
+
+export async function fetchNursingTemplateEditor(code: string) {
+  const { data } = await api.get<NursingTemplateEditorState>(`/v1/nursing-evaluations/templates/${code}/editor`);
+  return data;
+}
+
+export async function saveNursingTemplate(
+  code: string,
+  body: { baseVersion: number; template: NursingTemplateDraft; changeNote?: string },
+) {
+  const { data } = await api.put<NursingTemplateEditorState>(`/v1/nursing-evaluations/templates/${code}`, body);
+  return data;
+}
+
+export async function fetchNursingTemplateRevisions(code: string) {
+  const { data } = await api.get<NursingTemplateRevision[]>(`/v1/nursing-evaluations/templates/${code}/revisions`);
+  return data;
+}
+
+export async function fetchNursingTemplateRevision(code: string, revisionId: number) {
+  const { data } = await api.get<NursingTemplate>(
+    `/v1/nursing-evaluations/templates/${code}/revisions/${revisionId}`,
+  );
+  return data;
+}
+
+export async function restoreNursingTemplateRevision(
+  code: string,
+  revisionId: number,
+  body: { baseVersion: number; changeNote?: string },
+) {
+  const { data } = await api.post<NursingTemplateEditorState>(
+    `/v1/nursing-evaluations/templates/${code}/revisions/${revisionId}/restore`,
+    body,
+  );
+  return data;
+}
+
+export async function resetNursingTemplate(code: string, body: { baseVersion: number; changeNote?: string }) {
+  const { data } = await api.post<NursingTemplateEditorState>(`/v1/nursing-evaluations/templates/${code}/reset`, body);
+  return data;
+}
+
 export async function fetchNursingHistory(employeeId: number) {
   const { data } = await api.get<NursingEvalRow[]>(`/v1/nursing-evaluations/employees/${employeeId}`);
   return data;
@@ -205,6 +286,26 @@ export async function fetchNursingMonthlySummary(year: number, month: number, te
     params: { year, month, templateCode },
   });
   return data;
+}
+
+/** Excel thống kê xếp loại tháng — chỉ phiếu Trưởng phòng ĐD đã duyệt. */
+export async function downloadNursingMonthlyRankingExcel(year: number, month: number, templateCode: string) {
+  const res = await api.get('/v1/nursing-evaluations/summary/excel', {
+    params: { year, month, templateCode },
+    responseType: 'blob',
+    timeout: 300000,
+  });
+  const blob = new Blob([res.data], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `thong-ke-xep-loai-dieu-duong-${year}-${String(month).padStart(2, '0')}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function fetchNursingEvaluationRecord(evaluationId: number) {

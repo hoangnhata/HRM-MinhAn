@@ -1,11 +1,14 @@
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
 import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined';
 import CheckBoxOutlinedIcon from '@mui/icons-material/CheckBoxOutlined';
+import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
+import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import {
   Box,
   Checkbox,
@@ -16,11 +19,12 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { DatePickerField } from './ui/DateTimeFields';
 import { FormSection, InfoBanner, RequestFlowSteps, WorkRequestDialogShell } from './work/WorkRequestFormUi';
 import * as tps from '../services/trainingProposalService';
 import { extractApiErrorMessage } from '../services/approvalSignatureService';
+import type { TrainingLearningMode } from '../services/trainingProposalService';
 
 function formatPeriodLabel(fromIso: string, toIso: string) {
   return `${tps.formatTrainingDate(fromIso)} – ${tps.formatTrainingDate(toIso)}`;
@@ -56,6 +60,148 @@ type Props = {
 };
 
 const ACCENT = '#0369a1';
+
+const LEARNING_MODE_OPTIONS: {
+  value: TrainingLearningMode;
+  title: string;
+  hint: string;
+  icon: ReactNode;
+}[] = [
+  {
+    value: 'ONLINE',
+    title: 'Học online',
+    hint: 'Trực tuyến qua mạng',
+    icon: <VideocamOutlinedIcon sx={{ fontSize: 20 }} />,
+  },
+  {
+    value: 'OFFLINE',
+    title: 'Học offline',
+    hint: 'Trực tiếp tại địa điểm',
+    icon: <SchoolOutlinedIcon sx={{ fontSize: 20 }} />,
+  },
+  {
+    value: 'HYBRID',
+    title: 'Kết hợp',
+    hint: 'Online và offline',
+    icon: <HubOutlinedIcon sx={{ fontSize: 20 }} />,
+  },
+];
+
+function LearningModePicker({
+  value,
+  onChange,
+}: {
+  value: TrainingLearningMode | '';
+  onChange: (mode: TrainingLearningMode) => void;
+}) {
+  return (
+    <Box>
+      <Typography
+        variant="caption"
+        fontWeight={700}
+        sx={{ color: 'text.secondary', display: 'block', mb: 0.85, letterSpacing: '0.01em' }}
+      >
+        Hình thức học <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+      </Typography>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
+          gap: 1,
+        }}
+      >
+        {LEARNING_MODE_OPTIONS.map((opt) => {
+          const selected = value === opt.value;
+          return (
+            <Box
+              key={opt.value}
+              component="button"
+              type="button"
+              onClick={() => onChange(opt.value)}
+              aria-pressed={selected}
+              sx={{
+                all: 'unset',
+                boxSizing: 'border-box',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 0.65,
+                px: 1.35,
+                py: 1.2,
+                borderRadius: 2.25,
+                bgcolor: selected ? alpha(ACCENT, 0.07) : '#fff',
+                border: `1.5px solid ${selected ? alpha(ACCENT, 0.55) : alpha('#0f172a', 0.1)}`,
+                boxShadow: selected ? `0 0 0 3px ${alpha(ACCENT, 0.1)}` : 'none',
+                transition: 'border-color .15s, background-color .15s, box-shadow .15s',
+                '&:hover': {
+                  borderColor: alpha(ACCENT, selected ? 0.55 : 0.35),
+                  bgcolor: selected ? alpha(ACCENT, 0.08) : alpha(ACCENT, 0.03),
+                },
+                '&:focus-visible': {
+                  outline: `2px solid ${alpha(ACCENT, 0.45)}`,
+                  outlineOffset: 2,
+                },
+              }}
+            >
+              <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                <Box
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 1.75,
+                    display: 'grid',
+                    placeItems: 'center',
+                    color: selected ? '#fff' : ACCENT,
+                    bgcolor: selected ? ACCENT : alpha(ACCENT, 0.1),
+                    transition: 'background-color .15s, color .15s',
+                  }}
+                >
+                  {opt.icon}
+                </Box>
+                {selected ? (
+                  <Box
+                    sx={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: '50%',
+                      display: 'grid',
+                      placeItems: 'center',
+                      bgcolor: ACCENT,
+                      color: '#fff',
+                    }}
+                  >
+                    <CheckRoundedIcon sx={{ fontSize: 15 }} />
+                  </Box>
+                ) : (
+                  <Box
+                    sx={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: '50%',
+                      border: `1.5px solid ${alpha('#0f172a', 0.14)}`,
+                    }}
+                  />
+                )}
+              </Stack>
+              <Box>
+                <Typography
+                  variant="body2"
+                  fontWeight={800}
+                  sx={{ letterSpacing: '-0.015em', color: selected ? ACCENT : '#0f172a', lineHeight: 1.25 }}
+                >
+                  {opt.title}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.35 }}>
+                  {opt.hint}
+                </Typography>
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
 
 const fieldSx = {
   '& .MuiOutlinedInput-root': {
@@ -186,6 +332,7 @@ export function TrainingProposalDialog({ open, onClose, onSubmitted, editProposa
   const [proposingDepartment, setProposingDepartment] = useState('');
   const [courseName, setCourseName] = useState('');
   const [location, setLocation] = useState('');
+  const [learningMode, setLearningMode] = useState<TrainingLearningMode | ''>('');
   const [periodFrom, setPeriodFrom] = useState('');
   const [periodTo, setPeriodTo] = useState('');
   const [tuitionFee, setTuitionFee] = useState('');
@@ -204,6 +351,13 @@ export function TrainingProposalDialog({ open, onClose, onSubmitted, editProposa
       setProposingDepartment(editProposal.proposingDepartment || '');
       setCourseName(editProposal.courseName || '');
       setLocation(editProposal.location || '');
+      setLearningMode(
+        editProposal.learningMode === 'ONLINE' ||
+          editProposal.learningMode === 'OFFLINE' ||
+          editProposal.learningMode === 'HYBRID'
+          ? editProposal.learningMode
+          : 'OFFLINE',
+      );
       setPeriodFrom(period?.from || '');
       setPeriodTo(period?.to || '');
       setTuitionFee(editProposal.tuitionFee || '');
@@ -214,6 +368,7 @@ export function TrainingProposalDialog({ open, onClose, onSubmitted, editProposa
     } else {
       setCourseName('');
       setLocation('');
+      setLearningMode('');
       setPeriodFrom('');
       setPeriodTo('');
       setTuitionFee('');
@@ -238,6 +393,10 @@ export function TrainingProposalDialog({ open, onClose, onSubmitted, editProposa
     }
     if (!location.trim()) {
       setErr('Nhập địa điểm học.');
+      return;
+    }
+    if (!learningMode) {
+      setErr('Chọn hình thức học (online / offline / kết hợp).');
       return;
     }
     if (!periodFrom || !periodTo) {
@@ -273,6 +432,7 @@ export function TrainingProposalDialog({ open, onClose, onSubmitted, editProposa
         proposingDepartment: proposingDepartment.trim(),
         courseName: courseName.trim(),
         location: location.trim(),
+        learningMode,
         plannedPeriod: formatPeriodLabel(periodFrom, periodTo),
         tuitionFee: tuitionFee.trim() || undefined,
         trainingGoal: trainingGoal.trim(),
@@ -393,6 +553,7 @@ export function TrainingProposalDialog({ open, onClose, onSubmitted, editProposa
           sx={fieldSx}
           InputProps={adornment(<LocationOnOutlinedIcon sx={{ fontSize: 18 }} />)}
         />
+        <LearningModePicker value={learningMode} onChange={setLearningMode} />
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.75}>
           <DatePickerField
             required

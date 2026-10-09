@@ -113,8 +113,11 @@ function parseDeployment(body: string, kind: 'deployment_ot' | 'deployment_insid
   };
 }
 
+/** Mốc giờ Quang Trung lưu trong ghi chú cho máy xử lý — không hiển thị cho người dùng. */
+const QUANG_TRUNG_TIMES_RE = /\s*\[QT:[A-Z_]+=[0-9:,]*\]/g;
+
 function parseOne(rawPart: string): ParsedAttendanceNote | null {
-  const raw = rawPart.trim();
+  const raw = rawPart.replace(QUANG_TRUNG_TIMES_RE, '').trim();
   if (!raw) return null;
 
   const { body, ref } = stripRef(raw);

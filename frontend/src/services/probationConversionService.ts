@@ -51,6 +51,7 @@ export type ProbationConversion = {
   hrProposal?: string | null;
   status: string;
   requestedByUsername?: string | null;
+  requesterSignatureUrl?: string | null;
   hrReviewerUsername?: string | null;
   hrComment?: string | null;
   hrReviewedAt?: string | null;

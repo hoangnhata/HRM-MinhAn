@@ -44,6 +44,9 @@ export type ShiftScheduleInfo = {
   /** Phân quyền công: ca sáng/chiều, chỉ vào sáng + ra chiều. */
   twoPunchAttendance?: boolean;
   twoPunchLabel?: string;
+  /** Ngày đã gắn ca sáng–chiều (tắt phân quyền 2 mốc). */
+  dayShiftKind?: 'SPLIT' | 'CONTINUOUS' | string;
+  splitDayLabel?: string;
   youngChild?: boolean;
   youngChildLabel?: string;
   effectiveDayHours?: number;

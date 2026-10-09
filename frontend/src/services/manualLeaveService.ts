@@ -82,6 +82,15 @@ export async function deleteManualLeave(id: number) {
   return data;
 }
 
+/** Sửa khoảng ngày / ghi chú của phép đã gắn (nhân viên giữ nguyên). */
+export async function updateManualLeave(
+  id: number,
+  payload: { fromDate: string; toDate: string; note?: string; applyAttendance: boolean },
+) {
+  const { data } = await api.put<ManualLeave & { balance: LeaveBalance }>(`${BASE}/${id}`, payload);
+  return data;
+}
+
 export async function fetchLeaveBalance(employeeId: number, year: number) {
   const { data } = await api.get<LeaveBalance>(
     `/v1/attendance/employees/${employeeId}/leave-balance`,

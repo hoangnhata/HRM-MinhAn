@@ -135,9 +135,14 @@ export function ApprovalReviewNoteCard({
               aria-label={`Xem lớn chữ ký ${role}`}
               sx={{
                 position: 'relative',
-                display: 'block',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                width: '100%',
+                maxWidth: 480,
+                minHeight: 148,
                 m: 0,
-                p: 1,
+                p: 1.25,
                 cursor: 'zoom-in',
                 bgcolor: '#fff',
                 border: `1px solid ${alpha(theme.palette.divider, 0.7)}`,
@@ -156,9 +161,10 @@ export function ApprovalReviewNoteCard({
                 src={imgUrl}
                 alt={`Chữ ký ${role}`}
                 sx={{
-                  maxWidth: 240,
-                  maxHeight: 96,
+                  width: '100%',
+                  height: 168,
                   objectFit: 'contain',
+                  objectPosition: 'left center',
                   display: 'block',
                 }}
               />

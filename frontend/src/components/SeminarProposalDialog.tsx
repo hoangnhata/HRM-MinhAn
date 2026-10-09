@@ -1,14 +1,21 @@
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
 import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined';
 import CheckBoxOutlinedIcon from '@mui/icons-material/CheckBoxOutlined';
+import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import DrawOutlinedIcon from '@mui/icons-material/DrawOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
+import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import {
   Box,
+  Button,
   Checkbox,
   FormControlLabel,
+  IconButton,
   InputAdornment,
   MenuItem,
   Stack,
@@ -16,7 +23,8 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { fetchMySignatureObjectUrl } from '../services/accountService';
 import { DatePickerField } from './ui/DateTimeFields';
 import {
   FormSection,
@@ -73,6 +81,9 @@ const EMP_COMMITMENT =
 
 const DEPT_COMMITMENT =
   'Bố trí nhân lực trong thời gian đi hội thảo; tạo điều kiện ứng dụng kết quả hội thảo vào chuyên môn.';
+
+const ATTACHMENT_ACCEPT = '.png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,image/png,image/jpeg,image/webp';
+const MAX_ATTACHMENTS = 8;
 
 function ReadonlyFact({
   icon,
@@ -165,6 +176,52 @@ function CommitmentCard({
   );
 }
 
+function AttachmentRow({
+  name,
+  meta,
+  image,
+  onRemove,
+}: {
+  name: string;
+  meta: string;
+  image: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <Stack
+      direction="row"
+      alignItems="center"
+      spacing={1}
+      sx={{
+        px: 1.25,
+        py: 0.9,
+        borderRadius: 2,
+        bgcolor: '#fff',
+        border: `1px solid ${alpha('#0f172a', 0.08)}`,
+      }}
+    >
+      {image ? (
+        <ImageOutlinedIcon sx={{ color: ACCENT, fontSize: 20 }} />
+      ) : (
+        <InsertDriveFileOutlinedIcon sx={{ color: ACCENT, fontSize: 20 }} />
+      )}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="body2" fontWeight={700} noWrap>
+          {name}
+        </Typography>
+        {meta && (
+          <Typography variant="caption" color="text.secondary">
+            {meta}
+          </Typography>
+        )}
+      </Box>
+      <IconButton size="small" aria-label={`Bỏ ${name}`} onClick={onRemove}>
+        <DeleteOutlineIcon fontSize="small" />
+      </IconButton>
+    </Stack>
+  );
+}
+
 export function SeminarProposalDialog({ open, onClose, onSubmitted, editProposal, employee }: Props) {
   const isEditing = Boolean(editProposal);
   const [proposingDepartment, setProposingDepartment] = useState('');
@@ -180,10 +237,20 @@ export function SeminarProposalDialog({ open, onClose, onSubmitted, editProposal
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [existingProposals, setExistingProposals] = useState<sps.SeminarProposal[]>([]);
+  const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
+  const [signatureMissing, setSignatureMissing] = useState(false);
+  const [keptAttachments, setKeptAttachments] = useState<sps.SeminarAttachment[]>([]);
+  const [pickedFiles, setPickedFiles] = useState<File[]>([]);
+  const [attachmentsMissing, setAttachmentsMissing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachmentCount = keptAttachments.length + pickedFiles.length;
 
   useEffect(() => {
     if (!open) return;
     setErr(null);
+    setPickedFiles([]);
+    setAttachmentsMissing(false);
+    setKeptAttachments(editProposal?.attachments ?? []);
     if (editProposal) {
       const sameDay = editProposal.startDate === editProposal.endDate;
       setProposingDepartment(editProposal.proposingDepartment || '');
@@ -216,6 +283,25 @@ export function SeminarProposalDialog({ open, onClose, onSubmitted, editProposal
       setExistingProposals([]);
     }
   }, [open, employee?.id, employee?.departmentName, editProposal]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    let created: string | null = null;
+    void fetchMySignatureObjectUrl().then((url) => {
+      if (cancelled) {
+        if (url) URL.revokeObjectURL(url);
+        return;
+      }
+      created = url;
+      setSignaturePreview(url);
+      setSignatureMissing(!url);
+    });
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [open]);
 
   const effectiveTo = periodMode === 'SINGLE_DAY' ? periodFrom : periodTo;
   const overlapWarning = useMemo(() => {
@@ -270,6 +356,19 @@ export function SeminarProposalDialog({ open, onClose, onSubmitted, editProposal
       setErr(overlapWarning);
       return;
     }
+    if (signatureMissing) {
+      setErr('Bạn chưa có chữ ký số. Vào menu tài khoản → Chữ ký số để tạo trước khi gửi phiếu.');
+      return;
+    }
+    if (attachmentCount === 0) {
+      setAttachmentsMissing(true);
+      setErr('Cần đính kèm ít nhất 1 công văn (giấy mời, công văn hoặc quyết định).');
+      return;
+    }
+    if (attachmentCount > MAX_ATTACHMENTS) {
+      setErr(`Tối đa ${MAX_ATTACHMENTS} tệp công văn.`);
+      return;
+    }
 
     setLoading(true);
     setErr(null);
@@ -287,9 +386,16 @@ export function SeminarProposalDialog({ open, onClose, onSubmitted, editProposal
         departmentCommitmentAck: true,
       };
       if (isEditing && editProposal) {
-        await sps.updateSeminarProposal(editProposal.id, payload);
+        // Lưu + tải tệp mới trước, rồi mới xóa tệp bị bỏ: phiếu luôn còn ít nhất 1 công văn.
+        await sps.updateSeminarProposal(editProposal.id, payload, pickedFiles);
+        const removed = (editProposal.attachments ?? []).filter(
+          (item) => !keptAttachments.some((kept) => kept.id === item.id),
+        );
+        for (const item of removed) {
+          await sps.deleteSeminarAttachment(editProposal.id, item.id);
+        }
       } else {
-        await sps.createSeminarProposal(payload);
+        await sps.createSeminarProposal(payload, pickedFiles);
       }
       onSubmitted?.();
       onClose();
@@ -491,6 +597,134 @@ export function SeminarProposalDialog({ open, onClose, onSubmitted, editProposal
           minRows={3}
           sx={fieldSx}
         />
+      </FormSection>
+
+      <FormSection
+        title="Công văn đính kèm *"
+        subtitle="Bắt buộc — giấy mời, công văn hoặc quyết định. Ảnh, PDF, Word, Excel — tối đa 8 tệp, mỗi tệp 15MB."
+      >
+        <Stack spacing={1}>
+          <Box
+            sx={{
+              p: 1.5,
+              borderRadius: 2.25,
+              border: `1px dashed ${attachmentsMissing && attachmentCount === 0 ? '#C33B4A' : alpha(ACCENT, 0.45)}`,
+              bgcolor: attachmentsMissing && attachmentCount === 0 ? alpha('#C33B4A', 0.04) : alpha(ACCENT, 0.03),
+            }}
+          >
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems={{ sm: 'center' }}>
+              <CloudUploadOutlinedIcon sx={{ color: ACCENT }} />
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="body2" fontWeight={800}>
+                  Thêm công văn
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  PNG, JPG, WEBP, PDF, DOC, DOCX, XLS, XLSX
+                </Typography>
+              </Box>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => fileInputRef.current?.click()}
+                sx={{ borderRadius: 2, borderColor: alpha(ACCENT, 0.4), color: ACCENT }}
+              >
+                Chọn tệp
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                hidden
+                multiple
+                accept={ATTACHMENT_ACCEPT}
+                onChange={(e) => {
+                  const next = Array.from(e.target.files ?? []);
+                  e.target.value = '';
+                  if (next.length === 0) return;
+                  const room = MAX_ATTACHMENTS - keptAttachments.length - pickedFiles.length;
+                  if (room <= 0) {
+                    setErr(`Tối đa ${MAX_ATTACHMENTS} tệp công văn.`);
+                    return;
+                  }
+                  setErr(null);
+                  setAttachmentsMissing(false);
+                  setPickedFiles((current) => [...current, ...next.slice(0, room)]);
+                }}
+              />
+            </Stack>
+          </Box>
+          {attachmentCount === 0 && (
+            <Typography
+              variant="body2"
+              color={attachmentsMissing ? 'error.main' : 'text.secondary'}
+              fontWeight={attachmentsMissing ? 700 : 400}
+            >
+              Chưa có công văn — cần đính kèm ít nhất 1 tệp trước khi gửi phiếu.
+            </Typography>
+          )}
+          {keptAttachments.map((item) => (
+            <AttachmentRow
+              key={`kept-${item.id}`}
+              name={item.originalName}
+              meta={sps.formatAttachmentSize(item.fileSize)}
+              image={(item.contentType || '').startsWith('image/')}
+              onRemove={() => setKeptAttachments((list) => list.filter((row) => row.id !== item.id))}
+            />
+          ))}
+          {pickedFiles.map((file, index) => (
+            <AttachmentRow
+              key={`${file.name}-${file.size}-${index}`}
+              name={file.name}
+              meta={sps.formatAttachmentSize(file.size)}
+              image={file.type.startsWith('image/')}
+              onRemove={() => setPickedFiles((list) => list.filter((_, i) => i !== index))}
+            />
+          ))}
+        </Stack>
+      </FormSection>
+
+      <FormSection title="Chữ ký người lập" subtitle="Chữ ký số hiện tại được gắn vào phiếu khi gửi.">
+        {signatureMissing ? (
+          <Typography variant="body2" color="error.main">
+            Bạn chưa có chữ ký số. Vào menu tài khoản → Chữ ký số để tạo trước khi gửi phiếu.
+          </Typography>
+        ) : (
+          <Box
+            sx={{
+              p: 1.5,
+              borderRadius: 2.25,
+              bgcolor: '#fff',
+              border: `1px solid ${alpha(ACCENT, 0.16)}`,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+            }}
+          >
+            <DrawOutlinedIcon sx={{ color: ACCENT }} />
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="body2" fontWeight={800}>
+                Sẽ ký với chữ ký số của bạn
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Ảnh chữ ký được lưu cùng phiếu để đối chiếu sau này.
+              </Typography>
+            </Box>
+            {signaturePreview && (
+              <Box
+                component="img"
+                src={signaturePreview}
+                alt="Chữ ký người lập"
+                sx={{
+                  width: 140,
+                  height: 56,
+                  objectFit: 'contain',
+                  bgcolor: '#fff',
+                  borderRadius: 1.5,
+                  border: `1px solid ${alpha('#0f172a', 0.08)}`,
+                }}
+              />
+            )}
+          </Box>
+        )}
       </FormSection>
 
       <FormSection title="Cam kết" subtitle="Bắt buộc xác nhận trước khi gửi.">

@@ -1,6 +1,8 @@
 import { formatDateTimeVi, formatDateVi } from '../utils/dateFormat';
 import api from './api';
 
+export type TrainingLearningMode = 'ONLINE' | 'OFFLINE' | 'HYBRID';
+
 export type TrainingProposal = {
   id: number;
   employeeId: number;
@@ -12,6 +14,7 @@ export type TrainingProposal = {
   proposingDepartment: string;
   courseName: string;
   location: string;
+  learningMode?: TrainingLearningMode | null;
   plannedPeriod: string;
   tuitionFee?: string | null;
   monthlySupport?: string | null;
@@ -22,6 +25,7 @@ export type TrainingProposal = {
   departmentCommitmentAck?: boolean;
   status: string;
   requestedByUsername?: string | null;
+  requesterSignatureUrl?: string | null;
   hrReviewerUsername?: string | null;
   hrComment?: string | null;
   hrReviewedAt?: string | null;
@@ -38,6 +42,7 @@ export type CreateTrainingProposalPayload = {
   proposingDepartment: string;
   courseName: string;
   location: string;
+  learningMode: TrainingLearningMode;
   plannedPeriod: string;
   tuitionFee?: string;
   trainingGoal: string;
@@ -45,6 +50,17 @@ export type CreateTrainingProposalPayload = {
   employeeCommitmentAck: boolean;
   departmentCommitmentAck: boolean;
 };
+
+export const TRAINING_LEARNING_MODE_LABEL: Record<TrainingLearningMode, string> = {
+  ONLINE: 'Học online',
+  OFFLINE: 'Học offline',
+  HYBRID: 'Kết hợp online & offline',
+};
+
+export function trainingLearningModeLabel(mode?: string | null) {
+  if (!mode) return '—';
+  return TRAINING_LEARNING_MODE_LABEL[mode as TrainingLearningMode] || mode;
+}
 
 export const TRAINING_STATUS_LABEL: Record<string, string> = {
   PENDING_HR: 'Chờ HCNS duyệt',

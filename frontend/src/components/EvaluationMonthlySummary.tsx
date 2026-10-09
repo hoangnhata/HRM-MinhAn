@@ -1,3 +1,4 @@
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import {
@@ -5,6 +6,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Stack,
   Table,
   TableBody,
@@ -19,6 +21,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
 import * as ne from '../services/nursingEvaluationService';
+import { CollapsibleSection } from './ui/CollapsibleSection';
 import { MonthPickerField } from './ui/DateTimeFields';
 import { NursingEvaluationDetailDialog, type NursingDetailEditRequest } from './NursingEvaluationDetailDialog';
 import {
@@ -63,11 +66,15 @@ export function EvaluationMonthlySummary({ templateCode, refreshKey = 0, onReque
   const [loading, setLoading] = useState(true);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [filters, setFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
+  const [exporting, setExporting] = useState(false);
+  const [exportErr, setExportErr] = useState<string | null>(null);
 
   const year = Number(period.slice(0, 4));
   const month = Number(period.slice(5, 7));
 
   const canNursingHead = user?.role === 'ADMIN' || user?.role === 'HEAD_NURSING';
+  /** Xuất Excel thống kê xếp loại: chỉ ADMIN / Trưởng phòng Điều dưỡng. */
+  const canExportExcel = canNursingHead;
   const canHr = user?.role === 'ADMIN' || isHr2Role(user?.role);
   const canDirector =
     user?.role === 'ADMIN'
@@ -123,6 +130,19 @@ export function EvaluationMonthlySummary({ templateCode, refreshKey = 0, onReque
     [rows, filters],
   );
 
+  async function exportExcel() {
+    setExporting(true);
+    setExportErr(null);
+    try {
+      await ne.downloadNursingMonthlyRankingExcel(year, month, templateCode);
+    } catch {
+      // Hiện ở phần tiêu đề — vẫn thấy khi thẻ đang thu gọn.
+      setExportErr('Không xuất được file Excel — thử lại sau.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const stats = useMemo(() => {
     const approved = filtered.filter((r) => r.status === 'APPROVED').length;
     const pending = filtered.filter((r) =>
@@ -137,71 +157,64 @@ export function EvaluationMonthlySummary({ templateCode, refreshKey = 0, onReque
   }, [filtered]);
 
   return (
-    <Box
-      sx={{
-        mb: 2.5,
-        p: { xs: 2, sm: 2.5 },
-        borderRadius: 3,
-        border: `1px solid ${alpha(theme.palette.primary.main, 0.12)}`,
-        bgcolor: alpha(theme.palette.background.paper, 0.98),
-        boxShadow: `0 6px 28px ${alpha('#0f172a', 0.05)}`,
-      }}
-    >
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        spacing={2}
-        alignItems={{ md: 'flex-start' }}
-        justifyContent="space-between"
-        sx={{ mb: 2 }}
-      >
-        <Stack direction="row" spacing={1.25} alignItems="center">
-          <Box
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 2,
-              display: 'grid',
-              placeItems: 'center',
-              bgcolor: alpha(theme.palette.primary.main, 0.1),
-              color: theme.palette.primary.main,
-            }}
-          >
-            <InsightsOutlinedIcon fontSize="small" />
-          </Box>
-          <Box>
-            <Typography variant="subtitle1" fontWeight={800} letterSpacing="-0.01em">
-              Tổng hợp xếp loại theo tháng
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Theo dõi điểm và trạng thái phiếu khối ĐD–KTV–HS–Thư ký
-            </Typography>
-          </Box>
-        </Stack>
-        <MonthPickerField
-          size="small"
-          label="Kỳ đánh giá"
-          value={period}
-          onChange={setPeriod}
-          sx={{ width: { xs: '100%', sm: 220 } }}
-        />
-      </Stack>
-
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.75 }}>
-        <Chip size="small" label={`${filtered.length} phiếu`} sx={{ fontWeight: 700 }} />
-        <Chip size="small" color="success" variant="outlined" label={`${stats.approved} đã duyệt`} sx={{ fontWeight: 650 }} />
-        <Chip size="small" color="warning" variant="outlined" label={`${stats.pending} chờ duyệt`} sx={{ fontWeight: 650 }} />
-        <Chip size="small" color="error" variant="outlined" label={`${stats.rejected} từ chối`} sx={{ fontWeight: 650 }} />
-        {stats.avg != null && (
-          <Chip
+    <>
+    <CollapsibleSection
+      storageKey="hrm.evaluations.section.monthlySummary"
+      defaultOpen={false}
+      accent={theme.palette.primary.main}
+      icon={<InsightsOutlinedIcon fontSize="small" />}
+      title="Tổng hợp xếp loại theo tháng"
+      subtitle={`Theo dõi điểm và trạng thái phiếu khối ĐD–KTV–HS–Thư ký · Tháng ${month}/${year}`}
+      summary={
+        <>
+          <Chip size="small" label={loading ? 'Đang tải…' : `${filtered.length} phiếu`} sx={{ fontWeight: 800, height: 24 }} />
+          <Chip size="small" color="success" variant="outlined" label={`${stats.approved} đã duyệt`} sx={{ fontWeight: 650, height: 24 }} />
+          <Chip size="small" color="warning" variant="outlined" label={`${stats.pending} chờ duyệt`} sx={{ fontWeight: 650, height: 24 }} />
+          <Chip size="small" color="error" variant="outlined" label={`${stats.rejected} từ chối`} sx={{ fontWeight: 650, height: 24 }} />
+          {stats.avg != null && (
+            <Chip
+              size="small"
+              color="primary"
+              variant="outlined"
+              label={`TB điểm: ${stats.avg.toFixed(1)}`}
+              sx={{ fontWeight: 650, height: 24 }}
+            />
+          )}
+          {exportErr && (
+            <Chip
+              size="small"
+              color="error"
+              label={exportErr}
+              onDelete={() => setExportErr(null)}
+              sx={{ fontWeight: 700, height: 24 }}
+            />
+          )}
+        </>
+      }
+      actions={
+        <Stack direction="row" spacing={1} alignItems="center">
+          <MonthPickerField
             size="small"
-            color="primary"
-            variant="outlined"
-            label={`TB điểm: ${stats.avg.toFixed(1)}`}
-            sx={{ fontWeight: 650 }}
+            label="Kỳ đánh giá"
+            value={period}
+            onChange={setPeriod}
+            sx={{ width: { xs: 170, sm: 200 } }}
           />
-        )}
-      </Stack>
-
+          {canExportExcel && (
+          <Button
+            variant="contained"
+            onClick={() => void exportExcel()}
+            disabled={exporting}
+            startIcon={exporting ? <CircularProgress size={16} color="inherit" /> : <FileDownloadOutlinedIcon />}
+            title={`Xuất Excel thống kê xếp loại tháng ${month}/${year} — phiếu Trưởng phòng ĐD đã duyệt`}
+            sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2, whiteSpace: 'nowrap', boxShadow: 'none' }}
+          >
+            {exporting ? 'Đang xuất…' : 'Xuất Excel'}
+          </Button>
+          )}
+        </Stack>
+      }
+    >
       <Box sx={{ mb: 1.5 }}>
         <RequestListFilters
           value={filters}
@@ -225,16 +238,21 @@ export function EvaluationMonthlySummary({ templateCode, refreshKey = 0, onReque
       <TableContainer
         sx={{
           borderRadius: 2.5,
-          border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
-          overflow: 'hidden',
+          border: `1px solid ${theme.palette.divider}`,
+          maxHeight: 'min(620px, 70vh)',
+          overflow: 'auto',
         }}
       >
-        <Table size="small" sx={{ minWidth: 760 }}>
+        <Table size="small" stickyHeader sx={{ minWidth: 760 }}>
           <TableHead>
             <TableRow
               sx={{
-                bgcolor: alpha(theme.palette.primary.main, 0.07),
-                '& th': { fontWeight: 800, color: theme.palette.text.primary, whiteSpace: 'nowrap' },
+                '& th': {
+                  fontWeight: 800,
+                  color: theme.palette.text.primary,
+                  whiteSpace: 'nowrap',
+                  bgcolor: '#EEF6F5',
+                },
               }}
             >
               <TableCell>Khoa / phòng</TableCell>
@@ -318,6 +336,7 @@ export function EvaluationMonthlySummary({ templateCode, refreshKey = 0, onReque
           </TableBody>
         </Table>
       </TableContainer>
+    </CollapsibleSection>
 
       <NursingEvaluationDetailDialog
         open={detailId != null}
@@ -340,6 +359,6 @@ export function EvaluationMonthlySummary({ templateCode, refreshKey = 0, onReque
           }
         }}
       />
-    </Box>
+    </>
   );
 }

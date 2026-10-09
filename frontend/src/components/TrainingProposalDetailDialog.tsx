@@ -477,6 +477,11 @@ export function TrainingProposalDetailDialog({
                 icon={<LocationOnOutlinedIcon sx={{ fontSize: 16 }} />}
               />
               <DetailField
+                label="Hình thức học"
+                value={tps.trainingLearningModeLabel(row.learningMode)}
+                icon={<SchoolOutlinedIcon sx={{ fontSize: 16 }} />}
+              />
+              <DetailField
                 label="Thời gian dự kiến"
                 value={row.plannedPeriod}
                 icon={<ScheduleOutlinedIcon sx={{ fontSize: 16 }} />}
@@ -525,28 +530,55 @@ export function TrainingProposalDetailDialog({
             </DetailFields>
           </FormSection>
 
-          {(row.hrReviewedAt ||
-            row.hrReviewerUsername ||
-            row.directorReviewedAt ||
-            row.directorReviewerUsername) && (
-            <FormSection title="Lịch sử duyệt">
+          {row.status !== 'CANCELLED' && (
+            <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý từng bước.">
               <Stack spacing={1.5}>
-                {(row.hrReviewedAt || row.hrReviewerUsername) && (
+                <ApprovalReviewNoteCard
+                  role={`Người lập phiếu · ${row.requestedByUsername || '—'}`}
+                  timestamp={row.createdAt}
+                  comment={
+                    row.requesterSignatureUrl
+                      ? 'Chữ ký số được gắn khi gửi phiếu.'
+                      : 'Phiếu này chưa lưu chữ ký người lập.'
+                  }
+                  signatureUrl={row.requesterSignatureUrl}
+                  formatTimestamp={tps.formatTrainingDateTime}
+                />
+                <ApprovalReviewNoteCard
+                  role={`HCNS · ${row.hrReviewerUsername || (row.status === 'PENDING_HR' ? 'Đang chờ' : '—')}${
+                    row.monthlySupport ? ` · Hỗ trợ ${row.monthlySupport}/tháng` : ''
+                  }${row.postCourseCommitment ? ` · Cam kết ${row.postCourseCommitment}` : ''}`}
+                  timestamp={row.hrReviewedAt}
+                  comment={
+                    row.hrComment?.trim()
+                      ? row.hrComment
+                      : row.status === 'PENDING_HR'
+                        ? 'Đang chờ duyệt ký.'
+                        : row.status === 'HR_REJECTED'
+                          ? 'Đã từ chối.'
+                          : undefined
+                  }
+                  signatureUrl={row.hrSignatureUrl}
+                  formatTimestamp={tps.formatTrainingDateTime}
+                />
+                {(row.status === 'PENDING_DIRECTOR' ||
+                  row.status === 'DIRECTOR_REJECTED' ||
+                  row.status === 'APPROVED' ||
+                  row.status === 'COMPLETED' ||
+                  row.directorReviewedAt ||
+                  row.directorReviewerUsername) && (
                   <ApprovalReviewNoteCard
-                    role={`HCNS · ${row.hrReviewerUsername || '—'}${
-                      row.monthlySupport ? ` · Hỗ trợ ${row.monthlySupport}/tháng` : ''
-                    }${row.postCourseCommitment ? ` · Cam kết ${row.postCourseCommitment}` : ''}`}
-                    timestamp={row.hrReviewedAt}
-                    comment={row.hrComment}
-                    signatureUrl={row.hrSignatureUrl}
-                    formatTimestamp={tps.formatTrainingDateTime}
-                  />
-                )}
-                {(row.directorReviewedAt || row.directorReviewerUsername) && (
-                  <ApprovalReviewNoteCard
-                    role={`Giám đốc · ${row.directorReviewerUsername || '—'}`}
+                    role={`Giám đốc · ${row.directorReviewerUsername || (row.status === 'PENDING_DIRECTOR' ? 'Đang chờ' : '—')}`}
                     timestamp={row.directorReviewedAt}
-                    comment={row.directorComment}
+                    comment={
+                      row.directorComment?.trim()
+                        ? row.directorComment
+                        : row.status === 'PENDING_DIRECTOR'
+                          ? 'Đang chờ duyệt ký.'
+                          : row.status === 'DIRECTOR_REJECTED'
+                            ? 'Đã từ chối.'
+                            : undefined
+                    }
                     signatureUrl={row.directorSignatureUrl}
                     formatTimestamp={tps.formatTrainingDateTime}
                   />

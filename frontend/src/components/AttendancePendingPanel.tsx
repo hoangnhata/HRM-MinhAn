@@ -407,6 +407,7 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
       await ensureHasSignature();
       let ok = 0;
       let fail = 0;
+      let lastError: string | null = null;
       for (const request of requests) {
         try {
           const waive =
@@ -422,8 +423,9 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
               : undefined;
           await reviewRequest(request, approved, '', waive, keepOriginal);
           ok += 1;
-        } catch {
+        } catch (e) {
           fail += 1;
+          lastError = extractApiErrorMessage(e, 'Không duyệt được đơn.');
         }
       }
       reload();
@@ -444,7 +446,9 @@ export function AttendancePendingPanel({ onChanged, types, description }: Props)
         );
       } else {
         setMsg(
-          `Hoàn tất ${ok} đơn, ${fail} đơn lỗi. Kiểm tra lại các đơn còn lại.`,
+          lastError
+            ? `Hoàn tất ${ok} đơn, ${fail} đơn lỗi. ${lastError}`
+            : `Hoàn tất ${ok} đơn, ${fail} đơn lỗi. Kiểm tra lại các đơn còn lại.`,
         );
       }
       setConfirm(null);

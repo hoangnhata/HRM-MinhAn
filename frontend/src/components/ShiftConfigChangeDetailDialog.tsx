@@ -229,13 +229,35 @@ export function ShiftConfigChangeDetailDialog({ open, requestId, onClose, onChan
                 />
               </FormSection>
             )}
-            {(row.hrComment || row.hrReviewedAt || row.hrSignatureUrl) && (
-              <ApprovalReviewNoteCard
-                role={`HCNS · ${row.hrReviewerUsername || '—'}`}
-                timestamp={row.hrReviewedAt}
-                comment={row.hrComment}
-                signatureUrl={row.hrSignatureUrl}
-              />
+            {row.status !== 'CANCELLED' && (
+              <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý từng bước.">
+                <Stack spacing={1.5}>
+                <ApprovalReviewNoteCard
+                  role={`Người lập phiếu · ${row.requestedByUsername || '—'}`}
+                  timestamp={row.createdAt}
+                  comment={
+                    row.requesterSignatureUrl
+                      ? 'Chữ ký số được gắn khi gửi phiếu.'
+                      : 'Phiếu này chưa lưu chữ ký người lập.'
+                  }
+                  signatureUrl={row.requesterSignatureUrl}
+                />
+                <ApprovalReviewNoteCard
+                  role={`HCNS · ${row.hrReviewerUsername || (row.status === 'PENDING_HR' ? 'Đang chờ' : '—')}`}
+                  timestamp={row.hrReviewedAt}
+                  comment={
+                    row.hrComment?.trim()
+                      ? row.hrComment
+                      : row.status === 'PENDING_HR'
+                        ? 'Đang chờ duyệt ký.'
+                        : row.status === 'REJECTED'
+                          ? 'Đã từ chối.'
+                          : undefined
+                  }
+                  signatureUrl={row.hrSignatureUrl}
+                />
+                </Stack>
+              </FormSection>
             )}
           </>
         )}

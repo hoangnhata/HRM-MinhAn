@@ -82,6 +82,9 @@ export function workRequestDetailFlow(request: {
   nursingHeadReviewerName?: string | null;
   hrReviewerName?: string | null;
   directorReviewerName?: string | null;
+  headSkipped?: boolean;
+  nursingHeadSkipped?: boolean;
+  hrSkipped?: boolean;
 }): { steps: FlowStep[]; activeIndex: number } {
   const submitter =
     flowPerson(request.flowSubmitterName, request.employeeName) || 'Nhân viên';
@@ -95,59 +98,63 @@ export function workRequestDetailFlow(request: {
     flowPerson(request.directorReviewerName, request.flowDirectorName) || 'Duyệt cuối';
 
   const nursingBlock = isNursingBlockTitle(request.positionTitle, request.departmentName);
-  let steps: FlowStep[];
-  if (request.requestType === 'DEPLOYMENT') {
-    steps = nursingBlock
-      ? [
-          { label: 'Lập đơn', hint: submitter },
-          { label: 'Trưởng phòng ĐD', hint: nursing },
-          { label: 'HCNS duyệt', hint: hr },
-          { label: 'Giám đốc duyệt', hint: director },
-        ]
-      : [
-          { label: 'Lập đơn', hint: submitter },
-          { label: 'HCNS duyệt', hint: hr },
-          { label: 'Giám đốc duyệt', hint: director },
-        ];
-  } else {
-    steps = [
-      { label: 'Gửi đơn', hint: submitter },
-      { label: 'Lãnh đạo duyệt', hint: head },
-      { label: 'HCNS duyệt', hint: hr },
-      { label: 'Giám đốc duyệt', hint: director },
-    ];
-  }
+  const deployment = request.requestType === 'DEPLOYMENT';
+  // Bước mà chính người làm đơn là người duyệt đã được bỏ qua ở backend — không hiển thị nữa.
+  const keyed: { key: FlowStage; step: FlowStep }[] = [
+    { key: 'submit', step: { label: deployment ? 'Lập đơn' : 'Gửi đơn', hint: submitter } },
+    ...(deployment || request.headSkipped
+      ? []
+      : [{ key: 'head' as FlowStage, step: { label: 'Lãnh đạo duyệt', hint: head } }]),
+    ...(deployment && nursingBlock && !request.nursingHeadSkipped
+      ? [{ key: 'nursing' as FlowStage, step: { label: 'Trưởng phòng ĐD', hint: nursing } }]
+      : []),
+    ...(request.hrSkipped ? [] : [{ key: 'hr' as FlowStage, step: { label: 'HCNS duyệt', hint: hr } }]),
+    { key: 'director', step: { label: 'Giám đốc duyệt', hint: director } },
+  ];
 
-  return { steps, activeIndex: workRequestFlowActiveIndex(request.status, request.requestType, nursingBlock, steps.length) };
+  const activeKey = workRequestFlowStage(request.status);
+  let activeIndex = keyed.findIndex((s) => s.key === activeKey);
+  if (activeIndex < 0) {
+    activeIndex = activeKey === 'director' ? keyed.length - 1 : 0;
+  }
+  return { steps: keyed.map((s) => s.step), activeIndex };
 }
 
-function workRequestFlowActiveIndex(
-  status: string,
-  requestType: string,
-  nursingBlock: boolean,
-  stepCount: number,
-): number {
-  const last = Math.max(0, stepCount - 1);
-  if (status === 'APPROVED') return last;
-  if (status === 'WITHDRAWN') return 0;
+type FlowStage = 'submit' | 'head' | 'nursing' | 'hr' | 'director';
 
-  if (requestType === 'DEPLOYMENT') {
-    if (nursingBlock) {
-      if (status === 'PENDING_NURSING_HEAD' || status === 'NURSING_HEAD_REJECTED') return 1;
-      if (status === 'PENDING_HR' || status === 'HR_REJECTED') return 2;
-      if (status === 'PENDING_DIRECTOR' || status === 'DIRECTOR_REJECTED') return 3;
-      return 0;
-    }
-    if (status === 'PENDING_HR' || status === 'HR_REJECTED') return 1;
-    if (status === 'PENDING_DIRECTOR' || status === 'DIRECTOR_REJECTED') return 2;
-    return 0;
+/** Bước đang chờ theo trạng thái đơn. */
+function workRequestFlowStage(status: string): FlowStage {
+  switch (status) {
+    case 'APPROVED':
+    case 'APPROVED_NO_FINE':
+    case 'PENDING_DIRECTOR':
+    case 'DIRECTOR_REJECTED':
+      return 'director';
+    case 'PENDING_HEAD':
+    case 'HEAD_REJECTED':
+      return 'head';
+    case 'PENDING_NURSING_HEAD':
+    case 'NURSING_HEAD_REJECTED':
+      return 'nursing';
+    case 'PENDING_HR':
+    case 'HR_REJECTED':
+      return 'hr';
+    default:
+      return 'submit';
   }
+}
 
-  if (status === 'PENDING_HEAD' || status === 'HEAD_REJECTED') return 1;
-  if (status === 'PENDING_NURSING_HEAD' || status === 'NURSING_HEAD_REJECTED') return 1;
-  if (status === 'PENDING_HR' || status === 'HR_REJECTED') return 2;
-  if (status === 'PENDING_DIRECTOR' || status === 'DIRECTOR_REJECTED') return 3;
-  return 0;
+/** Các bước hiển thị khi gửi đơn công mới — bỏ bước mà chính người gửi là người duyệt. */
+export function workRequestSubmitSteps(role?: string | null): FlowStep[] {
+  // Trưởng phòng Điều dưỡng lập đơn: bỏ bước lãnh đạo — chỉ HCNS → Giám đốc.
+  const isHead = role === 'HEAD_DEPARTMENT' || role === 'HEAD_HR' || role === 'HEAD_NURSING';
+  const isHr = role === 'HR2' || role === 'HEAD_HR';
+  return [
+    { label: 'Gửi đơn', hint: 'Nhân viên' },
+    ...(isHead ? [] : [{ label: 'Lãnh đạo duyệt', hint: 'Trưởng khoa / ĐD trưởng' }]),
+    ...(isHr ? [] : [{ label: 'HCNS duyệt', hint: 'Hành chính nhân sự' }]),
+    { label: 'Giám đốc duyệt', hint: 'Duyệt cuối' },
+  ];
 }
 
 /** Quy trình điều động: khối ĐD thêm bước Trưởng phòng Điều dưỡng. */

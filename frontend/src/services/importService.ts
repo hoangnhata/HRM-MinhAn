@@ -104,6 +104,27 @@ export async function downloadWorkforceExcel(scope: WorkforceExcelScope = 'HOSPI
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
+/** Excel danh sách CB-NV toàn viện có sinh nhật trong các tháng đã chọn. */
+export async function downloadBirthdayExcel(months: number[]) {
+  const params = new URLSearchParams();
+  months.forEach((m) => params.append('months', String(m)));
+  const res = await api.get(`/v1/import/workforce/export/birthdays?${params.toString()}`, {
+    responseType: 'blob',
+    timeout: 300000,
+  });
+  const blob = new Blob([res.data], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `SINH-NHAT-${[...months].sort((x, y) => x - y).map((m) => `T${m}`).join('-')}-${new Date().getFullYear()}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
 export async function importCheckInOutSql(file: File) {
   const fd = new FormData();
   fd.append('file', file);

@@ -69,6 +69,8 @@ type Props = {
   editFocus?: NursingEvaluationEditFocus | null;
   onEditFocusConsumed?: () => void;
   onDataMutated?: () => void;
+  /** Tăng khi mẫu đánh giá vừa được sửa → tải lại mẫu. */
+  templateRefreshKey?: number;
 };
 
 type RowState = { points: string; note: string };
@@ -104,7 +106,7 @@ function filledCount(groups: ne.CriterionGroup[], rows: Record<string, RowState>
   return { filled, total };
 }
 
-export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataMutated }: Props) {
+export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataMutated, templateRefreshKey = 0 }: Props) {
   const theme = useTheme();
   const accent = theme.palette.primary.main;
   const { user } = useAuth();
@@ -151,7 +153,7 @@ export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataM
     } finally {
       setLoading(false);
     }
-  }, [canViewRoster, year, month]);
+  }, [canViewRoster, year, month, templateRefreshKey]);
 
   useEffect(() => {
     void loadMeta();
@@ -443,7 +445,8 @@ export function NursingEvaluationPanel({ editFocus, onEditFocusConsumed, onDataM
                 Lập phiếu đánh giá
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Chấm theo mẫu Excel MA 2026 — khối ĐD–KTV–HS–Thư ký
+                {template?.name || 'Chấm theo mẫu Excel MA 2026'} — khối ĐD–KTV–HS–Thư ký
+                {template?.version != null && ` · v${template.version}`}
               </Typography>
             </Box>
           </Stack>

@@ -276,7 +276,7 @@ export function TrainingProposalPendingPanel({ onChanged }: { onChanged?: () => 
       typeLabel: 'Đào tạo',
       subject: formatRequestSubject(r.employeeName, r.positionTitle),
       department: r.proposingDepartment,
-      summary: `${r.courseName} · ${r.location || '—'} · ${r.plannedPeriod || '—'}`,
+      summary: `${r.courseName} · ${tps.trainingLearningModeLabel(r.learningMode)} · ${r.location || '—'} · ${r.plannedPeriod || '—'}`,
       meta: r.employeeCode || undefined,
       statusLabel: tps.TRAINING_STATUS_LABEL[r.status] || r.status,
       statusColor: tps.trainingStatusColor(r.status),

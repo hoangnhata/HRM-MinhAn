@@ -22,6 +22,7 @@ export type MainDutyAuthorization = {
   reason?: string | null;
   status: string;
   requestedByUsername?: string | null;
+  requesterSignatureUrl?: string | null;
   headReviewerUsername?: string | null;
   headComment?: string | null;
   headReviewedAt?: string | null;

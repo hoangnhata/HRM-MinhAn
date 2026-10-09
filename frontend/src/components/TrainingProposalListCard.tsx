@@ -76,7 +76,7 @@ export function TrainingProposalListCard({ proposal, onClick }: Props) {
               {proposal.courseName}
             </Typography>
             <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-              {proposal.location} · {proposal.plannedPeriod}
+              {tps.trainingLearningModeLabel(proposal.learningMode)} · {proposal.location} · {proposal.plannedPeriod}
             </Typography>
 
             <Typography

@@ -104,7 +104,9 @@ export function NursingEvaluationDetailDialog({
       .then(([d, tpl]) => {
         if (!active) return;
         setRow(d);
-        setTemplate(tpl);
+        // Phiếu có bản chụp mẫu lúc chấm → hiển thị đúng tiêu chí đã chấm dù mẫu đã sửa sau đó.
+        const snapshot = d.templateSnapshot as ne.NursingTemplate | null | undefined;
+        setTemplate(snapshot?.criteriaGroups?.length ? snapshot : tpl);
         setComment('');
       })
       .catch((e) => setErr(extractApiErrorMessage(e, 'Không tải được phiếu.')))
@@ -343,7 +345,7 @@ export function NursingEvaluationDetailDialog({
                 { label: 'Khoa / phòng', value: String(row.departmentName || '—') },
                 { label: 'Chức danh', value: String(row.positionTitle || '—') },
                 { label: 'Mã NV', value: String(row.employeeCode || '—') },
-                { label: 'Người lập phiếu', value: String(row.evaluatorUsername || '—') },
+                { label: 'Người lập phiếu', value: String(row.evaluatorName || row.evaluatorUsername || '—') },
                 {
                   label: 'Tổng điểm / Xếp loại',
                   value:
@@ -500,7 +502,7 @@ export function NursingEvaluationDetailDialog({
           )}
 
           {/* Khối chữ ký — đúng mẫu phiếu */}
-          <FormSection title="Chữ ký xác nhận">
+          <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý từng bước.">
             <Box
               sx={{
                 display: 'grid',
@@ -509,7 +511,7 @@ export function NursingEvaluationDetailDialog({
               }}
             >
               <ApprovalReviewNoteCard
-                role={`Người lập (Trưởng khoa / ĐDT) · ${row.evaluatorUsername || '—'}`}
+                role={`Người lập (Trưởng khoa / ĐDT) · ${row.evaluatorName || row.evaluatorUsername || '—'}`}
                 timestamp={
                   row.evaluatorSignedAt != null
                     ? String(row.evaluatorSignedAt)
@@ -531,7 +533,7 @@ export function NursingEvaluationDetailDialog({
               />
               {(Boolean(row.headReviewedAt) || nursingHeadPending) && (
                 <ApprovalReviewNoteCard
-                  role={`Trưởng phòng ĐD · ${row.headReviewerUsername || (nursingHeadPending ? 'Chờ duyệt' : '—')}`}
+                  role={`Trưởng phòng ĐD · ${row.headReviewerName || row.headReviewerUsername || (nursingHeadPending ? 'Chờ duyệt' : '—')}`}
                   timestamp={String(row.headReviewedAt || '')}
                   comment={
                     row.headComment != null
@@ -546,7 +548,7 @@ export function NursingEvaluationDetailDialog({
               )}
               {(Boolean(row.hrReviewedAt) || hrPending || Boolean(row.headReviewedAt)) && (
                 <ApprovalReviewNoteCard
-                  role={`HCNS · ${row.hrReviewerUsername || (hrPending ? 'Chờ duyệt' : '—')}`}
+                  role={`HCNS · ${row.hrReviewerName || row.hrReviewerUsername || (hrPending ? 'Chờ duyệt' : '—')}`}
                   timestamp={String(row.hrReviewedAt || '')}
                   comment={
                     row.hrComment != null
@@ -563,7 +565,7 @@ export function NursingEvaluationDetailDialog({
                 directorPending ||
                 Boolean(row.hrReviewedAt)) && (
                 <ApprovalReviewNoteCard
-                  role={`Giám đốc · ${row.directorReviewerUsername || (directorPending ? 'Chờ duyệt' : '—')}`}
+                  role={`Giám đốc · ${row.directorReviewerName || row.directorReviewerUsername || (directorPending ? 'Chờ duyệt' : '—')}`}
                   timestamp={String(row.directorReviewedAt || '')}
                   comment={
                     row.directorComment != null

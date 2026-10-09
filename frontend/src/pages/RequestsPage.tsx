@@ -61,6 +61,7 @@ import { WorkRequestDetailDialog } from '../components/work/WorkRequestDetailDia
 import { useAuth } from '../context/AuthContext';
 import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
 import * as att from '../services/attendanceService';
+import { extractApiErrorMessage } from '../services/approvalSignatureService';
 
 function workRequestSummary(r: att.WorkRequest): string {
   const isRanged =
@@ -249,6 +250,7 @@ export default function RequestsPage() {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [listFilters, setListFilters] = useState<RequestListFilterState>(EMPTY_REQUEST_FILTERS);
   const [detail, setDetail] = useState<att.WorkRequest | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [unpaidLeaveOpen, setUnpaidLeaveOpen] = useState(false);
   const [personalLeaveOpen, setPersonalLeaveOpen] = useState(false);
@@ -288,19 +290,17 @@ export default function RequestsPage() {
       att.fetchMyWorkRequests().then(setMyRequests).catch(() => setMyRequests([]));
     };
 
-    // Mọi role (có hồ sơ NV liên kết) đều xem hạn mức phép trên trang Đơn
-    loadBalance();
-
     if (user?.employeeId) {
+      loadBalance();
       loadMine();
       return;
     }
 
-    // Session chưa có employeeId — gắn lại từ /account/me rồi tải đơn của tôi
+    // Session chưa có employeeId — gắn lại từ /account/me; reload sẽ chạy lại khi đã gắn hồ sơ
+    setBalance(null);
     void refreshUser()
       .then(() => {
         loadMine();
-        loadBalance();
       })
       .catch(() => {
         setMyRequests([]);
@@ -1124,6 +1124,23 @@ export default function RequestsPage() {
         request={detail}
         mode="mine"
         onChanged={reload}
+        withdrawLoading={withdrawing}
+        onWithdraw={async () => {
+          if (!detail) return;
+          setWithdrawing(true);
+          try {
+            await att.withdrawWorkRequest(detail.id);
+            setMsg('Đã thu hồi đơn.');
+            setMsgSeverity('success');
+            setDetail(null);
+            reload();
+          } catch (e) {
+            setMsg(extractApiErrorMessage(e, 'Thu hồi đơn thất bại.'));
+            setMsgSeverity('error');
+          } finally {
+            setWithdrawing(false);
+          }
+        }}
       />
     </Box>
   );

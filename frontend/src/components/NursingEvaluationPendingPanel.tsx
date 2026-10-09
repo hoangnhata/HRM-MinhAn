@@ -11,12 +11,11 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Stack,
   Tab,
   Tabs,
   Typography,
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isHr2Role } from '../utils/roleAccess';
@@ -27,6 +26,7 @@ import {
 import * as ne from '../services/nursingEvaluationService';
 import { formatDateTimeVi } from '../utils/dateFormat';
 import { NursingEvaluationDetailDialog } from './NursingEvaluationDetailDialog';
+import { CollapsibleSection } from './ui/CollapsibleSection';
 import {
   applyRequestListFilters,
   RequestListFilters,
@@ -270,55 +270,31 @@ export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Pro
   if (!canLoad) return null;
 
   return (
-    <Box
-      sx={{
-        mb: 2.5,
-        p: { xs: 2, sm: 2.5 },
-        borderRadius: 3,
-        border: `1px solid ${alpha(theme.palette.primary.main, 0.12)}`,
-        bgcolor: alpha(theme.palette.background.paper, 0.98),
-        boxShadow: `0 6px 28px ${alpha('#0f172a', 0.05)}`,
-      }}
+    <>
+    <CollapsibleSection
+      storageKey="hrm.evaluations.section.pending"
+      defaultOpen
+      accent={theme.palette.warning.dark}
+      icon={<AssignmentTurnedInOutlinedIcon fontSize="small" />}
+      title="Duyệt phiếu đánh giá"
+      subtitle="Chờ duyệt và lịch sử ký duyệt · Trưởng phòng ĐD → HCNS → Giám đốc · Có thể chọn nhiều phiếu để duyệt"
+      summary={
+        <>
+          <Chip
+            size="small"
+            color="warning"
+            variant={pending.length > 0 ? 'filled' : 'outlined'}
+            label={`${pending.length} chờ duyệt`}
+            sx={{ fontWeight: 800, height: 24 }}
+          />
+          {pending.length > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center', fontWeight: 600 }}>
+              đang chờ bước của bạn
+            </Typography>
+          )}
+        </>
+      }
     >
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={1.5}
-        alignItems={{ sm: 'flex-start' }}
-        justifyContent="space-between"
-        sx={{ mb: 1.5 }}
-      >
-        <Stack direction="row" spacing={1.25} alignItems="center">
-          <Box
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 2,
-              display: 'grid',
-              placeItems: 'center',
-              bgcolor: alpha(theme.palette.warning.main, 0.12),
-              color: theme.palette.warning.dark,
-            }}
-          >
-            <AssignmentTurnedInOutlinedIcon fontSize="small" />
-          </Box>
-          <Box>
-            <Typography variant="subtitle1" fontWeight={800} letterSpacing="-0.01em">
-              Duyệt phiếu đánh giá
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Chờ duyệt và lịch sử ký duyệt · Trưởng phòng ĐD → HCNS → Giám đốc · Có thể chọn nhiều phiếu để duyệt
-            </Typography>
-          </Box>
-        </Stack>
-        <Chip
-          size="small"
-          color="warning"
-          variant="outlined"
-          label={`${pending.length} chờ duyệt`}
-          sx={{ fontWeight: 700, alignSelf: { xs: 'flex-start', sm: 'center' } }}
-        />
-      </Stack>
-
       <Tabs
         value={subTab}
         onChange={(_, v: number) => setSubTab(v)}
@@ -428,6 +404,7 @@ export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Pro
             : undefined
         }
       />
+    </CollapsibleSection>
 
       <Dialog
         open={confirm != null}
@@ -511,6 +488,6 @@ export function NursingEvaluationPendingPanel({ refreshKey = 0, onChanged }: Pro
           onChanged?.();
         }}
       />
-    </Box>
+    </>
   );
 }

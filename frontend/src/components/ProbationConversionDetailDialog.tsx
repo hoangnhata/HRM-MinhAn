@@ -769,41 +769,93 @@ export function ProbationConversionDetailDialog({
             </FormSection>
           )}
 
-          {(row.nursingHeadReviewedAt ||
-            row.nursingHeadReviewerUsername ||
-            row.nursingHeadSignatureUrl ||
-            row.hrReviewedAt ||
-            row.hrReviewerUsername ||
-            row.hrSignatureUrl ||
-            row.directorReviewedAt ||
-            row.directorReviewerUsername ||
-            row.directorSignatureUrl ||
-            row.appliedAt) && (
-            <FormSection title="Lịch sử duyệt">
+          {row.status !== 'CANCELLED' && (
+            <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý từng bước.">
               <Stack spacing={1.5}>
-                {(row.nursingHeadReviewedAt || row.nursingHeadReviewerUsername) && (
+                <ApprovalReviewNoteCard
+                  role={`Người lập phiếu · ${row.requestedByUsername || '—'}`}
+                  timestamp={row.createdAt}
+                  comment={
+                    row.requesterSignatureUrl
+                      ? 'Chữ ký số được gắn khi gửi phiếu.'
+                      : 'Phiếu này chưa lưu chữ ký người lập.'
+                  }
+                  signatureUrl={row.requesterSignatureUrl}
+                  formatTimestamp={pcs.formatConversionDateTime}
+                />
+                {(row.status === 'PENDING_NURSING_HEAD' ||
+                  row.status === 'NURSING_HEAD_REJECTED' ||
+                  row.nursingHeadReviewedAt ||
+                  row.nursingHeadReviewerUsername ||
+                  row.nursingHeadSignatureUrl) && (
                   <ApprovalReviewNoteCard
-                    role={`Trưởng phòng ĐD · ${row.nursingHeadReviewerUsername || '—'}`}
+                    role={`Trưởng phòng ĐD · ${
+                      row.nursingHeadReviewerUsername ||
+                      (row.status === 'PENDING_NURSING_HEAD' ? 'Đang chờ' : '—')
+                    }`}
                     timestamp={row.nursingHeadReviewedAt}
-                    comment={row.nursingHeadComment}
+                    comment={
+                      row.nursingHeadComment?.trim()
+                        ? row.nursingHeadComment
+                        : row.status === 'PENDING_NURSING_HEAD'
+                          ? 'Đang chờ duyệt ký.'
+                          : row.status === 'NURSING_HEAD_REJECTED'
+                            ? 'Đã từ chối.'
+                            : undefined
+                    }
                     signatureUrl={row.nursingHeadSignatureUrl}
                     formatTimestamp={pcs.formatConversionDateTime}
                   />
                 )}
-                {(row.hrReviewedAt || row.hrReviewerUsername) && (
+                {(row.status === 'PENDING_HR' ||
+                  row.status === 'HR_REJECTED' ||
+                  row.status === 'HR_EXTEND_PROBATION' ||
+                  row.status === 'HR_STOP_COOPERATION' ||
+                  row.status === 'PENDING_DIRECTOR' ||
+                  row.status === 'DIRECTOR_REJECTED' ||
+                  row.status === 'APPROVED' ||
+                  row.status === 'APPLIED' ||
+                  row.hrReviewedAt ||
+                  row.hrReviewerUsername ||
+                  row.hrSignatureUrl) && (
                   <ApprovalReviewNoteCard
-                    role={`HCNS · ${row.hrReviewerUsername || '—'}`}
+                    role={`HCNS · ${row.hrReviewerUsername || (row.status === 'PENDING_HR' ? 'Đang chờ' : '—')}`}
                     timestamp={row.hrReviewedAt}
-                    comment={row.hrComment}
+                    comment={
+                      row.hrComment?.trim()
+                        ? row.hrComment
+                        : row.status === 'PENDING_HR'
+                          ? 'Đang chờ duyệt ký.'
+                          : row.status === 'HR_REJECTED'
+                            ? 'Đã từ chối.'
+                            : undefined
+                    }
                     signatureUrl={row.hrSignatureUrl}
                     formatTimestamp={pcs.formatConversionDateTime}
                   />
                 )}
-                {(row.directorReviewedAt || row.directorReviewerUsername) && (
+                {(row.status === 'PENDING_DIRECTOR' ||
+                  row.status === 'DIRECTOR_REJECTED' ||
+                  row.status === 'APPROVED' ||
+                  row.status === 'APPLIED' ||
+                  row.directorReviewedAt ||
+                  row.directorReviewerUsername ||
+                  row.directorSignatureUrl) && (
                   <ApprovalReviewNoteCard
-                    role={`Giám đốc · ${row.directorReviewerUsername || '—'}`}
+                    role={`Giám đốc · ${
+                      row.directorReviewerUsername ||
+                      (row.status === 'PENDING_DIRECTOR' ? 'Đang chờ' : '—')
+                    }`}
                     timestamp={row.directorReviewedAt}
-                    comment={row.directorComment}
+                    comment={
+                      row.directorComment?.trim()
+                        ? row.directorComment
+                        : row.status === 'PENDING_DIRECTOR'
+                          ? 'Đang chờ duyệt ký.'
+                          : row.status === 'DIRECTOR_REJECTED'
+                            ? 'Đã từ chối.'
+                            : undefined
+                    }
                     signatureUrl={row.directorSignatureUrl}
                     formatTimestamp={pcs.formatConversionDateTime}
                   />

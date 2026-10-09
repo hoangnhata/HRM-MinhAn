@@ -24,6 +24,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   IconButton,
   ListItemText,
   Menu,
@@ -54,6 +55,7 @@ import { DepartmentTransferDialog } from '../components/DepartmentTransferDialog
 import { ProbationConversionDialog } from '../components/ProbationConversionDialog';
 import { TrainingProposalDialog } from '../components/TrainingProposalDialog';
 import { TrainingProposalDetailDialog } from '../components/TrainingProposalDetailDialog';
+import { BirthdayExportDialog } from '../components/BirthdayExportDialog';
 import { SeminarProposalDialog } from '../components/SeminarProposalDialog';
 import { MainDutyAuthorizationDialog } from '../components/MainDutyAuthorizationDialog';
 import { WorkforceImportDialog } from '../components/WorkforceImportDialog';
@@ -128,6 +130,7 @@ export default function EmployeesPage() {
   const [accompanyingImportOpen, setAccompanyingImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportMenuEl, setExportMenuEl] = useState<HTMLElement | null>(null);
+  const [birthdayExportOpen, setBirthdayExportOpen] = useState(false);
   const [transferTarget, setTransferTarget] = useState<{
     id: number;
     fullName: string;
@@ -622,7 +625,25 @@ export default function EmployeesPage() {
                             secondary="ĐD – KTV – Hộ sinh – Thư ký y khoa – Y sĩ (phạm vi Trưởng phòng ĐD)"
                           />
                         </MenuItem>
+                        <Divider />
+                        <MenuItem
+                          disabled={exporting}
+                          onClick={() => {
+                            setExportMenuEl(null);
+                            setBirthdayExportOpen(true);
+                          }}
+                        >
+                          <ListItemText
+                            primary="Sinh nhật theo tháng"
+                            secondary="Danh sách CB-NV toàn viện sinh trong các tháng chọn"
+                          />
+                        </MenuItem>
                       </Menu>
+                      <BirthdayExportDialog
+                        open={birthdayExportOpen}
+                        onClose={() => setBirthdayExportOpen(false)}
+                        onDone={(message) => setSnackbar({ open: true, message })}
+                      />
                       <Button variant="contained" startIcon={<CloudUploadIcon />} onClick={() => setImportOpen(true)}>
                         Import Excel
                       </Button>

@@ -487,39 +487,108 @@ export function MainDutyAuthorizationDetailDialog({
             </FormSection>
           )}
 
-          {(row.headComment || row.headReviewedAt || row.headSignatureUrl) && (
-            <ApprovalReviewNoteCard
-              role={`Trưởng khoa · ${row.headReviewerUsername || '—'}`}
-              timestamp={row.headReviewedAt}
-              comment={row.headComment}
-              signatureUrl={row.headSignatureUrl}
-            />
-          )}
-          {(row.nursingHeadComment ||
-            row.nursingHeadReviewedAt ||
-            row.nursingHeadSignatureUrl) && (
-            <ApprovalReviewNoteCard
-              role={`Trưởng phòng ĐD · ${row.nursingHeadReviewerUsername || '—'}`}
-              timestamp={row.nursingHeadReviewedAt}
-              comment={row.nursingHeadComment}
-              signatureUrl={row.nursingHeadSignatureUrl}
-            />
-          )}
-          {(row.hrComment || row.hrReviewedAt || row.hrSignatureUrl) && (
-            <ApprovalReviewNoteCard
-              role={`HCNS · ${row.hrReviewerUsername || '—'}`}
-              timestamp={row.hrReviewedAt}
-              comment={row.hrComment}
-              signatureUrl={row.hrSignatureUrl}
-            />
-          )}
-          {(row.directorComment || row.directorReviewedAt || row.directorSignatureUrl) && (
-            <ApprovalReviewNoteCard
-              role={`Giám đốc · ${row.directorReviewerUsername || '—'}`}
-              timestamp={row.directorReviewedAt}
-              comment={row.directorComment}
-              signatureUrl={row.directorSignatureUrl}
-            />
+          {row.status !== 'CANCELLED' && (
+            <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý từng bước.">
+              <Stack spacing={1.5}>
+                <ApprovalReviewNoteCard
+                  role={`Người lập phiếu · ${row.requestedByUsername || '—'}`}
+                  timestamp={row.createdAt}
+                  comment={
+                    row.requesterSignatureUrl
+                      ? 'Chữ ký số được gắn khi gửi phiếu.'
+                      : 'Phiếu này chưa lưu chữ ký người lập.'
+                  }
+                  signatureUrl={row.requesterSignatureUrl}
+                />
+                {(row.status === 'PENDING_HEAD' ||
+                  row.status === 'HEAD_REJECTED' ||
+                  row.headComment ||
+                  row.headReviewedAt ||
+                  row.headSignatureUrl) && (
+                  <ApprovalReviewNoteCard
+                    role={`Trưởng khoa · ${row.headReviewerUsername || (row.status === 'PENDING_HEAD' ? 'Đang chờ' : '—')}`}
+                    timestamp={row.headReviewedAt}
+                    comment={
+                      row.headComment?.trim()
+                        ? row.headComment
+                        : row.status === 'PENDING_HEAD'
+                          ? 'Đang chờ duyệt ký.'
+                          : row.status === 'HEAD_REJECTED'
+                            ? 'Đã từ chối.'
+                            : undefined
+                    }
+                    signatureUrl={row.headSignatureUrl}
+                  />
+                )}
+                {(row.status === 'PENDING_NURSING_HEAD' ||
+                  row.status === 'NURSING_HEAD_REJECTED' ||
+                  row.nursingHeadComment ||
+                  row.nursingHeadReviewedAt ||
+                  row.nursingHeadSignatureUrl) && (
+                  <ApprovalReviewNoteCard
+                    role={`Trưởng phòng ĐD · ${
+                      row.nursingHeadReviewerUsername ||
+                      (row.status === 'PENDING_NURSING_HEAD' ? 'Đang chờ' : '—')
+                    }`}
+                    timestamp={row.nursingHeadReviewedAt}
+                    comment={
+                      row.nursingHeadComment?.trim()
+                        ? row.nursingHeadComment
+                        : row.status === 'PENDING_NURSING_HEAD'
+                          ? 'Đang chờ duyệt ký.'
+                          : row.status === 'NURSING_HEAD_REJECTED'
+                            ? 'Đã từ chối.'
+                            : undefined
+                    }
+                    signatureUrl={row.nursingHeadSignatureUrl}
+                  />
+                )}
+                {(row.status === 'PENDING_HR' ||
+                  row.status === 'HR_REJECTED' ||
+                  row.hrComment ||
+                  row.hrReviewedAt ||
+                  row.hrSignatureUrl) && (
+                  <ApprovalReviewNoteCard
+                    role={`HCNS · ${row.hrReviewerUsername || (row.status === 'PENDING_HR' ? 'Đang chờ' : '—')}`}
+                    timestamp={row.hrReviewedAt}
+                    comment={
+                      row.hrComment?.trim()
+                        ? row.hrComment
+                        : row.status === 'PENDING_HR'
+                          ? 'Đang chờ duyệt ký.'
+                          : row.status === 'HR_REJECTED'
+                            ? 'Đã từ chối.'
+                            : undefined
+                    }
+                    signatureUrl={row.hrSignatureUrl}
+                  />
+                )}
+                {(row.status === 'PENDING_DIRECTOR' ||
+                  row.status === 'DIRECTOR_REJECTED' ||
+                  row.status === 'APPROVED' ||
+                  row.directorComment ||
+                  row.directorReviewedAt ||
+                  row.directorSignatureUrl) && (
+                  <ApprovalReviewNoteCard
+                    role={`Giám đốc · ${
+                      row.directorReviewerUsername ||
+                      (row.status === 'PENDING_DIRECTOR' ? 'Đang chờ' : '—')
+                    }`}
+                    timestamp={row.directorReviewedAt}
+                    comment={
+                      row.directorComment?.trim()
+                        ? row.directorComment
+                        : row.status === 'PENDING_DIRECTOR'
+                          ? 'Đang chờ duyệt ký.'
+                          : row.status === 'DIRECTOR_REJECTED'
+                            ? 'Đã từ chối.'
+                            : undefined
+                    }
+                    signatureUrl={row.directorSignatureUrl}
+                  />
+                )}
+              </Stack>
+            </FormSection>
           )}
 
           {showHeadActions && (

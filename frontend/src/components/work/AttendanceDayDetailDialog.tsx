@@ -169,7 +169,7 @@ export function AttendanceDayDetailDialog({
   const parsed = parseLocalDate(workDate);
   const sch = daySchedule ?? scheduleProp ?? scheduleForDate(workDate);
   const continuous = continuousShift ?? Boolean(sch.continuousShift);
-  const twoPunch = Boolean(sch.twoPunchAttendance) && !continuous;
+  const twoPunch = Boolean(sch.twoPunchAttendance) && !continuous && sch.dayShiftKind !== 'SPLIT';
   const dateLabel = parsed
     ? parsed.toLocaleDateString("vi-VN", {
         weekday: "long",
@@ -590,7 +590,7 @@ export function AttendanceDayDetailDialog({
             />
             {overtimeUnits > 0 && (
               <DetailRow
-                label="Ngoài giờ (điều động)"
+                label="Công điều động"
                 value={`${formatWorkedHours(overtimeH)} · ${formatWorkUnits(overtimeUnits, { suffix: true })}`}
               />
             )}

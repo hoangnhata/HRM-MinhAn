@@ -62,14 +62,16 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
 
   const isCreatorOnly = isHeadDepartmentRole(user?.role);
   const canLoadHistory = isHrOrAdmin || isDirectorOrAdmin;
+  /** HCNS2 xem phiếu đang chờ Giám đốc, không duyệt / sửa / hủy. */
+  const viewOnlyPending = isHr2Role(user?.role) && !isDirectorOrAdmin;
 
   const tabKeys = useMemo(() => {
     const keys: string[] = [];
-    if (isDirectorOrAdmin) keys.push('pending');
+    if (isDirectorOrAdmin || viewOnlyPending) keys.push('pending');
     if (canLoadHistory) keys.push('history');
     if (isCreatorOnly) keys.push('mine');
     return keys;
-  }, [isDirectorOrAdmin, canLoadHistory, isCreatorOnly]);
+  }, [isDirectorOrAdmin, viewOnlyPending, canLoadHistory, isCreatorOnly]);
 
   const activeKey = tabKeys[Math.min(subTab, Math.max(tabKeys.length - 1, 0))];
   const historyActive = activeKey === 'history';
@@ -162,10 +164,10 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
 
   const tabDefs = useMemo(() => {
     const tabs: { key: string; label: string; count?: number; list: sps.SeminarProposal[] }[] = [];
-    if (isDirectorOrAdmin) {
+    if (isDirectorOrAdmin || viewOnlyPending) {
       tabs.push({
         key: 'pending',
-        label: 'Chờ duyệt',
+        label: viewOnlyPending ? 'Đang chờ' : 'Chờ duyệt',
         count: pendingDirector.length,
         list: pendingDirector,
       });
@@ -184,6 +186,7 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
     return tabs;
   }, [
     isDirectorOrAdmin,
+    viewOnlyPending,
     canLoadHistory,
     isCreatorOnly,
     pendingDirector,
@@ -199,7 +202,7 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
   const active = tabDefs[subTab];
   const list = active?.list ?? [];
   const canActOnTab =
-    (active?.key === 'pending' || active?.key === 'history') && isDirectorOrAdmin;
+    (active?.key === 'pending' || active?.key === 'history') && isDirectorOrAdmin && !viewOnlyPending;
   const filterReset = historyActive ? currentMonthRequestFilters() : EMPTY_REQUEST_FILTERS;
   const clearLabel = historyActive ? 'Về tháng này' : 'Xóa lọc';
 
@@ -368,7 +371,7 @@ export function SeminarProposalPendingPanel({ onChanged }: { onChanged?: () => v
               <Tab
                 key={t.key}
                 icon={
-                  t.key === 'director' ? (
+                  t.key === 'pending' ? (
                     <Badge badgeContent={t.count} color="warning" max={99}>
                       <PendingActionsIcon fontSize="small" />
                     </Badge>

@@ -219,6 +219,12 @@ export type WorkRequest = {
   flowNursingHeadName?: string | null;
   flowHrName?: string | null;
   flowDirectorName?: string | null;
+  /** Đã có người thực sự duyệt một bước (bước bỏ qua / lập phiếu không tính). */
+  approvalStarted?: boolean;
+  /** Bước duyệt được bỏ qua vì chính người làm đơn là người duyệt bước đó. */
+  headSkipped?: boolean;
+  nursingHeadSkipped?: boolean;
+  hrSkipped?: boolean;
   hrWaiveForgotFine: boolean;
   explanationKeepOriginalTimes?: boolean;
   forgotFineUnits?: number;
@@ -228,12 +234,15 @@ export type WorkRequest = {
   twoPunchAttendance?: boolean;
   /** true = điều động trong ca; false = ngoài ca. */
   deploymentInsideShift?: boolean;
+  /** Ca thông tầm: một khung giờ gồm cả phần trong ca và phần ngoài ca. */
+  deploymentMixedShift?: boolean;
   requestedByUsername?: string | null;
+  requesterSignatureUrl?: string | null;
   createdAt: string;
 };
 
 import type { ShiftConfigAdminView, ShiftScheduleInfo } from '../utils/shiftSchedule';
-import { scheduleForDate } from '../utils/shiftSchedule';
+import { DEFAULT_PUNCH_WINDOWS, scheduleForDate } from '../utils/shiftSchedule';
 
 export async function fetchShiftSchedule(date?: string, employeeId?: number) {
   const { data } = await api.get<ShiftScheduleInfo>('/v1/attendance/schedule', {
@@ -832,23 +841,121 @@ function punchStr(v: unknown): string {
 }
 
 /** Tự chọn loại cập nhật và số lần trừ quên chấm theo giờ đã/ chưa có trên bảng công. */
+function toMinutes(time: string): number {
+  return Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+}
+
+/** Quẹt chỉ được tính nếu nằm trong cửa sổ trước/sau mốc giờ ca. */
+function inPunchWindow(time: string, anchor: string, beforeMin: number, afterMin: number): boolean {
+  const t = toMinutes(time.slice(0, 5));
+  const a = toMinutes(anchor.slice(0, 5));
+  if (Number.isNaN(t) || Number.isNaN(a)) return false;
+  return t >= a - beforeMin && t <= a + afterMin;
+}
+
+function collectPunchTimes(row: Record<string, unknown> | null | undefined): string[] {
+  const punches = Array.isArray(row?.punchTimes)
+    ? (row!.punchTimes as unknown[]).map((t) => punchStr(t)).filter(Boolean)
+    : [];
+  return Array.from(
+    new Set([punchStr(row?.checkIn), punchStr(row?.checkOut), ...punches].filter(Boolean) as string[]),
+  ).sort();
+}
+
+/**
+ * Phân quyền công: chỉ công nhận vào sáng (cửa sổ quanh giờ vào ca sáng)
+ * và ra chiều (cửa sổ quanh giờ ra ca chiều). Quẹt giữa ca — ví dụ 11:45 đúng giờ
+ * kết thúc ca sáng — không phải giờ vào cũng không phải giờ ra.
+ */
+function detectTwoPunchUpdate(
+  row: Record<string, unknown> | null | undefined,
+  schedule?: ShiftScheduleInfo | null,
+): UpdateScenario {
+  const windows = DEFAULT_PUNCH_WINDOWS;
+  const morningStart = (schedule?.morningStart || '06:45').slice(0, 5);
+  const afternoonEnd = (schedule?.afternoonEnd || '17:00').slice(0, 5);
+  const isIn = (t: string) =>
+    inPunchWindow(t, morningStart, windows.morningInBeforeMin, windows.morningInAfterMin);
+  const isOut = (t: string) =>
+    inPunchWindow(t, afternoonEnd, windows.afternoonOutBeforeMin, windows.afternoonOutAfterMin);
+  const punches = collectPunchTimes(row);
+  let dayIn = punchStr(row?.morningCheckIn);
+  let dayOut = punchStr(row?.afternoonCheckOut);
+  if (dayIn && !isIn(dayIn)) dayIn = '';
+  if (dayOut && !isOut(dayOut)) dayOut = '';
+  if (!dayIn) {
+    const hit = punches.find(isIn);
+    if (hit) dayIn = hit;
+  }
+  if (!dayOut) {
+    const hit = [...punches].reverse().find((t) => t !== dayIn && isOut(t));
+    if (hit) dayOut = hit;
+  }
+  if (dayIn && dayOut && dayIn === dayOut) {
+    if (isOut(dayIn)) dayIn = '';
+    else dayOut = '';
+  }
+  const missingIn = !dayIn;
+  const missingOut = !dayOut;
+  const missing = (missingIn ? 1 : 0) + (missingOut ? 1 : 0);
+  return {
+    updateKind: 'FULL_DAY_SUPPLEMENT',
+    forgotUnits: missing,
+    partial: missing === 1,
+    locked: true,
+    twoPunch: true,
+    missingMorningIn: missingIn,
+    missingAfternoonOut: missingOut,
+    existingMorningIn: dayIn || undefined,
+    existingAfternoonOut: dayOut || undefined,
+  };
+}
+
 export function detectUpdateFromRow(
   row: Record<string, unknown> | null | undefined,
   continuousShift?: boolean,
   twoPunchAttendance?: boolean,
+  schedule?: ShiftScheduleInfo | null,
 ): UpdateScenario {
+  if (twoPunchAttendance && !continuousShift) {
+    return detectTwoPunchUpdate(row, schedule);
+  }
   if (continuousShift || twoPunchAttendance) {
     const punches = Array.isArray(row?.punchTimes)
       ? (row!.punchTimes as unknown[]).map((t) => punchStr(t)).filter(Boolean)
       : [];
-    const dayIn = punchStr(row?.morningCheckIn ?? row?.checkIn) || punches[0] || '';
-    const dayOut = punchStr(row?.afternoonCheckOut ?? row?.checkOut) || '';
+    // Khớp backend (AttendancePenaltyCalculator): quẹt từ 12:00 chỉ có thể là giờ RA,
+    // trước 12:00 chỉ có thể là giờ VÀO — số lần trừ hiển thị trùng với số Giám đốc duyệt.
+    const isPm = (t: string) => t >= '12:00';
+    let dayIn = punchStr(row?.morningCheckIn) || '';
+    let dayOut = punchStr(row?.afternoonCheckOut) || '';
+    if (dayIn && isPm(dayIn)) {
+      if (!dayOut || dayIn > dayOut) dayOut = dayIn;
+      dayIn = '';
+    }
+    if (dayOut && !isPm(dayOut)) {
+      if (!dayIn || dayOut < dayIn) dayIn = dayOut;
+      dayOut = '';
+    }
+    // Cột ca trống → dò từ log máy / check-in-out. VD chỉ quẹt 14:46, 14:47 lúc ra ca
+    // 6h45–14h45: lần quẹt sớm hơn vẫn là giờ ra, không được coi là giờ vào.
+    const all = Array.from(
+      new Set(
+        [punchStr(row?.checkIn), punchStr(row?.checkOut), ...punches].filter(Boolean) as string[],
+      ),
+    ).sort();
+    if (!dayIn) {
+      dayIn = all.find((t) => !isPm(t) && (!dayOut || t < dayOut)) ?? '';
+    }
+    if (!dayOut) {
+      dayOut = [...all].reverse().find((t) => isPm(t) && (!dayIn || t > dayIn)) ?? '';
+    }
     const missingIn = !dayIn;
     const missingOut = !dayOut;
     const missing = (missingIn ? 1 : 0) + (missingOut ? 1 : 0);
     return {
       updateKind: 'FULL_DAY_SUPPLEMENT',
-      forgotUnits: missing > 0 ? missing : 2,
+      forgotUnits: missing,
       partial: missing === 1,
       locked: true,
       continuous: Boolean(continuousShift) && !twoPunchAttendance,
@@ -955,10 +1062,13 @@ export function forgotUnitsForUpdateChoice(
   updateKind: string,
   scenario?: UpdateScenario | null,
 ): number {
-  if (scenario?.continuous) {
-    const n =
-      (scenario.missingMorningIn ? 1 : 0) + (scenario.missingAfternoonOut ? 1 : 0);
-    return n > 0 ? n : 2;
+  // Ca thông tầm / phân quyền công chỉ có 2 mốc chấm → tối đa trừ 2 lần.
+  if (scenario?.continuous || scenario?.twoPunch) {
+    const hasIn = Boolean(scenario.existingMorningIn);
+    const hasOut = Boolean(scenario.existingAfternoonOut);
+    const missIn = scenario.missingMorningIn === true || (!hasIn && scenario.missingMorningIn !== false);
+    const missOut = scenario.missingAfternoonOut === true || (!hasOut && scenario.missingAfternoonOut !== false);
+    return (missIn && !hasIn ? 1 : 0) + (missOut && !hasOut ? 1 : 0);
   }
   if (!scenario) return forgotFineUnitsForUpdateKind(updateKind);
   if (updateKind === 'MORNING_SUPPLEMENT') {
@@ -1397,10 +1507,14 @@ export function isRequestPending(status: string): boolean {
   );
 }
 
-export function isRequestWithdrawable(status: string, opts?: { asAdmin?: boolean }): boolean {
-  // Người gửi không thu hồi sau khi gửi — chỉ ADMIN được thu hồi.
-  if (!opts?.asAdmin) return false;
-  return status !== 'WITHDRAWN';
+export function isRequestWithdrawable(
+  status: string,
+  opts?: { asAdmin?: boolean; asOwner?: boolean; approvalStarted?: boolean },
+): boolean {
+  // ADMIN thu hồi được mọi trạng thái (gỡ công đã áp dụng nếu có).
+  if (opts?.asAdmin) return status !== 'WITHDRAWN';
+  // Người gửi: chỉ khi đơn còn chờ duyệt và chưa ai duyệt bước nào.
+  return Boolean(opts?.asOwner) && isRequestPending(status) && !opts?.approvalStarted;
 }
 
 export async function withdrawWorkRequest(id: number) {

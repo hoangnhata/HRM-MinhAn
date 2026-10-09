@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import * as att from '../services/attendanceService';
 import * as employeeService from '../services/employeeService';
 import { DatePickerField } from './ui/DateTimeFields';
+import { workRequestSubmitSteps } from '../utils/nursingBlock';
 import {
   FormSection,
   InfoBanner,
@@ -224,12 +225,7 @@ export function PersonalLeaveRequestDialog({
     >
       <RequestFlowSteps
         accent={accent}
-        steps={[
-          { label: 'Gửi đơn', hint: 'Nhân viên' },
-          { label: 'Lãnh đạo duyệt', hint: 'Trưởng khoa / ĐD trưởng' },
-          { label: 'HCNS duyệt', hint: 'Hành chính nhân sự' },
-          { label: 'Giám đốc duyệt', hint: 'Duyệt cuối' },
-        ]}
+        steps={workRequestSubmitSteps(user?.role)}
       />
 
       <InfoBanner>

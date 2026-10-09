@@ -107,13 +107,7 @@ export function DepartmentTransferDetailDialog({
     row != null &&
     row.status !== 'CANCELLED';
   const showEdit = Boolean(row && canEditOwnPendingRequest(row, user));
-  const hasReviewHistory = Boolean(
-    row?.directorReviewedAt ||
-      row?.directorReviewerUsername ||
-      row?.directorComment ||
-      row?.directorSignatureUrl ||
-      row?.appliedAt,
-  );
+  const hasReviewHistory = Boolean(row);
 
   function reloadRow() {
     if (transferId == null) return;
@@ -361,14 +355,38 @@ export function DepartmentTransferDetailDialog({
           </FormSection>
 
           {hasReviewHistory && (
-            <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý của Giám đốc.">
+            <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý từng bước.">
+              <Stack spacing={1.5}>
               <ApprovalReviewNoteCard
-                role={row.directorReviewerUsername ? `Giám đốc · ${row.directorReviewerUsername}` : 'Giám đốc'}
+                role={`Người lập phiếu · ${row.requestedByUsername || '—'}`}
+                timestamp={row.createdAt}
+                comment={
+                  row.requesterSignatureUrl
+                    ? 'Chữ ký số được gắn khi gửi phiếu.'
+                    : 'Phiếu này chưa lưu chữ ký người lập.'
+                }
+                signatureUrl={row.requesterSignatureUrl}
+                formatTimestamp={departmentTransferService.formatTransferDateTime}
+              />
+              <ApprovalReviewNoteCard
+                role={`Giám đốc · ${
+                  row.directorReviewerUsername ||
+                  (row.status === 'PENDING_DIRECTOR' ? 'Đang chờ' : '—')
+                }`}
                 timestamp={row.directorReviewedAt}
-                comment={row.directorComment}
+                comment={
+                  row.directorComment?.trim()
+                    ? row.directorComment
+                    : row.status === 'PENDING_DIRECTOR'
+                      ? 'Đang chờ duyệt ký.'
+                      : row.status === 'REJECTED'
+                        ? 'Đã từ chối.'
+                        : undefined
+                }
                 signatureUrl={row.directorSignatureUrl}
                 formatTimestamp={departmentTransferService.formatTransferDateTime}
               />
+              </Stack>
             </FormSection>
           )}
 

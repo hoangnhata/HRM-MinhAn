@@ -14,7 +14,7 @@ api.interceptors.request.use((config) => {
   if (t) {
     config.headers.Authorization = `Bearer ${t}`;
   }
-  if (config.responseType === 'blob') {
+  if (config.responseType === 'blob' || (typeof FormData !== 'undefined' && config.data instanceof FormData)) {
     delete config.headers['Content-Type'];
   }
   return config;

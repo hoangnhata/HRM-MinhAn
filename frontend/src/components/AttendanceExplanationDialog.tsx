@@ -6,6 +6,9 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { todayLocalIso } from '../utils/dateFormat';
 import * as att from '../services/attendanceService';
+import { workRequestSubmitSteps } from '../utils/nursingBlock';
+import { extractApiErrorMessage } from '../services/approvalSignatureService';
+import { useAuth } from '../context/AuthContext';
 import { DatePickerField, TimePickerField, dateTimeFieldSx } from '../components/ui/DateTimeFields';
 import {
   ExplainToggleCard,
@@ -55,6 +58,7 @@ export function AttendanceExplanationDialog({
   const accent = theme.palette.warning.main;
   const isEditing = Boolean(editRequest);
 
+  const { user } = useAuth();
   const [workDate, setWorkDate] = useState(defaultDate ?? todayLocalIso());
   const [daySchedule, setDaySchedule] = useState<ShiftScheduleInfo | null>(scheduleProp ?? null);
   const [selected, setSelected] = useState<SlotSelected>({});
@@ -264,8 +268,8 @@ export function AttendanceExplanationDialog({
       }
       onSubmitted?.();
       onClose();
-    } catch {
-      setErr('Gửi giải trình thất bại.');
+    } catch (ex) {
+      setErr(extractApiErrorMessage(ex, 'Gửi giải trình thất bại.'));
     } finally {
       setLoading(false);
     }
@@ -300,12 +304,7 @@ export function AttendanceExplanationDialog({
     >
       <RequestFlowSteps
         accent={accent}
-        steps={[
-          { label: 'Gửi đơn', hint: 'Nhân viên' },
-          { label: 'Lãnh đạo duyệt', hint: 'Trưởng khoa / ĐD trưởng' },
-          { label: 'HCNS duyệt', hint: 'Hành chính nhân sự' },
-          { label: 'Giám đốc duyệt', hint: 'Quyết định trừ tiền' },
-        ]}
+        steps={workRequestSubmitSteps(user?.role)}
       />
 
       <InfoBanner>

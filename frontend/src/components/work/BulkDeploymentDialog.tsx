@@ -39,7 +39,7 @@ type Props = {
   periodMonth?: number;
 };
 
-type TimeMode = 'OUTSIDE' | 'INSIDE';
+type TimeMode = 'OUTSIDE' | 'INSIDE' | 'MIXED';
 type InsideScope = 'MORNING' | 'AFTERNOON' | 'FULL_DAY';
 
 type EmpDeployConfig = {
@@ -97,6 +97,28 @@ function overtimeHours(start: string, end: string): number {
   return mins / 60;
 }
 
+function straddlesShift(start: string, end: string, schedule: ShiftScheduleInfo): boolean {
+  const s = toMinutes(start);
+  const e = toMinutes(end);
+  if (!(e > s)) return false;
+  const windows: [number, number][] = [
+    [toMinutes(schedule.morningStart), toMinutes(schedule.morningEnd)],
+    [toMinutes(schedule.afternoonStart), toMinutes(schedule.afternoonEnd)],
+  ];
+  let inside = 0;
+  for (const [a, b] of windows) {
+    if (b > a) inside += Math.max(0, Math.min(e, b) - Math.max(s, a));
+  }
+  return inside > 0 && e - s - inside > 0;
+}
+
+function mixedDefaults(schedule: ShiftScheduleInfo): { startTime: string; endTime: string } {
+  const startTime = fmtTime(schedule.morningStart);
+  const endMin = Math.min(toMinutes(fmtTime(schedule.afternoonEnd)) + 120, 23 * 60 + 59);
+  const endTime = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+  return { startTime, endTime };
+}
+
 function withinShift(start: string, end: string, shiftStart: string, shiftEnd: string): boolean {
   if (!start || !end) return false;
   const s = toMinutes(start);
@@ -122,9 +144,26 @@ function fmtTime(t: string) {
 }
 
 function validateConfig(cfg: EmpDeployConfig, schedule: ShiftScheduleInfo): string | null {
-  if (cfg.timeMode === 'OUTSIDE') {
+  if (cfg.timeMode === 'OUTSIDE' || cfg.timeMode === 'MIXED') {
     if (overtimeHours(cfg.startTime, cfg.endTime) <= 0) {
-      return 'Giờ ngoài ca không hợp lệ';
+      return cfg.timeMode === 'MIXED'
+        ? 'Khung trong ca & ngoài ca phải có giờ kết thúc sau giờ bắt đầu'
+        : 'Giờ ngoài ca không hợp lệ';
+    }
+    if (cfg.timeMode === 'MIXED') {
+      const s = toMinutes(cfg.startTime);
+      const e = toMinutes(cfg.endTime);
+      const windows: [number, number][] = [
+        [toMinutes(schedule.morningStart), toMinutes(schedule.morningEnd)],
+        [toMinutes(schedule.afternoonStart), toMinutes(schedule.afternoonEnd)],
+      ];
+      let inside = 0;
+      for (const [a, b] of windows) {
+        if (b > a) inside += Math.max(0, Math.min(e, b) - Math.max(s, a));
+      }
+      const outside = e - s - inside;
+      if (inside <= 0) return 'Khung này nằm trọn ngoài ca — chọn Ngoài ca';
+      if (outside <= 0) return 'Khung này nằm trọn trong ca — chọn Trong ca';
     }
     return null;
   }
@@ -171,7 +210,7 @@ async function submitDeploy(
     continuous = false;
   }
 
-  if (cfg.timeMode === 'OUTSIDE') {
+  if (cfg.timeMode === 'OUTSIDE' || cfg.timeMode === 'MIXED') {
     await att.submitWorkRequest({
       requestType: 'DEPLOYMENT',
       employeeId: empId,
@@ -249,6 +288,9 @@ async function submitDeploy(
 }
 
 function configSummary(cfg: EmpDeployConfig): string {
+  if (cfg.timeMode === 'MIXED') {
+    return `Trong ca & ngoài ca ${fmtTime(cfg.startTime)}–${fmtTime(cfg.endTime)}`;
+  }
   if (cfg.timeMode === 'OUTSIDE') {
     return `Ngoài ca ${fmtTime(cfg.startTime)}–${fmtTime(cfg.endTime)}`;
   }
@@ -660,11 +702,20 @@ export function BulkDeploymentDialog({
                     size="small"
                     label="Hình thức"
                     value={quickMode}
-                    onChange={(e) => setQuickMode(e.target.value as TimeMode)}
+                    onChange={(e) => {
+                      const mode = e.target.value as TimeMode;
+                      setQuickMode(mode);
+                      if (mode === 'MIXED' && !straddlesShift(quickStart, quickEnd, schedule)) {
+                        const next = mixedDefaults(schedule);
+                        setQuickStart(next.startTime);
+                        setQuickEnd(next.endTime);
+                      }
+                    }}
                     sx={fieldSx}
                   >
                     <MenuItem value="OUTSIDE">Ngoài ca</MenuItem>
                     <MenuItem value="INSIDE">Trong ca</MenuItem>
+                    <MenuItem value="MIXED">Trong ca & ngoài ca</MenuItem>
                   </TextField>
                 </Grid>
                 {quickMode === 'INSIDE' ? (
@@ -812,16 +863,22 @@ export function BulkDeploymentDialog({
                               size="small"
                               label="Hình thức"
                               value={cfg.timeMode}
-                              onChange={(e) =>
-                                patchConfig(emp.id, { timeMode: e.target.value as TimeMode })
-                              }
+                              onChange={(e) => {
+                                const mode = e.target.value as TimeMode;
+                                if (mode === 'MIXED' && !straddlesShift(cfg.startTime, cfg.endTime, schedule)) {
+                                  patchConfig(emp.id, { timeMode: mode, ...mixedDefaults(schedule) });
+                                } else {
+                                  patchConfig(emp.id, { timeMode: mode });
+                                }
+                              }}
                               sx={fieldSx}
                             >
                               <MenuItem value="OUTSIDE">Ngoài ca</MenuItem>
                               <MenuItem value="INSIDE">Trong ca</MenuItem>
+                              <MenuItem value="MIXED">Trong ca & ngoài ca</MenuItem>
                             </TextField>
                           </Grid>
-                          {cfg.timeMode === 'OUTSIDE' ? (
+                          {cfg.timeMode === 'OUTSIDE' || cfg.timeMode === 'MIXED' ? (
                             <>
                               <Grid item xs={6} sm={4}>
                                 <TimePickerField

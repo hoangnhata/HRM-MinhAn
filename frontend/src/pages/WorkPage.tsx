@@ -185,7 +185,9 @@ export default function WorkPage() {
   const [selected, setSelected] = useState<number | ''>('');
   /** Trưởng phòng ĐD chỉ xem — không bổ sung công / điều động / cấu hình ca. */
   const canManageSupplement = (user?.role === 'ADMIN' || isHeadRole) && selected !== '' && !isNursingHead;
-  const canManageDutyOnly = false;
+  /** Trưởng phòng ĐD: chỉ tự bổ sung công trực cho chính mình (tab «Công của tôi»). */
+  const canManageDutyOnly =
+    isNursingHead && user?.employeeId != null && selected !== '' && Number(selected) === user.employeeId;
   const canCreateDeployment = (isHeadRole || user?.role === 'ADMIN') && selected !== '' && !isNursingHead;
   const [qInput, setQInput] = useState('');
   const [q, setQ] = useState('');
@@ -1059,7 +1061,7 @@ export default function WorkPage() {
                       icon={<SwapHorizOutlinedIcon />}
                       label="Công điều động"
                       value={formatWorkUnits(summary.deploymentWorkUnits ?? 0)}
-                      sub="Ngoài ca / làm thêm ×1,5"
+                      sub="Trong ca + ngoài ca · hệ số ×1,5"
                       accent="#0f766e"
                     />
                   </Grid>
@@ -1458,7 +1460,9 @@ export default function WorkPage() {
         attendanceRow={updateRow}
         employeeId={selected !== '' ? Number(selected) : user?.employeeId}
         continuousShift={dialogDate ? continuousDates.has(dialogDate) : false}
-        twoPunchAttendance={twoPunchAttendance}
+        twoPunchAttendance={
+          twoPunchAttendance && !(dialogDate != null && splitDates.has(dialogDate))
+        }
       />
       <AttendanceExplanationDialog
         open={explainOpen}
@@ -1467,7 +1471,9 @@ export default function WorkPage() {
         defaultDate={dialogDate}
         attendanceRow={explainRow}
         continuousShift={dialogDate ? continuousDates.has(dialogDate) : false}
-        twoPunchAttendance={twoPunchAttendance}
+        twoPunchAttendance={
+          twoPunchAttendance && !(dialogDate != null && splitDates.has(dialogDate))
+        }
         employeeId={selected !== '' ? Number(selected) : user?.employeeId}
         schedule={schedule}
         initialSelectedKeys={explainInitialKeys}
@@ -1602,7 +1608,7 @@ export default function WorkPage() {
           periodMonth={month}
         />
       )}
-      {canManageDutyOnly && dutyOpen && dutyDate && selected !== '' && (
+      {canManageDutyOnly && dutyOpen && dutyDate && (
         <DutyShiftDialog
           open={dutyOpen}
           onClose={closeDutyShift}

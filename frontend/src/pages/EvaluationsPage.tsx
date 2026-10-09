@@ -1,4 +1,5 @@
-import { Box, Chip, Stack } from '@mui/material';
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
+import { Box, Button, Chip, Stack } from '@mui/material';
 import { useCallback, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isHeadDepartmentRole, isHr2Role } from '../utils/roleAccess';
@@ -7,6 +8,7 @@ import { EvaluationMonthlySummary } from '../components/EvaluationMonthlySummary
 import { MyNursingEvaluationsPanel } from '../components/MyNursingEvaluationsPanel';
 import { NursingEvaluationPanel, type NursingEvaluationEditFocus } from '../components/NursingEvaluationPanel';
 import { NursingEvaluationPendingPanel } from '../components/NursingEvaluationPendingPanel';
+import { NursingEvaluationTemplateEditor } from '../components/NursingEvaluationTemplateEditor';
 import { MA2026_EVAL_TEMPLATE_CODE } from '../services/nursingEvaluationService';
 
 export default function EvaluationsPage() {
@@ -27,6 +29,10 @@ export default function EvaluationsPage() {
   /** Trưởng khoa / ĐDT khoa (khối ĐD) lập / chấm phiếu cho khoa, bộ phận của mình. */
   const showScoringPanel = isHeadDepartmentRole(user?.role) || user?.role === 'ADMIN';
   const showMyResults = Boolean(user?.employeeId);
+  /** ADMIN / Trưởng phòng Điều dưỡng chỉnh sửa mẫu tiêu chí + thang xếp loại. */
+  const canEditTemplate = user?.role === 'ADMIN' || user?.role === 'HEAD_NURSING';
+  const [templateEditorOpen, setTemplateEditorOpen] = useState(false);
+  const [templateRefreshKey, setTemplateRefreshKey] = useState(0);
 
   const [panelEditFocus, setPanelEditFocus] = useState<NursingEvaluationEditFocus | null>(null);
   const consumePanelFocus = useCallback(() => setPanelEditFocus(null), []);
@@ -53,6 +59,17 @@ export default function EvaluationsPage() {
             {!isEmployeeOnly && (
               <Chip size="small" variant="outlined" label="4 bước duyệt" sx={{ fontWeight: 650 }} />
             )}
+            {canEditTemplate && (
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<TuneRoundedIcon />}
+                onClick={() => setTemplateEditorOpen(true)}
+                sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2 }}
+              >
+                Cấu hình mẫu đánh giá
+              </Button>
+            )}
           </Stack>
         }
       />
@@ -78,6 +95,16 @@ export default function EvaluationsPage() {
           editFocus={panelEditFocus}
           onEditFocusConsumed={consumePanelFocus}
           onDataMutated={bumpEvalSummary}
+          templateRefreshKey={templateRefreshKey}
+        />
+      )}
+
+      {canEditTemplate && (
+        <NursingEvaluationTemplateEditor
+          open={templateEditorOpen}
+          templateCode={MA2026_EVAL_TEMPLATE_CODE}
+          onClose={() => setTemplateEditorOpen(false)}
+          onSaved={() => setTemplateRefreshKey((n) => n + 1)}
         />
       )}
     </Box>

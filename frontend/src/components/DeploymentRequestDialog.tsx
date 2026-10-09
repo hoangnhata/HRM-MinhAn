@@ -40,7 +40,7 @@ type Props = {
   editRequest?: att.WorkRequest | null;
 };
 
-type TimeMode = 'OUTSIDE' | 'INSIDE';
+type TimeMode = 'OUTSIDE' | 'INSIDE' | 'MIXED';
 type InsideScope = 'MORNING' | 'AFTERNOON' | 'FULL_DAY';
 
 const fieldSx = dateTimeFieldSx;
@@ -141,6 +141,94 @@ function overlapsContinuousSchedule(
   dayEnd: string,
 ): boolean {
   return overlapsPrimarySchedule(start, end, dayStart, dayEnd, dayStart, dayEnd);
+}
+
+type SpanKind = 'INSIDE' | 'OUTSIDE' | 'MIXED' | 'INVALID';
+
+function hhmmFromMinutes(total: number): string {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/** Tách khung giờ ca thông tầm: phần giao với ca và phần trước/sau ca. */
+function classifyContinuousSpan(start: string, end: string, dayStart: string, dayEnd: string) {
+  const s = toMinutes(start);
+  const e = toMinutes(end);
+  const ds = toMinutes(dayStart);
+  const de = toMinutes(dayEnd);
+  if (!start || !end || e <= s || de <= ds) {
+    return { kind: 'INVALID' as SpanKind, insideStart: '', insideEnd: '', outsideHours: 0 };
+  }
+  const insideStart = Math.max(s, ds);
+  const insideEnd = Math.min(e, de);
+  const hasInside = insideStart < insideEnd;
+  let outside = 0;
+  if (s < ds) outside += Math.min(e, ds) - s;
+  if (e > de) outside += e - Math.max(s, de);
+  const kind: SpanKind = hasInside && outside > 0 ? 'MIXED' : hasInside ? 'INSIDE' : 'OUTSIDE';
+  return {
+    kind,
+    insideStart: hasInside ? hhmmFromMinutes(insideStart) : '',
+    insideEnd: hasInside ? hhmmFromMinutes(insideEnd) : '',
+    outsideHours: outside / 60,
+    morningStart: '',
+    morningEnd: '',
+    afternoonStart: '',
+    afternoonEnd: '',
+  };
+}
+
+/** Ca sáng/chiều: phần trùng từng ca là trong ca; trước ca, nghỉ trưa và sau ca là ngoài ca. */
+function classifySplitSpan(
+  start: string,
+  end: string,
+  morningStart: string,
+  morningEnd: string,
+  afternoonStart: string,
+  afternoonEnd: string,
+) {
+  const s = toMinutes(start);
+  const e = toMinutes(end);
+  if (!start || !end || e <= s) {
+    return {
+      kind: 'INVALID' as SpanKind,
+      insideStart: '',
+      insideEnd: '',
+      outsideHours: 0,
+      morningStart: '',
+      morningEnd: '',
+      afternoonStart: '',
+      afternoonEnd: '',
+    };
+  }
+  const clip = (w0: string, w1: string) => {
+    const a = toMinutes(w0);
+    const b = toMinutes(w1);
+    if (!(b > a)) return null;
+    const cs = Math.max(s, a);
+    const ce = Math.min(e, b);
+    if (ce <= cs) return null;
+    return { start: cs, end: ce };
+  };
+  const morning = clip(morningStart, morningEnd);
+  const afternoon = clip(afternoonStart, afternoonEnd);
+  let inside = 0;
+  if (morning) inside += morning.end - morning.start;
+  if (afternoon) inside += afternoon.end - afternoon.start;
+  const outside = Math.max(0, e - s - inside);
+  const hasInside = inside > 0;
+  const kind: SpanKind = hasInside && outside > 0 ? 'MIXED' : hasInside ? 'INSIDE' : 'OUTSIDE';
+  return {
+    kind,
+    insideStart: '',
+    insideEnd: '',
+    outsideHours: outside / 60,
+    morningStart: morning ? hhmmFromMinutes(morning.start) : '',
+    morningEnd: morning ? hhmmFromMinutes(morning.end) : '',
+    afternoonStart: afternoon ? hhmmFromMinutes(afternoon.start) : '',
+    afternoonEnd: afternoon ? hhmmFromMinutes(afternoon.end) : '',
+  };
 }
 
 function continuousInsideUnits(
@@ -257,6 +345,7 @@ function deployMaxDate(periodYear?: number, periodMonth?: number): string {
 }
 
 function deploymentModeFromRequest(r: att.WorkRequest): { timeMode: TimeMode; insideScope: InsideScope } {
+  if (r.deploymentMixedShift) return { timeMode: 'MIXED', insideScope: 'FULL_DAY' };
   const inside =
     r.deploymentInsideShift === true ||
     (r.deploymentInsideShift !== false &&
@@ -301,7 +390,8 @@ export function DeploymentRequestDialog({
   const maxDate = deployMaxDate(periodYear, periodMonth);
 
   const [workDate, setWorkDate] = useState(defaultDate);
-  const schedule = scheduleProp ?? scheduleForDate(workDate);
+  const [daySchedule, setDaySchedule] = useState<ShiftScheduleInfo | null>(null);
+  const schedule = daySchedule ?? scheduleProp ?? scheduleForDate(workDate);
 
   const [timeMode, setTimeMode] = useState<TimeMode>('INSIDE');
   const [insideScope, setInsideScope] = useState<InsideScope>('FULL_DAY');
@@ -317,7 +407,9 @@ export function DeploymentRequestDialog({
 
   const offDay = isOffOrEmptyDay(getDayStatus?.(workDate));
   const workedDay = isWorkedDay(getDayStatus?.(workDate));
-  const dayContinuous = continuousShift || Boolean(schedule.continuousShift);
+  const dayContinuous = daySchedule
+    ? Boolean(daySchedule.continuousShift)
+    : continuousShift || Boolean(schedule.continuousShift);
 
   function clampDate(iso: string): string {
     let d = iso;
@@ -326,44 +418,70 @@ export function DeploymentRequestDialog({
     return d;
   }
 
-  useEffect(() => {
-    if (!open) return;
-    const initialDate = editRequest?.workDate ?? defaultDate;
-    const d = clampDate(initialDate);
-    const sch = scheduleProp ?? scheduleForDate(d);
-    const cont = continuousShift || Boolean(sch.continuousShift);
+  function applyDaySchedule(d: string, sch: ShiftScheduleInfo, resetTimes: boolean) {
+    setDaySchedule(sch);
+    const cont = Boolean(sch.continuousShift);
     const cStart = continuousDayStart(sch);
     const cEnd = continuousDayEnd(sch);
-
-    if (editRequest) {
-      const { timeMode: mode, insideScope: scope } = deploymentModeFromRequest(editRequest);
-      setWorkDate(d);
+    if (editRequest && resetTimes) {
+      const requestedStart = editRequest.requestedStart?.slice(0, 5) || '';
+      const requestedEnd = editRequest.requestedEnd?.slice(0, 5) || '';
+      const singleRange = !editRequest.requestedAfternoonStart && !editRequest.requestedAfternoonEnd;
+      const span = !singleRange
+        ? null
+        : cont
+          ? classifyContinuousSpan(requestedStart, requestedEnd, cStart, cEnd)
+          : classifySplitSpan(
+              requestedStart,
+              requestedEnd,
+              sch.morningStart,
+              sch.morningEnd,
+              sch.afternoonStart,
+              sch.afternoonEnd,
+            );
+      const inferred = deploymentModeFromRequest(editRequest);
+      const mode: TimeMode =
+        editRequest.deploymentMixedShift || span?.kind === 'MIXED'
+          ? 'MIXED'
+          : cont && span?.kind === 'INSIDE'
+            ? 'INSIDE'
+            : cont && span?.kind === 'OUTSIDE'
+              ? 'OUTSIDE'
+              : inferred.timeMode;
       setTimeMode(mode);
-      setInsideScope(cont ? 'FULL_DAY' : scope);
+      setInsideScope(cont ? 'FULL_DAY' : inferred.insideScope);
       setReason(editRequest.reason || '');
+      if (mode === 'MIXED' || mode === 'OUTSIDE') {
+        setStartTime(requestedStart || (mode === 'OUTSIDE' ? '18:00' : cStart));
+        setEndTime(requestedEnd || (mode === 'OUTSIDE' ? '21:00' : cEnd));
+      }
       if (cont) {
-        setMorningStart(editRequest.requestedStart?.slice(0, 5) || cStart);
-        setMorningEnd(editRequest.requestedEnd?.slice(0, 5) || cEnd);
-        setAfternoonStart(cStart);
-        setAfternoonEnd(cEnd);
+        setMorningStart(mode === 'INSIDE' ? requestedStart || cStart : cStart);
+        setMorningEnd(mode === 'INSIDE' ? requestedEnd || cEnd : cEnd);
       } else {
-        setMorningStart(editRequest.requestedStart?.slice(0, 5) || sch.morningStart);
-        setMorningEnd(editRequest.requestedEnd?.slice(0, 5) || sch.morningEnd);
+        setMorningStart(requestedStart || sch.morningStart);
+        setMorningEnd(requestedEnd || sch.morningEnd);
         setAfternoonStart(editRequest.requestedAfternoonStart?.slice(0, 5) || sch.afternoonStart);
         setAfternoonEnd(editRequest.requestedAfternoonEnd?.slice(0, 5) || sch.afternoonEnd);
       }
-      if (mode === 'OUTSIDE') {
-        setStartTime(editRequest.requestedStart?.slice(0, 5) || '18:00');
-        setEndTime(editRequest.requestedEnd?.slice(0, 5) || '21:00');
-      }
-      setErr(null);
       return;
     }
-
+    if (!resetTimes) {
+      if (cont) {
+        setMorningStart(cStart);
+        setMorningEnd(cEnd);
+        setInsideScope('FULL_DAY');
+      } else {
+        setMorningStart(sch.morningStart);
+        setMorningEnd(sch.morningEnd);
+        setAfternoonStart(sch.afternoonStart);
+        setAfternoonEnd(sch.afternoonEnd);
+      }
+      return;
+    }
     const empty = isOffOrEmptyDay(getDayStatus?.(d));
     const worked = isWorkedDay(getDayStatus?.(d));
-    setWorkDate(d);
-    setTimeMode(worked ? 'INSIDE' : empty ? 'INSIDE' : 'OUTSIDE');
+    setTimeMode(worked || empty ? 'INSIDE' : 'OUTSIDE');
     setInsideScope(cont ? 'FULL_DAY' : worked ? 'MORNING' : 'FULL_DAY');
     setStartTime('18:00');
     setEndTime('21:00');
@@ -372,25 +490,38 @@ export function DeploymentRequestDialog({
     setAfternoonStart(sch.afternoonStart);
     setAfternoonEnd(sch.afternoonEnd);
     setReason('');
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const initialDate = editRequest?.workDate ?? defaultDate;
+    const d = clampDate(initialDate);
+    setWorkDate(d);
     setErr(null);
+    let cancelled = false;
+    const fallback = scheduleProp ?? scheduleForDate(d);
+    applyDaySchedule(d, fallback, true);
+    att
+      .fetchShiftSchedule(d, resolvedEmployeeId)
+      .then((sch) => {
+        if (!cancelled) applyDaySchedule(d, sch, true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, defaultDate, minDate, maxDate, scheduleProp, editRequest, continuousShift]);
+  }, [open, defaultDate, minDate, maxDate, scheduleProp, editRequest, continuousShift, resolvedEmployeeId]);
 
   function onDateChange(next: string) {
     const clamped = clampDate(next);
     setWorkDate(clamped);
-    const sch = scheduleProp ?? scheduleForDate(clamped);
-    const cont = continuousShift || Boolean(sch.continuousShift);
-    if (cont) {
-      setMorningStart(continuousDayStart(sch));
-      setMorningEnd(continuousDayEnd(sch));
-      setInsideScope('FULL_DAY');
-    } else {
-      setMorningStart(sch.morningStart);
-      setMorningEnd(sch.morningEnd);
-      setAfternoonStart(sch.afternoonStart);
-      setAfternoonEnd(sch.afternoonEnd);
-    }
+    const fallback = scheduleProp ?? scheduleForDate(clamped);
+    applyDaySchedule(clamped, fallback, false);
+    att
+      .fetchShiftSchedule(clamped, resolvedEmployeeId)
+      .then((sch) => applyDaySchedule(clamped, sch, false))
+      .catch(() => {});
   }
 
   const actualHours = useMemo(() => {
@@ -418,10 +549,67 @@ export function DeploymentRequestDialog({
   const dayHours = dayContinuous
     ? continuousDayHours(schedule)
     : (schedule.morningHours ?? 0) + (schedule.afternoonHours ?? 0) || 8;
+  const mixedSpan = useMemo(() => {
+    if (dayContinuous) {
+      return classifyContinuousSpan(
+        startTime,
+        endTime,
+        continuousDayStart(schedule),
+        continuousDayEnd(schedule),
+      );
+    }
+    return classifySplitSpan(
+      startTime,
+      endTime,
+      schedule.morningStart,
+      schedule.morningEnd,
+      schedule.afternoonStart,
+      schedule.afternoonEnd,
+    );
+  }, [dayContinuous, startTime, endTime, schedule]);
+  const mixedInsideUnits =
+    timeMode === 'MIXED' && mixedSpan?.kind === 'MIXED'
+      ? dayContinuous
+        ? continuousInsideUnits(schedule, mixedSpan.insideStart, mixedSpan.insideEnd)
+        : {
+            morning: mixedSpan.morningStart
+              ? prorateInsideUnits(
+                  mixedSpan.morningStart,
+                  mixedSpan.morningEnd,
+                  schedule.morningStart,
+                  schedule.morningEnd,
+                  schedule.morningHours || 1,
+                  INSIDE_MORNING_UNITS,
+                )
+              : 0,
+            afternoon: mixedSpan.afternoonStart
+              ? prorateInsideUnits(
+                  mixedSpan.afternoonStart,
+                  mixedSpan.afternoonEnd,
+                  schedule.afternoonStart,
+                  schedule.afternoonEnd,
+                  schedule.afternoonHours || 1,
+                  INSIDE_AFTERNOON_UNITS,
+                )
+              : 0,
+            total: 0,
+          }
+      : null;
+  if (mixedInsideUnits && !dayContinuous) {
+    mixedInsideUnits.total =
+      Math.round((mixedInsideUnits.morning + mixedInsideUnits.afternoon) * 100) / 100;
+  }
+  const mixedOutsideUnits =
+    timeMode === 'MIXED' && mixedSpan
+      ? Math.round(((mixedSpan.outsideHours * COEFF) / dayHours) * 100) / 100
+      : 0;
+
   const workUnits =
     timeMode === 'INSIDE'
       ? insideUnits?.total ?? 0
-      : Math.round((actualHours * COEFF) / dayHours * 100) / 100;
+      : timeMode === 'MIXED'
+        ? (mixedInsideUnits?.total ?? 0) + mixedOutsideUnits
+        : Math.round((actualHours * COEFF) / dayHours * 100) / 100;
 
   const overlapsPrimary = useMemo(() => {
     if (timeMode !== 'OUTSIDE' || offDay) return false;
@@ -462,6 +650,9 @@ export function DeploymentRequestDialog({
     if (timeMode === 'OUTSIDE') {
       return `${fmtTime(startTime)} – ${fmtTime(endTime)}${overnight ? ' (+1 ngày)' : ''}`;
     }
+    if (timeMode === 'MIXED' && mixedSpan?.kind === 'MIXED') {
+      return `${fmtTime(startTime)}–${fmtTime(endTime)} · trong ca ${fmtTime(mixedSpan.insideStart)}–${fmtTime(mixedSpan.insideEnd)} · ngoài ca ${fmtHours(mixedSpan.outsideHours)}h`;
+    }
     return '';
   }, [
     timeMode,
@@ -475,6 +666,7 @@ export function DeploymentRequestDialog({
     afternoonEnd,
     insideUnits,
     dayContinuous,
+    mixedSpan,
   ]);
 
   function applyInsideScope(scope: InsideScope) {
@@ -518,6 +710,20 @@ export function DeploymentRequestDialog({
     if (timeMode === 'OUTSIDE' && actualHours <= 0) {
       setErr('Nhập khung giờ hợp lệ (có thể qua đêm, ví dụ 22:00–06:00).');
       return;
+    }
+    if (timeMode === 'MIXED') {
+      if (!mixedSpan || mixedSpan.kind === 'INVALID') {
+        setErr('Nhập một khung giờ trong ngày (giờ kết thúc sau giờ bắt đầu).');
+        return;
+      }
+      if (mixedSpan.kind === 'INSIDE') {
+        setErr('Khung này nằm trọn trong ca — chọn «Trong ca».');
+        return;
+      }
+      if (mixedSpan.kind === 'OUTSIDE') {
+        setErr('Khung này nằm trọn ngoài ca — chọn «Ngoài ca».');
+        return;
+      }
     }
     if (overlapsPrimary) {
       const cStart = continuousDayStart(schedule);
@@ -575,7 +781,7 @@ export function DeploymentRequestDialog({
     setLoading(true);
     try {
       let payload: att.SubmitWorkRequest;
-      if (timeMode === 'OUTSIDE') {
+      if (timeMode === 'OUTSIDE' || timeMode === 'MIXED') {
         payload = {
           requestType: 'DEPLOYMENT',
           employeeId: resolvedEmployeeId,
@@ -674,19 +880,22 @@ export function DeploymentRequestDialog({
         ) : dayContinuous ? (
           <>
             Ngày <strong>ca thông tầm</strong> ({fmtTime(continuousDayStart(schedule))}–
-            {fmtTime(continuousDayEnd(schedule))}, không nghỉ trưa) — <strong>Trong ca</strong> dùng một khung
-            vào–ra; <strong>Ngoài ca</strong> không trùng khung này. Công ×1,5.
+            {fmtTime(continuousDayEnd(schedule))}, không nghỉ trưa). <strong>Trong ca</strong> nằm trọn trong khung
+            này; <strong>Ngoài ca</strong> không trùng khung này. Nếu một khung giờ liên tục cắt cả hai, chọn{' '}
+            <strong>Trong ca &amp; ngoài ca</strong> — không cần tạo hai đơn. Công ×1,5.
           </>
         ) : workedDay ? (
           <>
             Ngày <strong>đã có công chấm máy</strong> — chọn <strong>Trong ca</strong> để thay công ca điều động
             (×1,5, theo buổi hoặc cả ngày) khi đủ giờ vào/ra. <strong>Ngoài ca</strong> chỉ cộng thêm giờ ngoài
-            giờ (không trùng ca chính).
+            giờ (không trùng ca chính). <strong>Trong ca &amp; ngoài ca</strong> dùng khi một khung giờ liên tục
+            cắt cả hai.
           </>
         ) : offDay ? (
           <>
-            Ngày <strong>chưa có công / nghỉ</strong> — chọn <strong>ngoài ca</strong> hoặc <strong>trong ca</strong>{' '}
-            (sáng / chiều / cả ngày). Công ×1,5. Có thể nhập lại các ngày trước.
+            Ngày <strong>chưa có công / nghỉ</strong> — chọn <strong>ngoài ca</strong>, <strong>trong ca</strong>{' '}
+            (sáng / chiều / cả ngày), hoặc <strong>trong ca &amp; ngoài ca</strong> nếu một khung giờ liên tục cắt
+            cả hai. Công ×1,5. Có thể nhập lại các ngày trước.
           </>
         ) : (
           <>
@@ -726,20 +935,40 @@ export function DeploymentRequestDialog({
 
       <FormSection title="Kiểu giờ điều động">
         <Grid container spacing={1}>
-          <Grid item xs={6}>
+          <Grid item xs={4}>
             <SelectableChip
               selected={timeMode === 'OUTSIDE'}
               label="Ngoài ca"
               onClick={() => setTimeMode('OUTSIDE')}
             />
           </Grid>
-          <Grid item xs={6}>
+          <Grid item xs={4}>
             <SelectableChip
               selected={timeMode === 'INSIDE'}
               label="Trong ca"
               onClick={() => {
                 setErr(null);
                 setTimeMode('INSIDE');
+              }}
+            />
+          </Grid>
+          <Grid item xs={4}>
+            <SelectableChip
+              selected={timeMode === 'MIXED'}
+              label="Trong ca & ngoài ca"
+              onClick={() => {
+                setErr(null);
+                setTimeMode('MIXED');
+                if (dayContinuous) {
+                  const start = continuousDayStart(schedule);
+                  const endMin = Math.min(toMinutes(continuousDayEnd(schedule)) + 120, 23 * 60 + 59);
+                  setStartTime(start);
+                  setEndTime(hhmmFromMinutes(endMin));
+                } else {
+                  setStartTime(fmtTime(schedule.morningStart));
+                  const endMin = Math.min(toMinutes(schedule.afternoonEnd) + 120, 23 * 60 + 59);
+                  setEndTime(hhmmFromMinutes(endMin));
+                }
               }}
             />
           </Grid>
@@ -769,10 +998,16 @@ export function DeploymentRequestDialog({
         )}
       </FormSection>
 
-      {timeMode === 'OUTSIDE' ? (
+      {timeMode === 'OUTSIDE' || timeMode === 'MIXED' ? (
         <FormSection
-          title="Giờ ngoài ca"
-          subtitle="Nhập tự do — kể cả ban đêm (vd 22:00–06:00)."
+          title={timeMode === 'MIXED' ? 'Khung giờ liên tục' : 'Giờ ngoài ca'}
+          subtitle={
+            timeMode === 'MIXED'
+              ? dayContinuous
+                ? `Một khung cắt qua ca thông tầm ${fmtTime(continuousDayStart(schedule))}–${fmtTime(continuousDayEnd(schedule))}. Phần giao với ca tính trong ca, phần trước và sau ca tính ngoài ca.`
+                : `Một khung liên tục. Phần trùng ca sáng ${fmtTime(schedule.morningStart)}–${fmtTime(schedule.morningEnd)} và ca chiều ${fmtTime(schedule.afternoonStart)}–${fmtTime(schedule.afternoonEnd)} tính trong ca; trước ca, nghỉ trưa và sau ca tính ngoài ca.`
+              : 'Nhập tự do — kể cả ban đêm (vd 22:00–06:00).'
+          }
         >
           <Grid container spacing={1.5}>
             <Grid item xs={12} sm={6}>
@@ -787,10 +1022,51 @@ export function DeploymentRequestDialog({
               Qua đêm: kết thúc vào sáng hôm sau · {fmtHours(actualHours)} giờ
             </Typography>
           )}
+          {timeMode === 'MIXED' && mixedSpan && (
+            <Alert
+              severity={mixedSpan.kind === 'MIXED' ? 'info' : 'warning'}
+              sx={{ mt: 1.25, borderRadius: 2 }}
+            >
+              {mixedSpan.kind === 'MIXED' ? (
+                <>
+                  {dayContinuous ? (
+                    <>
+                      Trong ca <strong>{fmtTime(mixedSpan.insideStart)}–{fmtTime(mixedSpan.insideEnd)}</strong>
+                    </>
+                  ) : (
+                    <>
+                      {mixedSpan.morningStart ? (
+                        <>
+                          Sáng <strong>{fmtTime(mixedSpan.morningStart)}–{fmtTime(mixedSpan.morningEnd)}</strong>
+                        </>
+                      ) : null}
+                      {mixedSpan.morningStart && mixedSpan.afternoonStart ? ' · ' : null}
+                      {mixedSpan.afternoonStart ? (
+                        <>
+                          Chiều <strong>{fmtTime(mixedSpan.afternoonStart)}–{fmtTime(mixedSpan.afternoonEnd)}</strong>
+                        </>
+                      ) : null}
+                    </>
+                  )}
+                  {' · '}
+                  {fmtHours(mixedInsideUnits?.total ?? 0)} công (khi đủ giờ chấm). Ngoài ca{' '}
+                  <strong>{fmtHours(mixedSpan.outsideHours)}h</strong>
+                  {' · +'}
+                  {fmtHours(mixedOutsideUnits)} công.
+                </>
+              ) : mixedSpan.kind === 'INSIDE' ? (
+                'Khung này nằm trọn trong ca — chuyển «Trong ca».'
+              ) : mixedSpan.kind === 'OUTSIDE' ? (
+                'Khung này nằm trọn ngoài ca — chuyển «Ngoài ca».'
+              ) : (
+                'Giờ kết thúc phải sau giờ bắt đầu, trong cùng một ngày.'
+              )}
+            </Alert>
+          )}
           {overlapsPrimary && (
             <Alert severity="warning" sx={{ mt: 1.25, borderRadius: 2 }}>
               {dayContinuous
-                ? 'Khung giờ đang trùng ca thông tầm — hãy chọn giờ ngoài khung ca hoặc chuyển «Trong ca».'
+                ? 'Khung giờ đang trùng ca thông tầm. Chọn giờ ngoài khung ca, chuyển «Trong ca», hoặc «Trong ca & ngoài ca» nếu muốn giữ một khung liên tục.'
                 : 'Khung giờ đang trùng ca chính — hãy chọn giờ ngoài ca sáng/chiều.'}
             </Alert>
           )}
@@ -925,19 +1201,40 @@ export function DeploymentRequestDialog({
           <Chip
             size="small"
             label={
-              timeMode === 'OUTSIDE'
-                ? 'Ngoài ca'
-                : dayContinuous
-                  ? 'Ca thông tầm'
-                  : insideScope === 'FULL_DAY'
-                    ? 'Cả ngày'
-                    : insideScope === 'MORNING'
-                      ? 'Ca sáng'
-                      : 'Ca chiều'
+              timeMode === 'MIXED'
+                ? 'Trong ca & ngoài ca'
+                : timeMode === 'OUTSIDE'
+                  ? 'Ngoài ca'
+                  : dayContinuous
+                    ? 'Ca thông tầm'
+                    : insideScope === 'FULL_DAY'
+                      ? 'Cả ngày'
+                      : insideScope === 'MORNING'
+                        ? 'Ca sáng'
+                        : 'Ca chiều'
             }
             variant="outlined"
           />
-          {timeMode === 'OUTSIDE' ? (
+          {timeMode === 'MIXED' ? (
+            <>
+              <Chip
+                size="small"
+                label={`Trong ca ${fmtHours(mixedInsideUnits?.total ?? 0)} công`}
+                variant="outlined"
+              />
+              <Chip
+                size="small"
+                label={`Ngoài ca ${fmtHours(mixedSpan?.outsideHours ?? 0)}h`}
+                variant="outlined"
+              />
+              <Chip
+                size="small"
+                color="primary"
+                label={`+ ${fmtHours(workUnits)} công`}
+                sx={{ fontWeight: 700 }}
+              />
+            </>
+          ) : timeMode === 'OUTSIDE' ? (
             <>
               <Chip size="small" label={`${fmtHours(actualHours)}h làm thêm`} variant="outlined" />
               <Chip
@@ -970,15 +1267,17 @@ export function DeploymentRequestDialog({
           )}
         </Stack>
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1, lineHeight: 1.5 }}>
-          {timeMode === 'INSIDE'
-            ? dayContinuous
-              ? workedDay
-                ? 'Trong ca thông tầm: đủ giờ chấm vào đầu ngày / ra cuối ngày mới thay công (tối đa 1,5).'
-                : 'Trong ca thông tầm: đủ giờ chấm vào đầu ngày / ra cuối ngày mới cộng công (tối đa 1,5).'
-              : workedDay
-                ? 'Trong ca: đủ giờ chấm vào/ra mới thay công theo khung đã duyệt (tối đa sáng 1 · chiều 0,5).'
-                : 'Trong ca: đủ giờ chấm vào/ra mới cộng công theo khung đã duyệt (tối đa sáng 1 · chiều 0,5).'
-            : 'Ngoài ca: tính theo giờ ×1,5 rồi quy ra công.'}
+          {timeMode === 'MIXED'
+            ? 'Phần trong ca chỉ cộng khi có đủ giờ chấm vào/ra đúng khung ca. Phần ngoài ca tính giờ ×1,5 ngay khi đơn được duyệt.'
+            : timeMode === 'INSIDE'
+              ? dayContinuous
+                ? workedDay
+                  ? 'Trong ca thông tầm: đủ giờ chấm vào đầu ngày / ra cuối ngày mới thay công (tối đa 1,5).'
+                  : 'Trong ca thông tầm: đủ giờ chấm vào đầu ngày / ra cuối ngày mới cộng công (tối đa 1,5).'
+                : workedDay
+                  ? 'Trong ca: đủ giờ chấm vào/ra mới thay công theo khung đã duyệt (tối đa sáng 1 · chiều 0,5).'
+                  : 'Trong ca: đủ giờ chấm vào/ra mới cộng công theo khung đã duyệt (tối đa sáng 1 · chiều 0,5).'
+              : 'Ngoài ca: tính theo giờ ×1,5 rồi quy ra công.'}
         </Typography>
       </Box>
 

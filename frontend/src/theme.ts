@@ -267,8 +267,9 @@ export const theme = createTheme({
     MuiAppBar: {
       styleOverrides: {
         colorPrimary: {
-          backgroundImage: `linear-gradient(108deg, ${primary.dark} 0%, ${primary.main} 58%, #10918A 100%)`,
-          boxShadow: `0 1px 0 ${alpha('#FFFFFF', 0.12)} inset, 0 4px 14px ${alpha(primary.dark, 0.15)}`,
+          backgroundColor: '#033F3D',
+          backgroundImage: 'linear-gradient(180deg, #0C7A75 0%, #045E5A 58%, #033F3D 100%)',
+          boxShadow: `inset 0 -2px 0 ${alpha('#E6C76E', 0.85)}, 0 4px 16px ${alpha('#033F3D', 0.16)}`,
         },
       },
     },

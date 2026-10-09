@@ -635,13 +635,35 @@ export function ShiftConfigChangePendingPanel({ onChanged }: { onChanged?: () =>
               </FormSection>
             )}
 
-            {(detail.hrComment || detail.hrReviewedAt || detail.hrSignatureUrl) && (
-              <ApprovalReviewNoteCard
-                role={`HCNS · ${detail.hrReviewerUsername || '—'}`}
-                timestamp={detail.hrReviewedAt}
-                comment={detail.hrComment}
-                signatureUrl={detail.hrSignatureUrl}
-              />
+            {detail.status !== 'CANCELLED' && (
+              <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý từng bước.">
+                <Stack spacing={1.5}>
+                <ApprovalReviewNoteCard
+                  role={`Người lập phiếu · ${detail.requestedByUsername || '—'}`}
+                  timestamp={detail.createdAt}
+                  comment={
+                    detail.requesterSignatureUrl
+                      ? 'Chữ ký số được gắn khi gửi phiếu.'
+                      : 'Phiếu này chưa lưu chữ ký người lập.'
+                  }
+                  signatureUrl={detail.requesterSignatureUrl}
+                />
+                <ApprovalReviewNoteCard
+                  role={`HCNS · ${detail.hrReviewerUsername || (detail.status === 'PENDING_HR' ? 'Đang chờ' : '—')}`}
+                  timestamp={detail.hrReviewedAt}
+                  comment={
+                    detail.hrComment?.trim()
+                      ? detail.hrComment
+                      : detail.status === 'PENDING_HR'
+                        ? 'Đang chờ duyệt ký.'
+                        : detail.status === 'REJECTED'
+                          ? 'Đã từ chối.'
+                          : undefined
+                  }
+                  signatureUrl={detail.hrSignatureUrl}
+                />
+                </Stack>
+              </FormSection>
             )}
 
             {canReview && detail.status !== 'CANCELLED' && (

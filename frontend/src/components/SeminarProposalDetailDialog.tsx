@@ -6,11 +6,15 @@ import CloseIcon from '@mui/icons-material/Close';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
+import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
+import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
+import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import NotesOutlinedIcon from '@mui/icons-material/NotesOutlined';
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -42,6 +46,14 @@ import {
 import * as sps from '../services/seminarProposalService';
 import { canEditOwnPendingRequest } from '../utils/requestEditAccess';
 
+/** Quyết định của Giám đốc khi sửa lại phiếu đã xử lý. */
+type DirectorDecision = 'PAID' | 'UNPAID' | 'REJECT';
+
+function decisionOf(row: sps.SeminarProposal): DirectorDecision {
+  if (row.status === 'DIRECTOR_REJECTED') return 'REJECT';
+  return row.withPay === false ? 'UNPAID' : 'PAID';
+}
+
 type Props = {
   open: boolean;
   proposalId: number | null;
@@ -70,6 +82,7 @@ export function SeminarProposalDetailDialog({
   const [supportAmount, setSupportAmount] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [decision, setDecision] = useState<DirectorDecision>('PAID');
 
   useEffect(() => {
     if (!open || proposalId == null) {
@@ -88,6 +101,7 @@ export function SeminarProposalDetailDialog({
         setComment(d.directorComment || '');
         setGrantSupport(Boolean(d.supportAmount));
         setSupportAmount(d.supportAmount ? String(d.supportAmount) : '');
+        setDecision(decisionOf(d));
         setErr(null);
       })
       .catch((ex) => setErr(extractApiErrorMessage(ex, 'Không tải được phiếu.')))
@@ -98,10 +112,13 @@ export function SeminarProposalDetailDialog({
     canDirectorReview &&
     (row?.status === 'PENDING_DIRECTOR' ||
       row?.status === 'DIRECTOR_REJECTED' ||
-      row?.status === 'APPROVED');
+      row?.status === 'APPROVED' ||
+      row?.status === 'COMPLETED');
+  /** Giám đốc đã xử lý → sửa lại quyết định (có công / không công / từ chối) như các đơn khác. */
   const directorCorrecting = Boolean(
-    showDirectorActions && row?.status === 'APPROVED' && row?.directorReviewedAt,
+    showDirectorActions && row?.status !== 'PENDING_DIRECTOR' && row?.directorReviewedAt,
   );
+  const decisionChanged = Boolean(row && directorCorrecting && decision !== decisionOf(row));
   const showCancel =
     (canCancel
       || user?.role === 'ADMIN'
@@ -121,6 +138,7 @@ export function SeminarProposalDetailDialog({
         setComment(d.directorComment || '');
         setGrantSupport(Boolean(d.supportAmount));
         setSupportAmount(d.supportAmount ? String(d.supportAmount) : '');
+        setDecision(decisionOf(d));
       })
       .catch((ex) => setErr(extractApiErrorMessage(ex, 'Không tải được phiếu.')));
   }
@@ -202,15 +220,18 @@ export function SeminarProposalDetailDialog({
           (directorCorrecting ? (
             <Button
               variant="contained"
+              color={decision === 'REJECT' ? 'error' : undefined}
               startIcon={acting ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
               disabled={acting}
-              onClick={() => directorReview(true, row?.withPay !== false)}
+              onClick={() => directorReview(decision !== 'REJECT', decision === 'PAID')}
               sx={{
                 borderRadius: 2,
                 px: 2.5,
                 fontWeight: 700,
-                bgcolor: accent,
-                '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' },
+                ...(decision !== 'REJECT' && {
+                  bgcolor: accent,
+                  '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' },
+                }),
               }}
             >
               Lưu chỉnh sửa · Giám đốc
@@ -265,7 +286,11 @@ export function SeminarProposalDetailDialog({
       accent={accent}
       icon={<GroupsOutlinedIcon />}
       overline={
-        showDirectorActions ? 'Duyệt đề xuất hội thảo · Giám đốc' : 'Chi tiết phiếu'
+        directorCorrecting
+          ? 'Sửa quyết định hội thảo · Giám đốc'
+          : showDirectorActions
+            ? 'Duyệt đề xuất hội thảo · Giám đốc'
+            : 'Chi tiết phiếu'
       }
       title="Cử CBNV tham gia hội thảo"
       description={
@@ -407,41 +432,214 @@ export function SeminarProposalDetailDialog({
             </DetailFields>
           </FormSection>
 
-          {(row.hrReviewedAt ||
-            row.hrReviewerUsername ||
-            row.directorReviewedAt ||
-            row.directorReviewerUsername) && (
-            <FormSection title="Lịch sử duyệt">
-              <Stack spacing={1.5}>
-                {(row.hrReviewedAt || row.hrReviewerUsername) && (
-                  <ApprovalReviewNoteCard
-                    role={`HCNS · ${row.hrReviewerUsername || '—'}${
-                      row.withPay == null ? '' : row.withPay ? ' · Có công' : ' · Không công'
-                    }`}
-                    timestamp={row.hrReviewedAt}
-                    comment={row.hrComment}
-                    signatureUrl={row.hrSignatureUrl}
-                    formatTimestamp={sps.formatSeminarDateTime}
-                  />
-                )}
-                {(row.directorReviewedAt || row.directorReviewerUsername) && (
-                  <ApprovalReviewNoteCard
-                    role={`Giám đốc · ${row.directorReviewerUsername || '—'}${
-                      row.withPay == null ? '' : row.withPay ? ' · Có công' : ' · Không công'
-                    }${row.supportAmount ? ` · Hỗ trợ ${row.supportAmount}` : ''}`}
-                    timestamp={row.directorReviewedAt}
-                    comment={row.directorComment}
-                    signatureUrl={row.directorSignatureUrl}
-                    formatTimestamp={sps.formatSeminarDateTime}
-                  />
-                )}
+          <FormSection title="Công văn đính kèm">
+            {(row.attachments ?? []).length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                Phiếu chưa có công văn đính kèm.
+              </Typography>
+            ) : (
+              <Stack spacing={1}>
+                {(row.attachments ?? []).map((item) => {
+                  const image = (item.contentType || '').startsWith('image/');
+                  return (
+                    <Box
+                      key={item.id}
+                      component="button"
+                      type="button"
+                      onClick={() => {
+                        void sps.openSeminarAttachment(item).catch(() => setErr('Không mở được tệp đính kèm.'));
+                      }}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.25,
+                        width: '100%',
+                        textAlign: 'left',
+                        px: 1.25,
+                        py: 1,
+                        borderRadius: 2,
+                        cursor: 'pointer',
+                        bgcolor: '#fff',
+                        border: `1px solid ${alpha(accent, 0.16)}`,
+                        '&:hover': { borderColor: accent },
+                      }}
+                    >
+                      {image ? (
+                        <ImageOutlinedIcon sx={{ color: accent }} />
+                      ) : (
+                        <InsertDriveFileOutlinedIcon sx={{ color: accent }} />
+                      )}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={800} noWrap>
+                          {item.originalName}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {[image ? 'Ảnh' : 'Tệp', sps.formatAttachmentSize(item.fileSize)]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </Typography>
+                      </Box>
+                      <AttachFileOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                    </Box>
+                  );
+                })}
               </Stack>
-            </FormSection>
-          )}
+            )}
+          </FormSection>
+
+          <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý từng bước.">
+            <Stack spacing={1.5}>
+              <ApprovalReviewNoteCard
+                role={`Người lập phiếu · ${row.requestedByUsername || '—'}`}
+                timestamp={row.createdAt}
+                comment={
+                  row.requesterSignatureUrl
+                    ? 'Chữ ký số được gắn khi gửi phiếu.'
+                    : 'Phiếu này chưa lưu chữ ký người lập.'
+                }
+                signatureUrl={row.requesterSignatureUrl}
+                formatTimestamp={sps.formatSeminarDateTime}
+              />
+              {(row.status === 'PENDING_HR' || row.hrReviewedAt || row.hrReviewerUsername) && (
+                <ApprovalReviewNoteCard
+                  role={`HCNS · ${row.hrReviewerUsername || (row.status === 'PENDING_HR' ? 'Đang chờ' : '—')}${
+                    row.withPay == null ? '' : row.withPay ? ' · Có công' : ' · Không công'
+                  }`}
+                  timestamp={row.hrReviewedAt}
+                  comment={
+                    row.hrComment?.trim()
+                      ? row.hrComment
+                      : row.status === 'PENDING_HR'
+                        ? 'Đang chờ duyệt ký.'
+                        : row.status === 'HR_REJECTED'
+                          ? 'Đã từ chối.'
+                          : undefined
+                  }
+                  signatureUrl={row.hrSignatureUrl}
+                  formatTimestamp={sps.formatSeminarDateTime}
+                />
+              )}
+              {(row.status === 'PENDING_DIRECTOR' ||
+                row.status === 'DIRECTOR_REJECTED' ||
+                row.status === 'APPROVED' ||
+                row.status === 'COMPLETED' ||
+                row.directorReviewedAt ||
+                row.directorReviewerUsername) && (
+                <ApprovalReviewNoteCard
+                  role={`Giám đốc · ${
+                    row.directorReviewerUsername ||
+                    (row.status === 'PENDING_DIRECTOR' ? 'Đang chờ' : '—')
+                  }${row.withPay == null ? '' : row.withPay ? ' · Có công' : ' · Không công'}${
+                    row.supportAmount ? ` · Hỗ trợ ${row.supportAmount}` : ''
+                  }`}
+                  timestamp={row.directorReviewedAt}
+                  comment={
+                    row.directorComment?.trim()
+                      ? row.directorComment
+                      : row.status === 'PENDING_DIRECTOR'
+                        ? 'Đang chờ duyệt ký.'
+                        : row.status === 'DIRECTOR_REJECTED'
+                          ? 'Đã từ chối.'
+                          : undefined
+                  }
+                  signatureUrl={row.directorSignatureUrl}
+                  formatTimestamp={sps.formatSeminarDateTime}
+                />
+              )}
+            </Stack>
+          </FormSection>
 
           {showDirectorActions && (
-            <FormSection title="Ý kiến Giám đốc">
+            <FormSection
+              title={directorCorrecting ? 'Chỉnh sửa quyết định · Giám đốc' : 'Ý kiến Giám đốc'}
+              subtitle={
+                directorCorrecting
+                  ? 'Đổi có công / không công hoặc trạng thái phiếu rồi nhấn Lưu chỉnh sửa. Bảng công và chữ ký được cập nhật lại.'
+                  : undefined
+              }
+            >
               <Stack spacing={2}>
+                {directorCorrecting && (
+                  <Box
+                    role="radiogroup"
+                    aria-label="Quyết định của Giám đốc"
+                    sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' } }}
+                  >
+                    {(
+                      [
+                        { value: 'PAID', label: 'Duyệt có công', hint: 'Cộng công các buổi hội thảo', color: accent },
+                        { value: 'UNPAID', label: 'Duyệt không công', hint: 'Giữ công theo máy chấm', color: '#B96B00' },
+                        { value: 'REJECT', label: 'Từ chối', hint: 'Gỡ hội thảo khỏi bảng công', color: theme.palette.error.main },
+                      ] as const
+                    ).map((opt) => {
+                      const active = decision === opt.value;
+                      const current = row ? decisionOf(row) === opt.value : false;
+                      return (
+                        <Box
+                          key={opt.value}
+                          component="button"
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          disabled={acting}
+                          onClick={() => setDecision(opt.value)}
+                          sx={{
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            font: 'inherit',
+                            px: 1.5,
+                            py: 1.25,
+                            borderRadius: '10px',
+                            border: `1.5px solid ${active ? opt.color : theme.palette.divider}`,
+                            bgcolor: active ? alpha(opt.color, 0.07) : '#fff',
+                            boxShadow: active ? `0 0 0 3px ${alpha(opt.color, 0.1)}` : 'none',
+                            transition: 'border-color .15s, background-color .15s, box-shadow .15s',
+                            '&:hover': { borderColor: opt.color },
+                          }}
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Box
+                              sx={{
+                                width: 16,
+                                height: 16,
+                                borderRadius: '50%',
+                                flexShrink: 0,
+                                border: `2px solid ${active ? opt.color : theme.palette.text.disabled}`,
+                                display: 'grid',
+                                placeItems: 'center',
+                              }}
+                            >
+                              {active && <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: opt.color }} />}
+                            </Box>
+                            <Typography variant="body2" fontWeight={800} sx={{ color: active ? opt.color : 'text.primary' }}>
+                              {opt.label}
+                            </Typography>
+                            {current && (
+                              <Chip
+                                size="small"
+                                label="Hiện tại"
+                                sx={{ height: 20, fontSize: 11, fontWeight: 700, ml: 'auto !important' }}
+                              />
+                            )}
+                          </Stack>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, pl: 3 }}>
+                            {opt.hint}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                )}
+                {decisionChanged && (
+                  <Alert severity={decision === 'REJECT' ? 'warning' : 'info'} sx={{ borderRadius: '10px' }}>
+                    {decision === 'REJECT'
+                      ? 'Phiếu sẽ chuyển sang "Giám đốc từ chối" và các buổi hội thảo được gỡ khỏi bảng công.'
+                      : decision === 'PAID'
+                        ? 'Các buổi hội thảo sẽ được tính công trên bảng công.'
+                        : 'Các buổi hội thảo không được cộng công; công từ máy chấm (nếu có) vẫn giữ nguyên.'}
+                  </Alert>
+                )}
+                {!(directorCorrecting && decision === 'REJECT') && (
                 <Box
                   sx={{
                     display: 'flex',
@@ -472,7 +670,8 @@ export function SeminarProposalDetailDialog({
                     }}
                   />
                 </Box>
-                {grantSupport && (
+                )}
+                {grantSupport && !(directorCorrecting && decision === 'REJECT') && (
                   <TextField
                     fullWidth
                     required

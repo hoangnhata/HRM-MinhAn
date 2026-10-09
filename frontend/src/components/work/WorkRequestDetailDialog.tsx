@@ -372,9 +372,21 @@ export function WorkRequestDetailDialog({
   const nursingHeadCorrecting = canNursingHeadAct && canNursingHeadCorrect;
   const hrCorrecting = canHrAct && canHrCorrect;
   const directorCorrecting = canDirectorAct && canDirectorCorrect;
+  const isOwnRequest =
+    request.requestType === 'DEPLOYMENT'
+      ? Boolean(
+          user?.username
+            && request.headReviewerUsername
+            && user.username === request.headReviewerUsername,
+        )
+      : user?.employeeId != null && user.employeeId === request.employeeId;
   const canWithdraw =
     Boolean(onWithdraw) &&
-    att.isRequestWithdrawable(request.status, { asAdmin: allowWithdrawApproved });
+    att.isRequestWithdrawable(request.status, {
+      asAdmin: allowWithdrawApproved,
+      asOwner: isOwnRequest,
+      approvalStarted: request.approvalStarted,
+    });
   const showEdit = canEditWorkRequest(request, user);
 
   function handleEditSaved() {
@@ -404,19 +416,56 @@ export function WorkRequestDetailDialog({
     request.requestType === 'UNPAID_LEAVE' ||
     request.requestType === 'PERSONAL_LEAVE' ||
     request.requestType === 'BUSINESS_TRIP';
-  const hasReviewHistory =
-    request.headComment ||
-    request.headReviewedAt ||
-    request.headSignatureUrl ||
-    request.nursingHeadComment ||
-    request.nursingHeadReviewedAt ||
-    request.nursingHeadSignatureUrl ||
-    request.hrComment ||
-    request.hrReviewedAt ||
-    request.hrSignatureUrl ||
-    request.directorComment ||
-    request.directorReviewedAt ||
-    request.directorSignatureUrl;
+  const headWaiting = request.status === 'PENDING_HEAD';
+  const headRejected = request.status === 'HEAD_REJECTED';
+  const nursingWaiting = request.status === 'PENDING_NURSING_HEAD';
+  const nursingRejected = request.status === 'NURSING_HEAD_REJECTED';
+  const hrWaiting = request.status === 'PENDING_HR';
+  const hrRejected = request.status === 'HR_REJECTED';
+  const directorWaiting = request.status === 'PENDING_DIRECTOR';
+  const directorRejected = request.status === 'DIRECTOR_REJECTED';
+  const approved =
+    request.status === 'APPROVED' || request.status === 'APPROVED_NO_FINE';
+  const showHeadStep =
+    !request.headSkipped &&
+    (headWaiting ||
+      headRejected ||
+      Boolean(
+        request.headComment ||
+          request.headReviewedAt ||
+          request.headSignatureUrl ||
+          request.headReviewerUsername,
+      ));
+  const showNursingStep =
+    !request.nursingHeadSkipped &&
+    (nursingWaiting ||
+      nursingRejected ||
+      Boolean(
+        request.nursingHeadComment ||
+          request.nursingHeadReviewedAt ||
+          request.nursingHeadSignatureUrl,
+      ));
+  const showHrStep =
+    !request.hrSkipped &&
+    (hrWaiting ||
+      hrRejected ||
+      Boolean(
+        request.hrComment ||
+          request.hrReviewedAt ||
+          request.hrSignatureUrl ||
+          request.hrReviewerUsername,
+      ));
+  const showDirectorStep =
+    directorWaiting ||
+    directorRejected ||
+    approved ||
+    Boolean(
+      request.directorComment ||
+        request.directorReviewedAt ||
+        request.directorSignatureUrl ||
+        request.directorReviewerUsername,
+    );
+  const hasReviewHistory = true;
   const attendancePunchTimes = [...new Set((request.attendancePunchTimes ?? [])
     .map((time) => String(time).slice(0, 5))
     .filter(Boolean))].sort();
@@ -967,7 +1016,14 @@ export function WorkRequestDetailDialog({
           Đơn điều động (khối ĐD): <strong>Trưởng phòng Điều dưỡng</strong> → <strong>HCNS</strong> →{' '}
           <strong>Giám đốc duyệt cuối</strong>. Với điều động trong ca, duyệt đơn chỉ xác nhận khung giờ; hệ
           thống chỉ áp dụng công <strong>×1,5</strong> khi có đủ giờ chấm vào/ra phù hợp. Điều động ngoài ca
-          giữ cách tính hiện tại
+          giữ cách tính hiện tại.
+          {request.deploymentMixedShift ? (
+            <>
+              {' '}
+              Khung <strong>trong ca &amp; ngoài ca</strong>: phần trùng ca sáng/chiều chờ đủ giờ chấm, phần
+              trước ca, nghỉ trưa và sau ca tính ngoài ca
+            </>
+          ) : null}
           {request.deploymentActualHours != null && request.deploymentCreditedHours != null
             ? ` (${request.deploymentActualHours}h thực tế → ${request.deploymentCreditedHours}h công)`
             : ''}
@@ -1264,40 +1320,81 @@ export function WorkRequestDetailDialog({
       {hasReviewHistory && (
         <FormSection title="Lịch sử duyệt" subtitle="Ghi chú và thời điểm xử lý từng bước.">
           <Stack spacing={1.5}>
-            {(request.headComment || request.headReviewedAt || request.headSignatureUrl) && (
+            <ApprovalReviewNoteCard
+              role={`Người lập phiếu · ${request.requestedByUsername || request.flowSubmitterName || '—'}`}
+              timestamp={request.createdAt}
+              comment={
+                request.requesterSignatureUrl
+                  ? 'Chữ ký số được gắn khi gửi phiếu.'
+                  : 'Phiếu này chưa lưu chữ ký người lập.'
+              }
+              signatureUrl={request.requesterSignatureUrl}
+              formatTimestamp={att.formatReviewTimestamp}
+            />
+            {showHeadStep && (
               <ApprovalReviewNoteCard
-                role={`Lãnh đạo · ${request.headReviewerName || request.headReviewerUsername || request.flowHeadName || '—'}`}
+                role={`Lãnh đạo · ${request.headReviewerName || request.headReviewerUsername || (headWaiting ? 'Đang chờ' : request.flowHeadName || '—')}`}
                 timestamp={request.headReviewedAt}
-                comment={request.headComment}
+                comment={
+                  request.headComment?.trim()
+                    ? request.headComment
+                    : headWaiting
+                      ? 'Đang chờ duyệt ký.'
+                      : headRejected
+                        ? 'Đã từ chối.'
+                        : undefined
+                }
                 signatureUrl={request.headSignatureUrl}
                 formatTimestamp={att.formatReviewTimestamp}
               />
             )}
-            {(request.nursingHeadComment ||
-              request.nursingHeadReviewedAt ||
-              request.nursingHeadSignatureUrl) && (
+            {showNursingStep && (
               <ApprovalReviewNoteCard
-                role={`Trưởng phòng Điều dưỡng · ${request.nursingHeadReviewerName || request.nursingHeadReviewerUsername || request.flowNursingHeadName || '—'}`}
+                role={`Trưởng phòng Điều dưỡng · ${request.nursingHeadReviewerName || request.nursingHeadReviewerUsername || (nursingWaiting ? 'Đang chờ' : request.flowNursingHeadName || '—')}`}
                 timestamp={request.nursingHeadReviewedAt}
-                comment={request.nursingHeadComment}
+                comment={
+                  request.nursingHeadComment?.trim()
+                    ? request.nursingHeadComment
+                    : nursingWaiting
+                      ? 'Đang chờ duyệt ký.'
+                      : nursingRejected
+                        ? 'Đã từ chối.'
+                        : undefined
+                }
                 signatureUrl={request.nursingHeadSignatureUrl}
                 formatTimestamp={att.formatReviewTimestamp}
               />
             )}
-            {(request.hrComment || request.hrReviewedAt || request.hrSignatureUrl) && (
+            {showHrStep && (
               <ApprovalReviewNoteCard
-                role={`HCNS · ${request.hrReviewerName || request.hrReviewerUsername || request.flowHrName || '—'}`}
+                role={`HCNS · ${request.hrReviewerName || request.hrReviewerUsername || (hrWaiting ? 'Đang chờ' : request.flowHrName || '—')}`}
                 timestamp={request.hrReviewedAt}
-                comment={request.hrComment}
+                comment={
+                  request.hrComment?.trim()
+                    ? request.hrComment
+                    : hrWaiting
+                      ? 'Đang chờ duyệt ký.'
+                      : hrRejected
+                        ? 'Đã từ chối.'
+                        : undefined
+                }
                 signatureUrl={request.hrSignatureUrl}
                 formatTimestamp={att.formatReviewTimestamp}
               />
             )}
-            {(request.directorComment || request.directorReviewedAt || request.directorSignatureUrl) && (
+            {showDirectorStep && (
               <ApprovalReviewNoteCard
-                role={`Giám đốc · ${request.directorReviewerName || request.directorReviewerUsername || request.flowDirectorName || '—'}`}
+                role={`Giám đốc · ${request.directorReviewerName || request.directorReviewerUsername || (directorWaiting ? 'Đang chờ' : request.flowDirectorName || '—')}`}
                 timestamp={request.directorReviewedAt}
-                comment={request.directorComment}
+                comment={
+                  request.directorComment?.trim()
+                    ? request.directorComment
+                    : directorWaiting
+                      ? 'Đang chờ duyệt ký.'
+                      : directorRejected
+                        ? 'Đã từ chối.'
+                        : undefined
+                }
                 signatureUrl={request.directorSignatureUrl}
                 formatTimestamp={att.formatReviewTimestamp}
               />

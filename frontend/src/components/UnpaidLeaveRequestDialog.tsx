@@ -6,6 +6,7 @@ import { useTheme } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import * as att from '../services/attendanceService';
+import { workRequestSubmitSteps } from '../utils/nursingBlock';
 import * as employeeService from '../services/employeeService';
 import { DatePickerField } from './ui/DateTimeFields';
 import {
@@ -124,12 +125,7 @@ export function UnpaidLeaveRequestDialog({ open, onClose, onSubmitted, defaultFr
     >
       <RequestFlowSteps
         accent={accent}
-        steps={[
-          { label: 'Gửi đơn', hint: 'Nhân viên' },
-          { label: 'Lãnh đạo duyệt', hint: 'Trưởng khoa / ĐD trưởng' },
-          { label: 'HCNS duyệt', hint: 'Hành chính nhân sự' },
-          { label: 'Giám đốc duyệt', hint: 'Duyệt cuối' },
-        ]}
+        steps={workRequestSubmitSteps(user?.role)}
       />
 
       <InfoBanner>
