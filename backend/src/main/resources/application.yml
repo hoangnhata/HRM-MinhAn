@@ -41,6 +41,9 @@ minhan:
       secret: ${JWT_SECRET:change-me-in-production-use-long-random-secret-key-min-256-bits}
       # 8 giờ — khớp JWT ERP; hết hạn → 401 → đăng nhập lại
       expiration-ms: ${JWT_EXPIRATION_MS:28800000}
+      # Refresh token app di động — hạn trượt 180 ngày tính từ lần mở app gần nhất.
+      # App tự lấy access token mới khi hết 8 giờ, chỉ đăng xuất khi người dùng bấm Đăng xuất.
+      refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:15552000000}
     upload:
       dir: ${UPLOAD_DIR:./data/uploads}
     import:

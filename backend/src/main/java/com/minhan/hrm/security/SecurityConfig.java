@@ -36,6 +36,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/j1-api/auth/login",
+                                "/j1-api/auth/refresh",
+                                "/j1-api/auth/logout",
                                 "/j1-api/v1/sso/public/**",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",

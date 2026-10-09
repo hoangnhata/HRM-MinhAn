@@ -34,8 +34,9 @@ public class AuthService {
     private final CustomUserDetailsService userDetailsService;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenService refreshTokenService;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public LoginResponse login(LoginRequest request) {
         String username = request.getUsername() != null ? request.getUsername().trim() : "";
         if (username.isBlank() || request.getPassword() == null || request.getPassword().isBlank()) {
@@ -52,6 +53,29 @@ public class AuthService {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Sai tên đăng nhập hoặc mật khẩu");
         }
 
+        String refreshToken = Boolean.TRUE.equals(request.getRememberDevice())
+                ? refreshTokenService.issue(user, request.getDeviceLabel())
+                : null;
+        return buildResponse(user, refreshToken);
+    }
+
+    /**
+     * Đổi refresh token của app lấy access token mới (8 giờ). Refresh token giữ nguyên và
+     * được kéo dài hạn; trả lại trong response để app luôn lưu bản mới nhất.
+     */
+    @Transactional
+    public LoginResponse refresh(String refreshToken) {
+        UserAccount user = refreshTokenService.use(refreshToken);
+        return buildResponse(user, refreshToken.trim());
+    }
+
+    /** Đăng xuất trên thiết bị: thu hồi refresh token (access token tự hết hạn sau ≤ 8 giờ). */
+    @Transactional
+    public void logout(String refreshToken) {
+        refreshTokenService.revoke(refreshToken);
+    }
+
+    private LoginResponse buildResponse(UserAccount user, String refreshToken) {
         UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
         String token = jwtService.generateToken(userDetails, user.getId(), user.getRole().name());
 
@@ -70,6 +94,7 @@ public class AuthService {
 
         return LoginResponse.builder()
                 .accessToken(token)
+                .refreshToken(refreshToken)
                 .tokenType("Bearer")
                 .role(user.getRole())
                 .userId(user.getId())

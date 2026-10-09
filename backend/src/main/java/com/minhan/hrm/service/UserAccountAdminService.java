@@ -50,6 +50,7 @@ public class UserAccountAdminService {
     private final PasswordEncoder passwordEncoder;
     private final HrmProperties hrmProperties;
     private final EmployeeService employeeService;
+    private final RefreshTokenService refreshTokenService;
 
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional(readOnly = true)
@@ -230,6 +231,10 @@ public class UserAccountAdminService {
         }
         target.setEnabled(enabled);
         userAccountRepository.save(target);
+        if (!enabled) {
+            // Khoá tài khoản → đăng xuất mọi thiết bị đang giữ phiên.
+            refreshTokenService.revokeAll(target.getId());
+        }
         Employee emp = employeeRepository.findByUser(target).orElse(null);
         return toDto(target, emp, emp != null ? workforceDetailsRepository.findByEmployee(emp).orElse(null) : null);
     }
@@ -354,6 +359,8 @@ public class UserAccountAdminService {
         target.setPasswordHash(passwordEncoder.encode(raw));
         target.setMustChangePassword(true);
         userAccountRepository.save(target);
+        // Reset mật khẩu → buộc mọi thiết bị đăng nhập lại bằng mật khẩu mới.
+        refreshTokenService.revokeAll(target.getId());
         Employee emp = employeeRepository.findByUser(target).orElse(null);
         return toDto(target, emp, emp != null ? workforceDetailsRepository.findByEmployee(emp).orElse(null) : null);
     }

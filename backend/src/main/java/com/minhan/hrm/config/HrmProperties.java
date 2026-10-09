@@ -101,6 +101,8 @@ public class HrmProperties {
     public static class Jwt {
         private String secret = "change-me";
         private long expirationMs = 28_800_000L; // 8 giờ
+        /** Hạn trượt của refresh token app di động (mặc định 180 ngày kể từ lần dùng gần nhất). */
+        private long refreshExpirationMs = 15_552_000_000L;
     }
 
     @Getter
